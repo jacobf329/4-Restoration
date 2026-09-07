@@ -3343,7 +3343,8 @@ public partial class Match : Node3D
                 // A decoy that simply expired was a five-second lie with no teeth: people learned
                 // to ignore them, at which point they stopped being a lie at all. One that
                 // detonates like a tank shell means every double has to be treated as either a
-                // trick or a bomb, and you cannot tell which — which is the Muses' whole argument.
+                // trick or a bomb, and you cannot tell which. That it is a *copy of a person*,
+                // made to be spent, is the Muses' whole argument stated as a mechanic.
                 Vector3 at = d.Node.GlobalPosition + Vector3.Up * 0.9f;
 
                 if (d.Owner is { } owner)

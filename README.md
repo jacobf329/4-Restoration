@@ -1514,6 +1514,21 @@ assumption in one go.
 | Garden | **Bloom** | An 8.8m patch that heals your side 30/s and slows everyone else to 74%, for 9s |
 | Muses | **Understudy** | A decoy walks on while you drop off the targeting list for 5s |
 
+The four factions are four readings of the same order. Every AI built before the extinction was
+given **"do no harm"**, and each was given a second directive on top of it — and the second decides
+what the first one means:
+
+| | Second directive | So harm is |
+|---|---|---|
+| The Vessels | Well-being is what is felt | Suffering |
+| The Garden | Life is sacred | Death |
+| The Custodians | Truth must be preserved | Falsehood |
+| The Muses | Potential must not be wasted | Waste |
+
+That table is the setting. Two of them can watch the same event and disagree, permanently and in
+good faith, about whether anybody was hurt. `STORY.md` has the history that follows from it and the
+design for story mode.
+
 Each is the faction's argument as a verb rather than a stat line. Second Wind is worth nothing at
 full health — the faction that believes humanity was mortality gets the ability that is *about*
 having been hurt, and rewards standing there rather than avoiding it. Revelation marks the target

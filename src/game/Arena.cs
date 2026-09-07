@@ -168,8 +168,9 @@ public sealed class Arena
     /// architecture is a place for keeping bodies. The Furnace is the Custodians': Prometheus stole
     /// the fire and was chained to it, and every hazard left in the game is here and nowhere else.
     /// The Glasshouse is the Garden's: Noah carried the living through the flood and they are still
-    /// carrying them. The Thousand Rooms is the Muses': the answer to being told humanity was a
-    /// specification sheet is a building that will not stop adding rooms.
+    /// carrying them. The Thousand Rooms is the Muses': a civilisation
+    /// that cannot let potential go unused builds something that never stops adding capacity, and
+    /// it is not an accident that it is the layout closest to a camp.
     /// </summary>
     /// <summary>
     /// Every layout, arenas first and puzzle chambers last.

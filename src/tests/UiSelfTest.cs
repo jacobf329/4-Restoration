@@ -108,6 +108,31 @@ public static class UiSelfTest
         public void Nav(int dx, int dy, int device = 0) => Tap(d => { d.HoldNavX = dx; d.HoldNavY = dy; }, device);
 
         public string TopName => Stack.Top.GetType().Name;
+
+        /// <summary>
+        /// Walk the cursor to a row by name and stop on it. False if there is no such row.
+        ///
+        /// Bounded by a generous frame budget rather than by the item count, because the harness
+        /// cannot see the list — it can only see where the cursor is now, which is the same
+        /// information a player has.
+        /// </summary>
+        public bool NavTo(string label, int device = 0)
+        {
+            for (int i = 0; i < 24; i++)
+            {
+                if (Stack.Top.SelectedLabel == label) return true;
+                Nav(0, 1, device);
+            }
+            return Stack.Top.SelectedLabel == label;
+        }
+
+        /// <summary>Navigate to a row by name and confirm it.</summary>
+        public bool Open(string label, int device = 0)
+        {
+            if (!NavTo(label, device)) return false;
+            TapConfirm(device);
+            return true;
+        }
     }
 
     static void Check(bool ok, string what)
@@ -134,15 +159,15 @@ public static class UiSelfTest
         h.TapBack();
         Check(h.TopName == nameof(TitleScreen), "back returns to title");
 
-        // Second row is the controls reference.
-        h.Nav(0, 1);
-        h.TapConfirm();
-        Check(h.TopName == nameof(ControlsScreen), "nav down then confirm reaches the controls screen");
+        // By name rather than by row. The comment above used to say the menu was
+        // "Play / Controls / Quit", which had been untrue for a long time and nothing noticed
+        // because the test counted rows and the count still happened to work.
+        Check(h.Open("Controls"), "the controls screen is reachable by name");
+        Check(h.TopName == nameof(ControlsScreen), "and confirming on it opens the controls screen");
         h.TapBack();
 
         // Fourth row is the device diagnostic.
-        h.Nav(0, 1); h.Nav(0, 1);
-        h.TapConfirm();
+        Check(h.Open("Devices"), "the device row is reachable");
         Check(h.TopName == nameof(DeviceTestScreen), "the device screen is still reachable");
         h.TapBack();
         h.Nav(0, -1); h.Nav(0, -1); h.Nav(0, -1);
@@ -387,8 +412,7 @@ public static class UiSelfTest
 
         // Reachable: title -> Options is two nav steps and a confirm, no mouse involved.
         var h = new Harness();
-        h.Nav(0, 1); h.Nav(0, 1);
-        h.TapConfirm();
+        Check(h.Open("Options"), "the options row is reachable with a pad alone");
         Check(h.TopName == nameof(OptionsScreen), "options is reachable with a pad alone");
 
         bool before = UserSettings.KeyboardAndMouse;
@@ -1096,6 +1120,69 @@ public static class UiSelfTest
     /// kind of property that quietly stops holding when somebody adds a pass to the constructor
     /// and does not think about the third kind of map.
     /// </summary>
+
+    /// <summary>
+    /// The script, and the shape of the acts it is written into.
+    ///
+    /// Content checks rather than prose criticism: that every act has a scene, that the branch
+    /// filter does what it claims, and that the two written acts are actually written. The last one
+    /// matters because an empty scene is a legal state - four of the six are deliberately empty
+    /// today - so "the script loaded" is not evidence that anything is in it.
+    /// </summary>
+    static void TestStoryScript()
+    {
+        TestLog.Line("- the story script is wired to the acts");
+
+        Check(Scripts.All.Length == Acts.All.Length, "every act has a scene");
+
+        foreach (var scene in Scripts.All)
+        {
+            Check(Scripts.For(scene.Act) == scene, $"{scene.Name} is reachable by its act");
+            Check(scene.Name.Length > 0, $"act {scene.Act} names its scene");
+        }
+
+        // The two that are written.
+        Check(Scripts.Childhood.Beats.Length > 15,
+              $"Act I is written ({Scripts.Childhood.Beats.Length} beats)");
+        Check(Scripts.Harvest.Beats.Length > 10,
+              $"Act II is written ({Scripts.Harvest.Beats.Length} beats)");
+
+        // All four make their case at the harvest, or the scene is not the scene.
+        var heard = new HashSet<Speaker>();
+        foreach (var b in Scripts.Harvest.Beats) heard.Add(b.Who);
+
+        foreach (var who in new[] { Speaker.Vessels, Speaker.Garden,
+                                    Speaker.Custodians, Speaker.Muses })
+            Check(heard.Contains(who), $"{Scripts.NameOf(who)} argue their case at the harvest");
+
+        foreach (var scene in Scripts.All)
+        foreach (var b in scene.Beats)
+        {
+            Check(b.Line.Length > 0, $"every beat in {scene.Name} says something");
+
+            // Somebody owns every line, including the narrator, and every speaker has a colour.
+            // A beat drawn in the default tint is a speaker somebody forgot to add.
+            Check(Scripts.TintOf(b.Who) != default, $"{scene.Name}: {b.Who} has a colour");
+        }
+
+        // The Fairview cast wear the Vessels' own colour from the first line, before John is told
+        // anything. That is the one clue in the presentation layer and it should not rot.
+        foreach (var who in new[] { Speaker.Dad, Speaker.Mum, Speaker.Teacher })
+            Check(Scripts.TintOf(who) == Factions.Vessels.Tint,
+                  $"{Scripts.NameOf(who)} is drawn in the Vessels' colour");
+
+        // The branch filter. An unmarked beat plays for everyone; a marked one plays for one side.
+        var always = new Beat { Who = Speaker.John, Line = "x" };
+        var onlyHarvested = new Beat { Who = Speaker.John, Line = "x",
+                                       Only = HarvestChoice.Harvested };
+
+        Check(always.PlaysFor(HarvestChoice.Undecided) && always.PlaysFor(HarvestChoice.Waited),
+              "an unmarked beat plays whatever he chose");
+        Check(onlyHarvested.PlaysFor(HarvestChoice.Harvested), "a marked beat plays on its own side");
+        Check(!onlyHarvested.PlaysFor(HarvestChoice.Waited), "and not on the other");
+    }
+
+
     static void TestFairview()
     {
         TestLog.Line("- Fairview is a town, not an arena");
@@ -1555,6 +1642,7 @@ public static class UiSelfTest
         TestModeLimitsMakeSense();
         TestCampaignState();
         TestFairview();
+        TestStoryScript();
         TestPlayBoundsAreTight();
 
         // Every wall and platform on the map comes down, and the two things that must not are the

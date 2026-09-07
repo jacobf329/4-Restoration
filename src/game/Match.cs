@@ -106,6 +106,16 @@ public partial class Match : Node3D
         /// <summary>Gravity on this round, as a fraction of a pawn's.</summary>
         public float Weight;
 
+        /// <summary>Radians per second this round turns toward what it is chasing. Zero flies straight.</summary>
+        public float SeekTurnRate;
+
+        /// <summary>How far this round looks for a target, and the cone it will accept one in.</summary>
+        public float SeekRange;
+        public float SeekCone;
+
+        /// <summary>Metres at which anything but the shooter sets this round off in flight.</summary>
+        public float TriggerRadius;
+
         /// <summary>Stops a round ping-ponging between two gates on consecutive frames.</summary>
         public float PortalLock;
 
@@ -1886,6 +1896,10 @@ public partial class Match : Node3D
                 Fuse = gun.FuseTime,
                 Bounces = gun.Bounces,
                 Weight = gun.Weight,
+                SeekTurnRate = gun.SeekTurnRate,
+                SeekRange = gun.SeekRange,
+                SeekCone = Mathf.DegToRad(gun.SeekConeDeg),
+                TriggerRadius = gun.TriggerRadius,
             };
 
             if (Visuals)
@@ -2958,10 +2972,16 @@ public partial class Match : Node3D
     ///
     /// Four times what it was. At five and a half metres it was a patch you had to be standing
     /// exactly on, which meant it healed whoever planted it and nobody else — a team ability that
-    /// only ever affected one person. At twenty-two it is a piece of *ground*: a doorway, a command
-    /// post, the middle of a room. That is the difference between a buff and a place.
+    /// only ever affected one person. At twenty-two it was a piece of *ground*: a doorway, a
+    /// command post, the middle of a room. That is the difference between a buff and a place.
+    ///
+    /// Then 60% off, to 8.8. Twenty-two metres was not a doorway, it was a district — the circle
+    /// was wider than most rooms on any layout, so there was no standing *outside* one without
+    /// leaving the fight, and no skill in placing something that covered everywhere you might have
+    /// wanted it. At 8.8 it is a room or a doorway again, and where you put it is a decision.
+    /// Reach only: the heal rate and the slow are unchanged.
     /// </summary>
-    public const float BloomRadius = 22f;
+    public const float BloomRadius = 8.8f;
     public const float BloomDuration = 9f;
 
     /// <summary>Health per second inside the patch, and the fraction of pace it costs an enemy.</summary>
@@ -3246,8 +3266,15 @@ public partial class Match : Node3D
     /// it walks in a straight line at a fixed speed for five seconds, in plain sight, and anyone who
     /// reads it simply steps away. The payoff has to justify being ignorable.
     /// </summary>
-    public const float DecoyBlastDamage = 150f;
-    public const float DecoyBlastRadius = 9f;
+    ///
+    /// Four times over, both halves. At 150 in a nine-metre circle the payoff still did not
+    /// justify how ignorable the thing is — reading a decoy and stepping away cost one sidestep,
+    /// so the bomb half of the bluff was never a real threat and the Muses were back to owning a
+    /// lie nobody had to respect. At 600 across thirty-six metres, walking away is a commitment:
+    /// the radius is most of a room, so "step aside" becomes "leave", and leaving is exactly the
+    /// concession the ability is asking a player to make.
+    public const float DecoyBlastDamage = 600f;
+    public const float DecoyBlastRadius = 36f;
 
     /// <summary>Rounds that passed through a phasing Custodian. Reported by the harness.</summary>
     public int PhasedShots;
@@ -3571,6 +3598,26 @@ public partial class Match : Node3D
     /// <summary>Put a round in the air at a known place and heading, for the harness.</summary>
     public void InjectShotForTest(Pawn owner, Vector3 at, Vector3 vel, float range = 200f)
         => shots.Add(new Shot { Pos = at, Vel = vel, RangeLeft = range, Owner = owner, Damage = 1f });
+
+    /// <summary>
+    /// The same, but carrying a weapon's seeking behaviour, so the harness can watch one turn.
+    ///
+    /// Deliberately does not set BlastDamage. What is under test is the steering, and a round that
+    /// detonates the moment it arrives takes itself out of the air before the check can read where
+    /// it was going.
+    /// </summary>
+    public void InjectSeekerForTest(Pawn owner, Vector3 at, Vector3 vel, WeaponDef gun)
+        => shots.Add(new Shot
+        {
+            Pos = at,
+            Vel = vel,
+            RangeLeft = gun.Range,
+            Owner = owner,
+            Damage = gun.Damage,
+            SeekTurnRate = gun.SeekTurnRate,
+            SeekRange = gun.SeekRange,
+            SeekCone = Mathf.DegToRad(gun.SeekConeDeg),
+        });
 
     /// <summary>Where the nth round in flight is. Throws if there is no nth round.</summary>
     public Vector3 ShotPositionForTest(int i) => shots[i].Pos;
@@ -4602,6 +4649,138 @@ public partial class Match : Node3D
         return true;
     }
 
+    /// <summary>
+    /// Turn a seeking round toward the best thing in front of it.
+    ///
+    /// Re-targeted every tick rather than locked on at launch. A lock is worse in both directions:
+    /// it wastes the round when its target dies or ducks into cover, and it makes the weapon feel
+    /// like it belongs to the shooter rather than to the arena. Re-targeting means a seeker that
+    /// loses its mark will take whatever else wanders into the cone, which is both more dangerous
+    /// and more honest about what the thing is.
+    /// </summary>
+    void SteerSeeker(Shot s, float dt)
+    {
+        if (SeekerTarget(s) is not { } target) return;
+
+        var cur = s.Vel.Normalized();
+        var want = (target - s.Pos);
+        if (want.LengthSquared() < 0.0001f) return;
+        want = want.Normalized();
+
+        float angle = cur.AngleTo(want);
+        if (angle < 0.0001f) return;
+
+        // Rate-limited, which is the entire balance of the weapon: it can correct for a target
+        // that moves and it cannot correct for one that moves enough. Lerped and renormalised
+        // rather than slerped, because a target directly behind makes the rotation axis undefined
+        // and a seeker that stops dead on a divide-by-zero is worse than one that turns wide.
+        float t = MathU.Clamp01(s.SeekTurnRate * dt / angle);
+        var blended = cur.Lerp(want, t);
+        if (blended.LengthSquared() < 0.000001f) return;
+
+        s.Vel = blended.Normalized() * s.Vel.Length();
+
+        if (s.Mesh != null) PointAlong(s.Mesh, s.Pos, s.Vel);
+    }
+
+    /// <summary>
+    /// What a seeking round should chase, or null when nothing qualifies.
+    ///
+    /// Vehicles count, and are the reason the weapon reads as heat-seeking rather than as a
+    /// magic bullet: a tank is the largest, hottest, slowest thing on any map and the one target
+    /// a rocket that steers should obviously be good against.
+    ///
+    /// The cone is measured from where the round is *going*, not from where it was fired, so a
+    /// seeker that has committed to a turn keeps chasing rather than losing its mark to its own
+    /// manoeuvre.
+    /// </summary>
+    Vector3? SeekerTarget(Shot s)
+    {
+        var dir = s.Vel.Normalized();
+        float cosCone = MathF.Cos(s.SeekCone);
+
+        Vector3? best = null;
+        float bestDist = s.SeekRange;
+
+        void Consider(Vector3 at)
+        {
+            var to = at - s.Pos;
+            float d = to.Length();
+            if (d > bestDist || d < 0.01f) return;
+            if (dir.Dot(to / d) < cosCone) return;
+
+            best = at;
+            bestDist = d;
+        }
+
+        foreach (var p in Pawns)
+        {
+            if (p == s.Owner || !p.Alive || p.InVehicle) continue;
+            if (Settings.Def.Teams && SameTeam(p, s.Owner)) continue;
+
+            Consider(p.GlobalPosition + Vector3.Up * (p.CurrentHeight * 0.55f));
+        }
+
+        foreach (var rig in VehicleList)
+        {
+            if (!rig.Alive || rig == s.Owner.Riding) continue;
+            if (rig.Driver is { } crew && Settings.Def.Teams && SameTeam(crew, s.Owner)) continue;
+
+            Consider(rig.GlobalPosition + Vector3.Up * rig.Def.HalfExtents.Y);
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// Whether anything but the shooter is close enough to set this round off where it is.
+    ///
+    /// The shooter is exempt and has to be: a round spawns at the muzzle, well inside its own
+    /// trigger radius, so counting them would detonate every seeker in the shooter's face on the
+    /// frame it was fired. They are not exempt from the *blast* — standing next to your own
+    /// rocket when somebody else sets it off is the ordinary way to be hurt by one.
+    ///
+    /// Teammates are not exempt either. A seeker crossing a room is a thing nobody can walk
+    /// through, and one of your own running into yours is your shot to have wasted.
+    /// </summary>
+    bool TouchingSomething(Shot s)
+    {
+        float r2 = s.TriggerRadius * s.TriggerRadius;
+
+        foreach (var p in Pawns)
+        {
+            if (p == s.Owner || !p.Alive || p.InVehicle) continue;
+
+            // Measured to the middle of the pawn rather than their feet, or a round at head height
+            // would sail over somebody it is visibly touching.
+            var mid = p.GlobalPosition + Vector3.Up * (p.CurrentHeight * 0.5f);
+            if (mid.DistanceSquaredTo(s.Pos) <= r2) return true;
+        }
+
+        foreach (var rig in VehicleList)
+        {
+            if (!rig.Alive || rig == s.Owner.Riding) continue;
+
+            var half = rig.Def.HalfExtents;
+            var mid = rig.GlobalPosition + Vector3.Up * half.Y;
+
+            // The hull's *smallest* half-extent is added, not its diagonal. This check is a
+            // backstop rather than the way a seeker normally kills a tank: a round approaching
+            // from outside crosses the hull's face and the sweep resolves it as a direct hit,
+            // which is worth the impact damage on top of the blast. What the sweep cannot do is
+            // notice a hull that has driven *onto* a round already in the air — a ray that begins
+            // inside a collider reports nothing — and that is the case this catches.
+            //
+            // Sized off the diagonal instead, a tank's 4.8m would put the trigger three metres
+            // clear of the nose and every seeker would airburst short of the one target the
+            // weapon is meant to be best against.
+            float reach = s.TriggerRadius + MathF.Min(half.X, MathF.Min(half.Y, half.Z));
+            if (mid.DistanceSquaredTo(s.Pos) <= reach * reach) return true;
+        }
+
+        return false;
+    }
+
     void StepShots(float dt)
     {
         var space = GetWorld3D().DirectSpaceState;
@@ -4613,6 +4792,20 @@ public partial class Match : Node3D
             // A heavy round arcs. Applied before the sweep so the ray follows the path the round
             // actually takes this frame rather than the flat one it would have taken.
             if (s.Weight > 0f) s.Vel += Vector3.Down * (Pawn.Gravity * s.Weight * dt);
+
+            // And a seeker turns, for the same reason and in the same place: the sweep below has
+            // to follow the path the round actually takes, not the one it was pointed down when it
+            // left the tube.
+            if (s.SeekTurnRate > 0f) SteerSeeker(s, dt);
+
+            // Anything that walks into it. Checked before the sweep because it is not a sweep
+            // question — see WeaponDef.TriggerRadius.
+            if (s.TriggerRadius > 0f && TouchingSomething(s))
+            {
+                Detonate(s);
+                shots.RemoveAt(i);
+                continue;
+            }
 
             if (s.PortalLock > 0f) s.PortalLock -= dt;
 

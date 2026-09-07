@@ -1486,7 +1486,7 @@ assumption in one go.
 |---|---|---|
 | Vessels | **Second Wind** | Pays back 75% of the damage you have taken in the last six seconds |
 | Custodians | **Revelation** | Outlines every enemy through walls for 4.5s, for your whole side |
-| Garden | **Bloom** | A patch that heals your side 30/s and slows everyone else to 74%, for 9s |
+| Garden | **Bloom** | An 8.8m patch that heals your side 30/s and slows everyone else to 74%, for 9s |
 | Muses | **Understudy** | A decoy walks on while you drop off the targeting list for 5s |
 
 Each is the faction's argument as a verb rather than a stat line. Second Wind is worth nothing at
@@ -2624,3 +2624,87 @@ that is everywhere is not a hazard, it is the ground rules.
 Everyone slips, the driver included. A hazard you are immune to is a weapon, and the car is not
 supposed to have one: what makes the trail fair is that getting out of your own car in the middle of
 it is exactly as bad an idea as it looks.
+
+## A seeker, a roof, and a decoy worth respecting
+
+### The driver gets out on the roof
+
+Fourth report of *"I spawn under the tank when I try to leave it"*, and the third placement search
+to be replaced. Each one put the driver on the ground somewhere the hull was not at that instant,
+and a hull being driven is somewhere else an instant later.
+
+There is no search now. **The roof, always** — the one place the vehicle cannot drive over you,
+because it travels with you.
+
+The driver is let go **1.1m above** the roof rather than placed exactly on it. Landing slightly high
+costs a short hop the controller resolves by itself; landing slightly low means starting the frame
+inside the hull, and the physics solver's answer to that is to squeeze the pawn out somewhere
+arbitrary — underneath, as often as not. Erring upward turns the worst case from the bug into a
+hop. It falls back to the roof flush if there is no headroom, because a hull can be parked under
+something and a spot inside a ceiling is the state this whole thing exists to avoid.
+
+The self-test that guarded this asserted the *opposite* — "beside a tank rather than on its roof",
+from when the roof was the fallback and the fallback being taken routinely was the bug. It asserts
+the roof now.
+
+### Bloom is a room again
+
+**Radius 22m → 8.8m**, 60% off. Twenty-two metres was not a doorway, it was a district: the circle
+was wider than most rooms on any layout, so there was no standing outside one without leaving the
+fight, and no skill in placing something that already covered everywhere you might have wanted it.
+Heal rate and slow are untouched — this is reach.
+
+### The decoy is a bomb now
+
+**150 → 600 damage, 9m → 36m.** Four times both.
+
+A decoy walks in a straight line at a fixed speed for five seconds in plain sight, and anyone who
+reads it steps away. At nine metres, stepping away cost one sidestep, so the bomb half of the bluff
+was never a real threat and the Muses were back to owning a lie nobody had to respect. Thirty-six
+metres is most of a room: "step aside" becomes "leave", and leaving is the concession the ability
+is asking for.
+
+Worth being plain about the side effect, because it is large and it was not asked for: the blast
+goes through the same path as every other explosion, so it damages **structure** too. At 600 across
+36m a decoy will visibly open up whatever it goes off next to. Nothing is permanent — structure
+rebuilds on its own timer — but a Muse using their special is now a demolition event as well as a
+threat. Easy to separate if that plays badly: the blast already carries a structure multiplier, and
+setting the decoy's to 0.25 leaves it doing exactly what it did to walls before.
+
+### The Seeker
+
+A slow rocket that chases, and goes off if anything touches it on the way.
+
+| | Rocket Launcher | Seeker |
+|---|---|---|
+| Speed | 52 m/s | **26 m/s** |
+| Direct hit | 40 | **22** |
+| Blast | 105 over 7m | **85 over 6.5m** |
+| Reload | 1.15s | **1.7s** |
+| Ammo | 6 | **4** |
+
+Worse in every column, which is the point. A rocket is aimed at the floor under somebody and rewards
+reading where they are going; a seeker is aimed at *them* and rewards nothing about your aim after
+the trigger. What you buy is that dodging is not enough.
+
+It turns at **1.9 rad/s**, which out-turns a sprinting player up close and loses to one at distance.
+The answer to it is to break line of sight — a corner, a wall, anything solid — rather than to
+strafe, and that is a different question from the one every other weapon in the game asks.
+
+It still has to be pointed: targets are only accepted inside a **55° cone** measured from where the
+round is *going*, within 90m. Re-targeted every tick rather than locked at launch, so a seeker that
+loses its mark takes whatever else wanders into the cone. That is both more dangerous and more
+honest about what the thing is — it belongs to the arena, not to whoever fired it.
+
+**Vehicles count as targets**, and are what make it read as heat-seeking rather than as a magic
+bullet: a tank is the largest, slowest, hottest thing on any map and exactly what a rocket that
+steers should be good against.
+
+Anything that is not the shooter sets it off on contact, at 2.1m. That is a separate test from the
+impact sweep because it answers a different question — the sweep asks what the round *hit*, and at
+26 m/s a round covers less than half a metre a tick, so somebody crossing its path sideways is
+simply never on the line. A seeker crossing a room is a thing nobody can walk through, and a
+teammate running into yours is your shot to have wasted. The shooter is exempt, and has to be: a
+round spawns at the muzzle, well inside its own trigger radius.
+
+It is 1 of 13 crate slots, coloured magenta.

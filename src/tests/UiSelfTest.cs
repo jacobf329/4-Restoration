@@ -892,7 +892,12 @@ public static class UiSelfTest
 
         // Every pickup weapon must be usable and distinctly coloured, since colour is how you tell
         // one crate from another across the arena.
-        var tints = new HashSet<string>();
+        // Keyed by colour and *checked against the weapon that claimed it*, rather than a set that
+        // rejects any repeat. The table deliberately lists the portal gun three times, and a plain
+        // uniqueness check reads that as the portal gun clashing with itself — which is not a
+        // thing that can confuse anybody looking at two crates. What matters is that two different
+        // weapons never share a colour.
+        var tints = new Dictionary<string, string>();
         foreach (var w in Weapons.Pickups)
         {
             Check(w.Ammo > 0, $"{w.Name} has ammo");
@@ -903,7 +908,11 @@ public static class UiSelfTest
             Check(w.Damage > 0f || w.BlastDamage > 0f || w.PlantsPortal || w.Grapples,
                   $"{w.Name} does something when fired");
             Check(w.Range > 0f, $"{w.Name} has reach");
-            Check(tints.Add(Weapons.TintFor(w).ToHtml()), $"{w.Name} has its own colour");
+            string tint = Weapons.TintFor(w).ToHtml();
+            if (tints.TryGetValue(tint, out string? claimed))
+                Check(claimed == w.Name, $"{w.Name} has its own colour, not {claimed}'s");
+            else
+                tints[tint] = w.Name;
         }
 
         // A dash has to hurt enough to matter without being a one-shot.

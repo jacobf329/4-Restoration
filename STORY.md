@@ -504,6 +504,14 @@ the last thing that happens.
    he does not match anything else on screen.
 3. **A mission framework**: scripted objectives, dialogue beats, act progression, save state, and
    the Act II flag that colours the back half.
+
+   *Started.* `src/story/Campaign.cs` holds the act order, the harvest choice, her affinity and
+   the save file, with the sequencing rule the rest of it will lean on — the harvest act refuses to
+   end while the question is open, because an Undecided leaking into the later acts crashes nothing
+   and quietly plays the neutral version of every scene from there on. Deliberately not a
+   `GameMode`: a campaign has no score limit or bot skill, and putting it in `Modes.All` would mean
+   inventing a limit for something that counts nothing and burying a story in the list people cycle
+   through looking for Deathmatch. Missions, objectives and dialogue are not built.
 4. **Her, as a companion**: a pawn with a bot brain, an affinity value, and behaviour that reads
    off it. Cheaper than it sounds — the bot brain, the ally pathing and the faction models all
    exist — and it is the second pillar of the mode, so it should not be the thing that gets cut.

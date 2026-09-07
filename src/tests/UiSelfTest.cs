@@ -1077,6 +1077,93 @@ public static class UiSelfTest
     /// contest it. Elimination counts rounds, where a step of five is a jump from a short match to
     /// an interminable one.
     /// </summary>
+
+    /// <summary>
+    /// The campaign's state machine: act order, the one choice, and her.
+    ///
+    /// Worth testing before a single mission exists, because every one of them will be written
+    /// against these rules and a mission cannot notice that the rule it relied on was never
+    /// enforced. The sequencing bug this is really guarding is silent by nature: an Undecided
+    /// harvest leaking into the later acts crashes nothing and simply plays the neutral version of
+    /// every scene from there on, which is the kind of thing that gets shipped.
+    /// </summary>
+    static void TestCampaignState()
+    {
+        TestLog.Line("- the campaign runs in order and remembers one choice");
+
+        // Every act has a card. A gap here is a blank chapter title and nothing else, which is
+        // exactly the sort of thing that survives to release.
+        Check(Acts.All.Length == System.Enum.GetValues<Act>().Length,
+              "every act has a definition");
+
+        foreach (var a in Acts.All)
+        {
+            Check(a.Name.Length > 0, $"act {a.Act} has a name");
+            Check(a.Blurb.Length > 0, $"{a.Name} has a chapter line");
+            Check(Acts.Get(a.Act) == a, $"{a.Name} is reachable by its own enum value");
+        }
+
+        // Four of the six are a faction making its case; the harvest and the ruling belong to
+        // nobody, which is the whole point of both of them.
+        int hosted = 0;
+        foreach (var a in Acts.All) if (a.Host != null) hosted++;
+        Check(hosted == 4, $"four acts are a faction's case, two are nobody's ({hosted})");
+
+        var c = new CampaignState();
+
+        Check(c.Act == Act.Childhood, "a new campaign starts at the beginning");
+        Check(c.Choice == HarvestChoice.Undecided, "with nothing decided");
+        Check(!c.SheIsWith, "and alone");
+        Check(c.Affinity > 0f && !c.WouldSayYes,
+              "she is hesitant rather than hostile, and nowhere near saying yes");
+
+        Check(c.Advance(), "the childhood ends");
+        Check(c.Act == Act.Harvest, "and the question is asked");
+
+        // The sequencing rule, and the reason this test exists.
+        Check(!c.Advance(), "the harvest act will not end while the question is open");
+        Check(c.Act == Act.Harvest, "and it has not moved on regardless");
+
+        c.Decide(HarvestChoice.Waited);
+        Check(c.Choice == HarvestChoice.Waited, "he answers");
+
+        c.Decide(HarvestChoice.Harvested);
+        Check(c.Choice == HarvestChoice.Waited, "and cannot un-answer it later");
+
+        Check(c.Advance() && c.Act == Act.Vault, "the vault opens once he has decided");
+        Check(c.SheIsWith, "and she is there from here on");
+
+        // Her, over the rest of the game.
+        c.Warm(-5f);
+        Check(c.Affinity >= 0f, "she cannot be driven below nothing");
+        c.Warm(5f);
+        Check(c.Affinity <= 1f, "or flattered past everything");
+        Check(c.WouldSayYes, "and at the top of the range she would say yes");
+
+        while (c.Advance()) { }
+        Check(c.Act == Act.Arbiter && c.Finished, "the acts run out at the ruling");
+        Check(!c.Advance(), "and there is nothing after it");
+
+        c.Reset();
+        Check(c.Act == Act.Childhood && c.Choice == HarvestChoice.Undecided
+              && !c.WouldSayYes, "starting again forgets the choice and her with it");
+
+        // A save file is a text file in a folder the player can open. Nonsense in it should put
+        // somebody at the start of a chapter, not throw on a cast with nowhere to land.
+        var saved = new CampaignState();
+        saved.Advance();
+        saved.Decide(HarvestChoice.Harvested);
+        saved.Advance();
+        saved.Warm(0.4f);
+        saved.Save();
+
+        var loaded = CampaignState.Load();
+        Check(loaded.Act == saved.Act, "a saved campaign comes back at the same act");
+        Check(loaded.Choice == saved.Choice, "with the same answer");
+        Check(Mathf.Abs(loaded.Affinity - saved.Affinity) < 0.001f, "and her where she was");
+    }
+
+
     static void TestModeLimitsMakeSense()
     {
         TestLog.Line("- score limits suit their modes");
@@ -1395,6 +1482,7 @@ public static class UiSelfTest
         TestVehiclesCanLeaveTheirSpawns();
         TestWeaponsLookDifferent();
         TestModeLimitsMakeSense();
+        TestCampaignState();
         TestPlayBoundsAreTight();
 
         // Every wall and platform on the map comes down, and the two things that must not are the

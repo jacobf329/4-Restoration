@@ -33,11 +33,13 @@ both of these before `Play.cmd` will work:
 
 **Or double-click `Setup.cmd` and skip this section.** It checks what is already present
 using the same search order `Play.cmd` uses, installs only what is missing through
-`winget`, and then sets `GODOT_HOME` — which matters, because `winget` drops Godot as a
-portable package that never lands on `PATH`, so without that step `Play.cmd` would still
-report it missing. Safe to run twice; if both are already installed it says so and does
-nothing. Close the window afterwards and open a new one, since `PATH` and `GODOT_HOME`
-both changed while it was running. Everything below is what it does, for when you would
+`winget`, sets `GODOT_HOME` — which matters, because `winget` drops Godot as a portable
+package that never lands on `PATH`, so without that step `Play.cmd` would still report it
+missing — and puts a **HitboxClone** shortcut on the Desktop. The shortcut targets
+`Play.cmd` rather than the engine, so launching from the Desktop still builds first; a
+shortcut straight to Godot would quietly run the previous assembly, which is the trap
+`Play.cmd` exists to close. Safe to run twice, and re-running is how you rebuild the
+shortcut after moving the folder. Everything below is what it does, for when you would
 rather do it yourself or `winget` is not available.
 
 `Play.cmd` finds them in this order, and stops with a message naming the missing one

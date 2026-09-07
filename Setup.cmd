@@ -1,11 +1,14 @@
 @echo off
 REM Double-click this once on a machine that has never run the game. It installs the two
-REM things the repository deliberately does not carry - Godot and the .NET SDK - and then
-REM points Play.cmd at them. After it finishes, Play.cmd is all you ever need again.
-REM Safe to run twice: it installs only what is genuinely missing.
+REM things the repository deliberately does not carry - Godot and the .NET SDK - points
+REM Play.cmd at them, and puts a HitboxClone shortcut on the Desktop.
+REM Safe to run twice: it installs only what is genuinely missing, and re-running is also
+REM how you rebuild the shortcut after moving the folder.
 setlocal EnableDelayedExpansion
 title HitboxClone setup
 
+set "PROJ=%~dp0"
+set "PROJ=%PROJ:~0,-1%"
 set "DOTNET_URL=https://dotnet.microsoft.com/download/dotnet/8.0"
 set "GODOT_URL=https://godotengine.org/download/windows/"
 
@@ -47,13 +50,11 @@ if defined DOTNET_OK (echo   [found]   .NET 8 SDK   !DOTNET_EXE!) else (echo   [
 if defined GODOT_EXE (echo   [found]   Godot        !GODOT_EXE!) else (echo   [missing] Godot .NET/mono)
 echo.
 
-if defined DOTNET_OK if defined GODOT_EXE (
-  echo   Both already installed - nothing to do.
-  echo   Double-click Play.cmd.
-  echo.
-  pause
-  exit /b 0
-)
+REM Nothing missing still falls through to the shortcut below, rather than exiting here -
+REM rebuilding the shortcut after moving the folder is a reason to re-run this on a
+REM machine that is already fully set up.
+set "FAILED="
+if defined DOTNET_OK if defined GODOT_EXE goto :shortcut
 
 REM ---------------------------------------------------------------------------
 REM winget does the installing. It ships with Windows 11 and current Windows 10.
@@ -74,9 +75,8 @@ if errorlevel 1 (
 )
 
 REM Each install is checked. A package id can be renamed or dropped upstream, and a
-REM winget failure that scrolls past unnoticed would otherwise surface much later as
-REM Play.cmd reporting the tool missing with no hint that an install was even tried.
-set "FAILED="
+REM winget failure that scrolled past unnoticed would otherwise surface much later as
+REM Play.cmd reporting the tool missing, with no hint an install had even been tried.
 
 if not defined DOTNET_OK (
   echo Installing the .NET 8 SDK...
@@ -120,10 +120,43 @@ if defined GODOT_EXE (
   echo.
 )
 
+REM ---------------------------------------------------------------------------
+REM The Desktop shortcut.
+REM
+REM It targets Play.cmd rather than Godot, so launching from the Desktop still builds
+REM first - a shortcut straight to the engine would quietly run whatever assembly was
+REM left over from last time, which is the trap Play.cmd exists to close. cmd.exe cannot
+REM write a .lnk, so this is the one thing handed to PowerShell.
+REM ---------------------------------------------------------------------------
+:shortcut
+
+set "ICON="
+if defined GODOT_EXE if /i "!GODOT_EXE:~-4!"==".exe" set "ICON=!GODOT_EXE!"
+
+set "LNK=%USERPROFILE%\Desktop\HitboxClone.lnk"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $lnk = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\HitboxClone.lnk'); $lnk.TargetPath = $env:PROJ + '\Play.cmd'; $lnk.WorkingDirectory = $env:PROJ; $lnk.Description = 'HitboxClone - build and play'; if ($env:ICON) { $lnk.IconLocation = $env:ICON + ',0' }; $lnk.Save()"
+
+REM Checked by looking for the file rather than by errorlevel: the COM Save() reports
+REM success through the object, so a PowerShell that failed to write anything can still
+REM exit 0 and leave you with no shortcut and no complaint. OneDrive also relocates the
+REM Desktop, which is why the path is asked for rather than assumed - and why the
+REM USERPROFILE fallback below is only a fallback.
+if not exist "!LNK!" for /f "delims=" %%D in ('powershell -NoProfile -Command "[Environment]::GetFolderPath('Desktop')" 2^>nul') do set "LNK=%%D\HitboxClone.lnk"
+
+if exist "!LNK!" (
+  echo   Desktop shortcut created: HitboxClone
+  echo.
+) else (
+  echo   Could not create the Desktop shortcut. Right-drag Play.cmd
+  echo   to the Desktop and pick "Create shortcuts here" instead.
+  echo.
+  set "FAILED=1"
+)
+
 if defined FAILED (
   echo ============================================
   echo   Setup finished with something unresolved.
-  echo   Read the messages above, install what is
+  echo   Read the messages above, deal with what is
   echo   named there, then run Setup.cmd again.
   echo ============================================
   echo.
@@ -134,12 +167,10 @@ if defined FAILED (
 echo ============================================
 echo   Setup finished.
 echo.
-echo   Close this window, open a new one, and
-echo   double-click Play.cmd.
+echo   Double-click HitboxClone on your Desktop.
 echo.
-echo   The new window matters: PATH and GODOT_HOME
-echo   changed just now, and this window is still
-echo   holding the values from before they did.
+echo   First launch is slow - Godot imports every
+echo   model in assets\ before the game appears.
 echo ============================================
 echo.
 pause

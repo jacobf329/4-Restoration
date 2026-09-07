@@ -1,0 +1,2321 @@
+using System;
+using System.Collections.Generic;
+using Godot;
+
+namespace HitboxClone;
+
+/// <summary>
+/// A box in the arena — one wall, pillar, deck or piece of cover. Kept as plain data so the
+/// geometry is described once and then turned into collision, and optionally meshes, separately.
+/// The headless test builds the collision half only.
+/// </summary>
+public readonly struct Block
+{
+    public readonly Vector3 Centre;
+    public readonly Vector3 HalfExtents;
+    public readonly Color Tint;
+
+    /// <summary>
+    /// Whether explosives can bring this block down. Only the thin walkways of the upper storey
+    /// are: blowing out a skybridge under someone is a play, and blowing away the floor plan is
+    /// just a map that decays into a flat box over a long match.
+    /// </summary>
+    public readonly bool Fragile;
+
+    public Block(Vector3 centre, Vector3 halfExtents, Color tint, bool fragile = false)
+    {
+        Centre = centre;
+        HalfExtents = halfExtents;
+        Tint = tint;
+        Fragile = fragile;
+    }
+}
+
+/// <summary>A pad that flings anything standing on it straight up.</summary>
+public readonly struct LaunchPad
+{
+    public readonly Vector3 Centre;
+    public readonly float Radius;
+    public readonly float Impulse;
+
+    public LaunchPad(Vector3 centre, float radius, float impulse)
+    {
+        Centre = centre;
+        Radius = radius;
+        Impulse = impulse;
+    }
+}
+
+/// <summary>An area of ground that hurts anything standing in it.</summary>
+public readonly struct HazardZone
+{
+    public readonly Rect2 Area;
+    public readonly float Top;
+    public readonly float DamagePerSecond;
+
+    public HazardZone(Rect2 area, float top, float damagePerSecond)
+    {
+        Area = area;
+        Top = top;
+        DamagePerSecond = damagePerSecond;
+    }
+}
+
+/// <summary>A platform that slides between two points, carrying whoever is riding it.</summary>
+public readonly struct MovingPlatformDef
+{
+    public readonly Vector3 A;
+    public readonly Vector3 B;
+    public readonly Vector3 HalfExtents;
+    public readonly float Period;
+
+    /// <summary>
+    /// Fraction of each leg spent waiting at the end before setting off, 0 to about 0.5.
+    ///
+    /// A shuttle wants none — it should always be somewhere useful. An elevator wants plenty: one
+    /// that never stops is something you have to time rather than something you ride, and the
+    /// point of an elevator is that it is the easy way up.
+    /// </summary>
+    public readonly float Dwell;
+
+    /// <summary>
+    /// Whether this shoves pawns along instead of blocking them. A moving wall is the one piece of
+    /// level machinery that has to reach into the simulation: Godot resolves a character against a
+    /// moving body by stopping the character, not by carrying it, so a push wall left to the
+    /// physics engine is just a wall that happens to travel.
+    /// </summary>
+    public readonly bool Pushes;
+
+    public MovingPlatformDef(Vector3 a, Vector3 b, Vector3 halfExtents, float period,
+                             float dwell = 0f, bool pushes = false)
+    {
+        A = a;
+        B = b;
+        HalfExtents = halfExtents;
+        Period = period;
+        Dwell = dwell;
+        Pushes = pushes;
+    }
+
+    /// <summary>
+    /// Where along the run the platform sits at this phase, 0 at A and 1 at B.
+    ///
+    /// Eased at each end rather than reversing instantly, which would fling a passenger off, and
+    /// held still for <see cref="Dwell"/> of each leg so an elevator can actually be boarded.
+    /// </summary>
+    public float Travel(float clock)
+    {
+        float phase = Mathf.PosMod(clock / Period, 1f);
+
+        bool back = phase >= 0.5f;
+        float u = back ? (phase - 0.5f) * 2f : phase * 2f;
+
+        float m = Mathf.Clamp((u - Dwell) / MathF.Max(0.001f, 1f - Dwell), 0f, 1f);
+        float eased = 0.5f - 0.5f * MathF.Cos(m * MathF.PI);
+
+        return back ? 1f - eased : eased;
+    }
+}
+
+/// <summary>
+/// Procedurally built arena. There are no model files anywhere in the project — everything is
+/// boxes, which is both faithful to the original's minimalist look and keeps the repo tiny.
+///
+/// Layouts are symmetric so no spawn is advantaged, and the self-test checks every spawn and
+/// capture zone is inside the arena, clear of cover, and not hanging over a pit.
+/// </summary>
+public sealed class Arena
+{
+    // Five times the area of the previous box — 2.24 times each dimension, since that is what
+    // five times the *floor* works out to. Five times each dimension would have been twenty-five
+    // times the area, which four players would rattle around in.
+    //
+    // Grown outward rather than rescaled, for the second time and for the same reason: every jump
+    // gap, step rise and ledge spacing in the core is tuned against the pawn's actual apex, and
+    // multiplying the coordinates would have turned all of them into gaps nobody can cross. The
+    // core is untouched and the new floor became new districts around it.
+    public const float HalfWidth = 139f;
+    public const float HalfDepth = 103f;
+    public const float WallHeight = 16f;
+
+    /// <summary>
+    /// Where the original arena ended. Everything inside this is the tuned core; everything beyond
+    /// it is the outer districts, which are free to use a coarser, more open grain.
+    /// </summary>
+    const float CoreX = 62f;
+    const float CoreZ = 46f;
+
+    /// <summary>
+    /// Where the outer ring of cover sits. The arena grew outward rather than being rescaled: the
+    /// central structures were already tuned, and stretching them would have broken jump distances
+    /// that the new gravity was set against.
+    /// </summary>
+    const float OuterX = 52f;
+    const float OuterZ = 38f;
+
+    /// <summary>Fall below this and you are dead, however you got there.</summary>
+    public const float KillPlaneY = -5f;
+
+    /// <summary>
+    /// One arena per faith, named for what it is rather than for its floor plan.
+    ///
+    /// They were Crossfire, Foundry, Atrium and Gauntlet — four descriptions of a shape, which is
+    /// what you call a map before you know what it is. The layouts are the same layouts underneath;
+    /// what changed is that each of them now belongs to somebody, and the interiors were built to
+    /// say so.
+    ///
+    /// The Reliquary is the Vessels': they hold that humanity *was* its mortality, so their
+    /// architecture is a place for keeping bodies. The Furnace is the Custodians': Prometheus stole
+    /// the fire and was chained to it, and every hazard left in the game is here and nowhere else.
+    /// The Glasshouse is the Garden's: Noah carried the living through the flood and they are still
+    /// carrying them. The Thousand Rooms is the Muses': the answer to being told humanity was a
+    /// specification sheet is a building that will not stop adding rooms.
+    /// </summary>
+    /// <summary>
+    /// Every layout, arenas first and puzzle chambers last.
+    ///
+    /// One list rather than two, because ArenaIndex is an index into this and threading a
+    /// second namespace through the lobby, the settings, the harness and the screenshot queue
+    /// would touch far more than it is worth. What separates them is IsPuzzle, and the mode
+    /// picker is what keeps a puzzle chamber out of a deathmatch rotation.
+    /// </summary>
+    public static readonly string[] Names =
+        { "Reliquary", "Furnace", "Glasshouse", "Thousand Rooms", "Antechamber", "Orrery" };
+
+    public readonly int Layout;
+    public string Name => Names[Layout];
+
+    public readonly List<Block> Blocks = new();
+
+    /// <summary>Interior chambers this arena actually built. Reported by the harness.</summary>
+    public int RoomsBuilt;
+
+    /// <summary>
+    /// Where the last room actually went, which is not always where it was asked to go.
+    ///
+    /// A caller that puts something inside a room — a weapon crate in a vault — has to read this
+    /// rather than reuse its own coordinate, or the crate ends up embedded in a wall eight metres
+    /// away. Which is exactly what happened to the Glasshouse seed vaults.
+    /// </summary>
+    public Vector3 LastRoomAt;
+    public readonly List<Vector3> SpawnPoints = new();
+    public readonly List<Vector3> ZoneSpots = new();
+    public readonly List<LaunchPad> LaunchPads = new();
+    public readonly List<MovingPlatformDef> MovingPlatforms = new();
+
+    /// <summary>Ground-level slabs. Pits are carved out of these, leaving real holes.</summary>
+    public List<Rect2> FloorSlabs = new();
+
+    /// <summary>
+    /// Where bots regroup when nobody has seen anyone for a while. Only the core spots, never the
+    /// outer districts: with five times the floor, letting them rally on the far corners spread
+    /// four bots across four corners and engagement collapsed to a third of what it had been.
+    /// </summary>
+    public readonly List<Vector3> RallySpots = new();
+
+    /// <summary>The carved-out holes, kept so bots can be told to stay off them.</summary>
+    public readonly List<Rect2> Pits = new();
+
+    /// <summary>Burning ground. Survivable, unlike a pit, so it shapes fights rather than ending them.</summary>
+    public readonly List<HazardZone> Hazards = new();
+
+    /// <summary>
+    /// Where map weapons sit. Deliberately placed up on decks and out past the pits — a pickup
+    /// worth crossing the arena for should cost you a route, not be lying in the open.
+    /// </summary>
+    public readonly List<Vector3> WeaponSpawns = new();
+
+    /// <summary>
+    /// Collision bodies for the blocks explosives can bring down, by index into <see cref="Blocks"/>.
+    /// Populated by <see cref="Build"/>, so it is empty until the arena has been realised.
+    /// </summary>
+    public readonly Dictionary<int, StaticBody3D> FragileBodies = new();
+
+    /// <summary>Where the three vehicles are parked. Out on the ring, clear of the fighting.</summary>
+    public readonly List<Vector3> VehicleSpawns = new();
+
+    /// <summary>
+    /// Where med kits sit. Their own list, derived from the finished map rather than shared with
+    /// the weapon crates.
+    ///
+    /// Health used to be every fourth weapon spawn, which meant three med kits on a map two hundred
+    /// and seventy-eight metres across — you could cross the whole arena bleeding without passing
+    /// one. These are laid out on a grid over the entire floor and kept wherever a pawn actually
+    /// fits, so health is something you can head towards from anywhere rather than something you
+    /// happen upon.
+    /// </summary>
+    public readonly List<Vector3> HealthSpawns = new();
+
+    /// <summary>
+    /// The two capture-the-flag bases, one per team, on opposite sides of the arena.
+    ///
+    /// Derived rather than declared, for the same reason the med kits are: there are four layouts,
+    /// and four sets of hand-placed coordinates is four things to keep in step with geometry that
+    /// changes. The pair is placed by nudging outward from the middle along the long axis until
+    /// both ends land on ground a pawn can stand on.
+    /// </summary>
+    public readonly List<Vector3> FlagBases = new();
+
+    // Spread wider apart than they used to be. The four were within about eight percent of each
+    // other in value and all the same hue, so wall, cover and deck were effectively one colour and
+    // the arena read as a single grey mass. They are still a restrained palette — the look is flat
+    // colour and shape — but they are now telling you what kind of thing you are looking at.
+    static readonly Color WallTint = new(0.24f, 0.27f, 0.35f);      // structure: darkest, coolest
+    static readonly Color CoverTint = new(0.56f, 0.60f, 0.66f);     // things you hide behind
+    static readonly Color DeckTint = new(0.40f, 0.51f, 0.66f);      // things you walk on
+    static readonly Color AccentTint = new(0.22f, 0.62f, 0.78f);    // the prize: highest ground
+    static readonly Color PadTint = new(0.35f, 0.85f, 0.55f);
+
+    Node3D root = null!;
+
+    public Arena(int layout = 0)
+    {
+        Layout = ((layout % Names.Length) + Names.Length) % Names.Length;
+
+        // A combat arena is a floor with things on it. A puzzle map is the opposite — islands
+        // with nothing between them — so it gets no ground plane and adds its own slabs.
+        if (!IsPuzzle(Layout))
+            FloorSlabs.Add(new Rect2(-HalfWidth, -HalfDepth, HalfWidth * 2f, HalfDepth * 2f));
+
+        AddPerimeter();
+
+        // A puzzle chamber is built and then left alone.
+        //
+        // None of the passes below belong on one: no districts to cross, no vehicles to park, no
+        // weapon crates, no launch pads, and above all no floor filling in the gaps — the gaps are
+        // the map. Returning here rather than guarding each pass keeps that a single decision
+        // instead of eleven.
+        if (Puzzle)
+        {
+            if (Layout == Names.Length - 2) BuildAntechamber();
+            else BuildOrrery();
+
+            MakeStructureBreakable();
+            return;
+        }
+
+        switch (Layout)
+        {
+            case 0: BuildCrossfire(); break;
+            case 1: BuildFoundry(); break;
+            case 2: BuildAtrium(); break;
+            default: BuildGauntlet(); break;
+        }
+
+        AddOuterRing();
+        AddVerticality();
+        AddOuterDistricts();
+
+        // Before the interiors rather than after, which is the one ordering that works: a hull
+        // needs a long clear run to park on, the rooms are the only thing on the map that can take
+        // one away, and the rooms already know how to avoid a vehicle spawn. The other way round,
+        // the rooms went up first and two layouts ended up unable to park a tank anywhere.
+        ChooseVehicleSpawns();
+
+        // Last of the geometry passes, and deliberately after the outer districts: the interiors
+        // sit out on that new floor, which is where all the empty ground was.
+        AddInteriors();
+
+        // After every block in the map exists: a pad only knows it is buried once the storey above
+        // it has been built.
+        ClearLaunchPadCeilings();
+
+        // After every block exists and before anything reads them.
+        MakeStructureBreakable();
+
+        // Last, because it needs the finished map: it picks floor a pawn can stand on.
+        ChooseHealthSpawns();
+        ChooseFlagBases();
+
+        // On top of the four corner decks, facing the middle. Spawning up high gives you a second
+        // to read the arena before dropping into it, and keeps spawns off the routes people run.
+        foreach (var spot in ZoneSpots)
+            if (MathF.Abs(spot.X) <= CoreX && MathF.Abs(spot.Z) <= CoreZ)
+                RallySpots.Add(spot);
+
+        const float DeckTop = 5.3f;
+        SpawnPoints.Add(new Vector3(-OuterX, DeckTop, -OuterZ));
+        SpawnPoints.Add(new Vector3(OuterX, DeckTop, OuterZ));
+        SpawnPoints.Add(new Vector3(OuterX, DeckTop, -OuterZ));
+        SpawnPoints.Add(new Vector3(-OuterX, DeckTop, OuterZ));
+
+        AddGroundSpawns();
+    }
+
+    /// <summary>How many spawn points an arena aims to carry, corner decks included.</summary>
+    public const int SpawnPointTarget = 16;
+
+    /// <summary>
+    /// Fill out the spawn points beyond the four corner decks.
+    ///
+    /// Four was exactly the old roster, so every fighter had a corner to themselves. A roster of
+    /// twelve on four spawns means three people materialising on the same deck, which is not a
+    /// spawn so much as a three-way knife fight nobody chose.
+    ///
+    /// Same farthest-point sampling the med kits use, and for the same reason: it maximises the
+    /// distance to the nearest already-placed spawn, which is the property that actually matters
+    /// when the respawn picker is looking for somewhere away from everybody.
+    /// </summary>
+    void AddGroundSpawns()
+    {
+        const float StepX = 19f, StepZ = 17f, Margin = 12f;
+
+        var candidates = new List<Vector3>();
+
+        for (float z = -HalfDepth + Margin; z <= HalfDepth - Margin; z += StepZ)
+        for (float x = -HalfWidth + Margin; x <= HalfWidth - Margin; x += StepX)
+        {
+            var at = new Vector3(x, 1f, z);
+
+            // Room to arrive in, not merely room to stand: a spawn flush against a wall is a spawn
+            // you get shot in the back of.
+            if (!IsClearOfBlocks(new Vector3(x, 0.6f, z), 2.4f, 2.4f)) continue;
+            if (IsOverPit(at)) continue;
+
+            // And it has to lead somewhere.
+            //
+            // Reported from play: spawning inside a room with no exit. Standing room was the only
+            // test a candidate had to pass, and the inside of a sealed vault passes it — the
+            // interiors are built before this runs, so the rooms were invisible to the one check
+            // that mattered. A spawn you cannot walk out of is not a spawn.
+            if (!IsConnected(at)) continue;
+
+            candidates.Add(at);
+        }
+
+        while (SpawnPoints.Count < SpawnPointTarget && candidates.Count > 0)
+        {
+            Vector3 best = candidates[0];
+            float bestGap = -1f;
+
+            foreach (var c in candidates)
+            {
+                float nearest = float.MaxValue;
+
+                foreach (var taken in SpawnPoints)
+                    nearest = MathF.Min(nearest, new Vector2(taken.X - c.X, taken.Z - c.Z).Length());
+
+                if (nearest > bestGap) { bestGap = nearest; best = c; }
+            }
+
+            // Everything left is on top of something already placed. More spawns than the floor has
+            // distinct places to put them is not an improvement.
+            if (bestGap < 22f) break;
+
+            SpawnPoints.Add(best);
+        }
+    }
+
+    /// <summary>
+    /// The four outer walls, and the only blocks in the game that cannot be destroyed.
+    ///
+    /// They are built first and counted here so <see cref="MakeStructureBreakable"/> can find them
+    /// by index. Everything else on the map can come down; these cannot, because the outer wall is
+    /// not scenery — it is the edge of the world, and a hole in it is a way out of the match.
+    /// </summary>
+    public const int PerimeterBlocks = 4;
+
+    void AddPerimeter()
+    {
+        const float t = 1.5f;
+        float hy = WallHeight / 2f;
+
+        Blocks.Add(new Block(new Vector3(0, hy, -HalfDepth - t), new Vector3(HalfWidth + t, hy, t), WallTint));
+        Blocks.Add(new Block(new Vector3(0, hy, HalfDepth + t), new Vector3(HalfWidth + t, hy, t), WallTint));
+        Blocks.Add(new Block(new Vector3(-HalfWidth - t, hy, 0), new Vector3(t, hy, HalfDepth + t), WallTint));
+        Blocks.Add(new Block(new Vector3(HalfWidth + t, hy, 0), new Vector3(t, hy, HalfDepth + t), WallTint));
+    }
+
+    /// <summary>
+    /// The outer band every layout gains from the arena growing. Shared rather than hand-placed
+    /// per layout: the middle is what gives each map its character, and the periphery only needs
+    /// to be somewhere worth running through on the way there.
+    /// </summary>
+    void AddOuterRing()
+    {
+        // Raised corner platforms — reachable by jump from the crates beside them, and high enough
+        // to shoot across the arena from.
+        foreach (int sx in new[] { -1, 1 })
+            foreach (int sz in new[] { -1, 1 })
+            {
+                Deck(new Vector3(sx * OuterX, 2.6f, sz * OuterZ), new Vector3(7f, 2.6f, 6f));
+
+                // Two steps up onto the platform. Without them a 5.2m deck is a one-way trip:
+                // you spawn on it, drop off, and can never get back — and neither can a bot,
+                // which is what the navigation graph made obvious.
+                Blocks.Add(new Block(new Vector3(sx * (OuterX - 12f), 1.0f, sz * OuterZ),
+                                     new Vector3(2.4f, 1.0f, 3f), CoverTint));
+                Blocks.Add(new Block(new Vector3(sx * (OuterX - 7.5f), 1.9f, sz * OuterZ),
+                                     new Vector3(2.4f, 1.9f, 3f), CoverTint));
+
+                Blocks.Add(new Block(new Vector3(sx * (OuterX - 10f), 1.2f, sz * (OuterZ - 8f)),
+                                     new Vector3(2.2f, 1.2f, 2.2f), CoverTint));
+            }
+
+        // Mid-edge cover along all four walls, breaking the long runs the bigger arena created.
+        foreach (int sx in new[] { -1, 1 })
+        {
+            Blocks.Add(new Block(new Vector3(sx * OuterX, 1.6f, 0f), new Vector3(3f, 1.6f, 7f), CoverTint));
+            Blocks.Add(new Block(new Vector3(sx * 26f, 1.3f, OuterZ), new Vector3(6f, 1.3f, 2.4f), CoverTint));
+            Blocks.Add(new Block(new Vector3(sx * 26f, 1.3f, -OuterZ), new Vector3(6f, 1.3f, 2.4f), CoverTint));
+        }
+
+        Pad(new Vector3(-OuterX + 2f, 0f, 0f), 15f);
+        Pad(new Vector3(OuterX - 2f, 0f, 0f), 15f);
+
+        // Burning strips inside the corner approaches, and only on the Furnace.
+        //
+        // These used to be on all four maps, four to a map, along with four more out in the corner
+        // citadels and two by the causeways — ten patches of burning ground on every arena in the
+        // game, none of which meant anything. Hazard scattered everywhere is not danger, it is
+        // terrain you learn to walk around, and it made every layout read the same.
+        //
+        // Now fire belongs to the Custodians, whose whole story is being chained to it, and it is
+        // a landmark on their map rather than a texture on all of them.
+        if (Layout == 1)
+            foreach (int sx in new[] { -1, 1 })
+            foreach (int sz in new[] { -1, 1 })
+                Hazard(new Rect2(sx * 34f - 5f, sz * 26f - 5f, 10f, 10f));
+    }
+
+    /// <summary>
+    /// The upper storey, which is different for every arena.
+    ///
+    /// It used to be one shared block of towers laid over all four layouts, on the reasoning that
+    /// the floor plan is what gives a map its character. That was wrong, and a player spotted it
+    /// straight away: the vertical layer is the largest and most visible structure on the map, so
+    /// making it identical made all four read as the same place however much the ground underneath
+    /// them differed. Each layout now gets a second storey that echoes its own floor plan.
+    ///
+    /// What is shared is the *rule*, not the shape: steps rise no more than about 2.4m and gaps stay
+    /// inside 6m, so a route across the roofs always exists without touching the floor. The
+    /// navigation graph verifies it — a gap too wide to cross fails connectivity rather than
+    /// shipping as a ledge nobody can reach.
+    /// </summary>
+    void AddVerticality()
+    {
+        // Parked out on the ring, clear of whatever the layout builds inland.
+        VehicleSpawns.Add(new Vector3(-14f, 1f, 42f));
+        VehicleSpawns.Add(new Vector3(14f, 1f, 42f));
+        VehicleSpawns.Add(new Vector3(0f, 1f, -42f));
+
+        buildingUpperStorey = true;
+
+        switch (Layout)
+        {
+            case 0: VerticalSpire(); break;
+            case 1: VerticalGantries(); break;
+            case 2: VerticalBalcony(); break;
+            default: VerticalAscent(); break;
+        }
+
+        buildingUpperStorey = false;
+    }
+
+    // ---- the outer districts ----
+    //
+    // Everything from the old arena edge out to the new wall. The design brief for all of it is
+    // that the extra floor has to be worth walking across: five times the area of empty ground
+    // would just be five times the walking. So it is dense, it carries the best of the loot and
+    // all of the vehicles, and it is threaded with the machinery that makes crossing it a decision
+    // — elevators, stairs, moving walls and the pits they shove you into.
+    //
+    // Every district is reachable on foot by stairs. The elevators are the fast way, never the
+    // only way: navigation nodes are built from static blocks, so a district reachable only by
+    // elevator would be a district no bot could ever visit.
+
+    void AddOuterDistricts()
+    {
+        AddCauseways();
+        AddCornerCitadels();
+        AddPushWallGauntlets();
+        AddOuterScatter();
+        AddOuterLoot();
+    }
+
+    /// <summary>
+    /// Cover and small structures filling the ground between the landmarks.
+    ///
+    /// Without this the outer band was a landmark every eighty metres with nothing in between, and
+    /// crossing it meant a long walk in the open with no decisions in it. The pieces here are
+    /// deliberately low and plentiful rather than tall and few: what the band needs is somewhere to
+    /// break line of sight every few strides, not more silhouettes on the skyline.
+    /// </summary>
+    void AddOuterScatter()
+    {
+        foreach (int sx in new[] { -1, 1 })
+        foreach (int sz in new[] { -1, 1 })
+        {
+            // Staggered cover blocks along the diagonal approaches, which is the route between the
+            // core and a citadel that avoids both trenches.
+            for (int i = 0; i < 5; i++)
+            {
+                float t = 0.18f + i * 0.16f;
+                float x = sx * Mathf.Lerp(58f, 96f, t);
+                float z = sz * Mathf.Lerp(52f, 74f, t);
+
+                Blocks.Add(new Block(new Vector3(x, 1.5f, z), new Vector3(4.5f, 1.5f, 3f), CoverTint));
+                Blocks.Add(new Block(new Vector3(x + sx * 7f, 1.0f, z - sz * 8f),
+                                     new Vector3(3f, 1.0f, 4.5f), CoverTint));
+            }
+
+            // A stepped redoubt between the causeway and the trench, with stairs onto it. Somewhere
+            // to fight over that is not a fortress and not open ground.
+            float rx = sx * 88f, rz = sz * 40f;
+
+            Deck(new Vector3(rx, 1.3f, rz), new Vector3(11f, 1.3f, 8f), CoverTint);
+            Deck(new Vector3(rx + sx * 3f, 2.6f, rz), new Vector3(6f, 2.6f, 5f));
+
+            Ramp(new Vector3(rx - sx * 14f, 0f, rz), sx > 0 ? Vector3.Right : Vector3.Left,
+                 2.6f, 2, 4f);
+
+            // Walls along the outer edge, so the band has interior corners rather than being a
+            // single open room with a fence round it.
+            Blocks.Add(new Block(new Vector3(sx * 124f, 2.4f, sz * 40f),
+                                 new Vector3(2f, 2.4f, 20f), WallTint));
+            Blocks.Add(new Block(new Vector3(sx * 52f, 2.4f, sz * 90f),
+                                 new Vector3(20f, 2.4f, 2f), WallTint));
+        }
+
+        // Burning ground either side of each causeway ramp, where everyone funnels on the way out
+        // of the core. The Furnace only — see AddOuterRing.
+        if (Layout != 1) return;
+
+        foreach (int sx in new[] { -1, 1 })
+            Hazard(new Rect2(sx * 70f - 8f, -30f, 16f, 16f));
+
+        foreach (int sz in new[] { -1, 1 })
+            Hazard(new Rect2(-38f, sz * 56f - 8f, 16f, 16f));
+    }
+
+    /// <summary>
+    /// The four approaches out of the core, each a long stepped climb onto a raised causeway. They
+    /// are the walking route to everything beyond, so they are wide, obvious, and covered.
+    /// </summary>
+    void AddCauseways()
+    {
+        // The stairs and the road they meet have to agree on a height, and the last step has to
+        // overlap the road rather than stop just short of it: a gap smaller than a nav cell is
+        // still a gap the graph will not link across.
+        const float RoadTop = 5.2f;
+
+        foreach (int sx in new[] { -1, 1 })
+        {
+            Ramp(new Vector3(sx * 64f, 0f, 0f), sx > 0 ? Vector3.Right : Vector3.Left,
+                 RoadTop, 5, 7f);
+
+            Deck(new Vector3(sx * 103f, RoadTop * 0.5f, 0f), new Vector3(27f, RoadTop * 0.5f, 8f));
+
+            // Guard rails, so a raised road reads as a road rather than as a ledge.
+            foreach (int sz in new[] { -1, 1 })
+                Blocks.Add(new Block(new Vector3(sx * 103f, RoadTop + 1.2f, sz * 7f),
+                                     new Vector3(27f, 1.2f, 1f), WallTint));
+        }
+
+        foreach (int sz in new[] { -1, 1 })
+        {
+            Ramp(new Vector3(0f, 0f, sz * 48f), sz > 0 ? Vector3.Back : Vector3.Forward,
+                 RoadTop, 5, 7f);
+
+            Deck(new Vector3(0f, RoadTop * 0.5f, sz * 80f), new Vector3(8f, RoadTop * 0.5f, 23f));
+
+            foreach (int sx in new[] { -1, 1 })
+                Blocks.Add(new Block(new Vector3(sx * 7f, RoadTop + 1.2f, sz * 80f),
+                                     new Vector3(1f, 1.2f, 23f), WallTint));
+        }
+    }
+
+    /// <summary>
+    /// A stepped fortress in each far corner: stairs on two faces, an elevator up the middle, and
+    /// a roof worth holding. The stairs are the route that always works; the elevator is the one
+    /// that gets you there before whoever took the stairs.
+    /// </summary>
+    void AddCornerCitadels()
+    {
+        foreach (int sx in new[] { -1, 1 })
+        foreach (int sz in new[] { -1, 1 })
+        {
+            float cx = sx * 104f, cz = sz * 76f;
+
+            // Tiers rise 2.4m each, which is inside the jump apex, so the whole fortress can be
+            // climbed without the stairs if you are willing to work for it. The first attempt used
+            // four-metre tiers and a sixteen-metre top: unjumpable, and the top surface sat at the
+            // wall height the navigation graph deliberately refuses to route along, so the roof was
+            // invisible to every bot in the game.
+            Deck(new Vector3(cx, 1.2f, cz), new Vector3(22f, 1.2f, 18f), CoverTint);
+            Deck(new Vector3(cx + sx * 4f, 2.4f, cz + sz * 3f), new Vector3(15f, 2.4f, 12f));
+            Deck(new Vector3(cx + sx * 8f, 3.6f, cz + sz * 6f), new Vector3(8f, 3.6f, 6f), AccentTint);
+
+            // Stairs onto the base from the two inboard faces, so the fortress can be taken on
+            // foot from the direction people arrive.
+            Ramp(new Vector3(cx - sx * 27f, 0f, cz), sx > 0 ? Vector3.Right : Vector3.Left,
+                 2.4f, 2, 4f);
+            Ramp(new Vector3(cx, 0f, cz - sz * 23f), sz > 0 ? Vector3.Back : Vector3.Forward,
+                 2.4f, 2, 4f);
+
+            // The elevator, running from the ground to a perch above the top tier and waiting at
+            // both ends so it can actually be boarded.
+            MovingPlatforms.Add(new MovingPlatformDef(
+                new Vector3(cx - sx * 14f, 0.6f, cz - sz * 12f),
+                new Vector3(cx - sx * 14f, 12.4f, cz - sz * 12f),
+                new Vector3(3.4f, 0.35f, 3.4f), period: 9f, dwell: 0.34f));
+
+            // A perch the elevator reaches and the stairs do not, so riding it buys something.
+            Deck(new Vector3(cx - sx * 14f, 12.8f, cz - sz * 12f), new Vector3(5f, 0.4f, 5f), AccentTint);
+
+            Pad(new Vector3(cx + sx * 19f, 0f, cz - sz * 15f), 17f);
+        }
+    }
+
+    /// <summary>
+    /// The nasty bit. Each mid-edge of the outer band is a trench with a wall that sweeps along it,
+    /// and there is nowhere to stand that the wall does not reach except the far side.
+    ///
+    /// This is the one piece of machinery that reaches into the simulation rather than being solid
+    /// geometry, because Godot resolves a character against a moving body by stopping the character
+    /// dead — so a push wall left to the physics engine is just a wall that travels.
+    /// </summary>
+    void AddPushWallGauntlets()
+    {
+        foreach (int sx in new[] { -1, 1 })
+        {
+            float x = sx * 100f;
+
+            // The trench, carved either side of the causeway.
+            foreach (int sz in new[] { -1, 1 })
+            {
+                Carve(new Rect2(x - 24f, sz * 20f - 11f, 48f, 22f));
+
+                // A ledge of safe ground at each end of the sweep, so the gauntlet is survivable
+                // if you are quick rather than being a coin toss.
+                Deck(new Vector3(x - 27f, 0.6f, sz * 20f), new Vector3(3f, 0.6f, 12f), CoverTint);
+                Deck(new Vector3(x + 27f, 0.6f, sz * 20f), new Vector3(3f, 0.6f, 12f), CoverTint);
+
+                MovingPlatforms.Add(new MovingPlatformDef(
+                    new Vector3(x - 22f, 1.6f, sz * 20f),
+                    new Vector3(x + 22f, 1.6f, sz * 20f),
+                    new Vector3(1.2f, 1.6f, 11f), period: 7.5f, dwell: 0.12f, pushes: true));
+            }
+        }
+
+        // And one across each far end, sweeping toward the wall.
+        foreach (int sz in new[] { -1, 1 })
+        {
+            float z = sz * 84f;
+            Carve(new Rect2(-26f, z - 13f, 52f, 26f));
+
+            Deck(new Vector3(0f, 0.6f, z - sz * 16f), new Vector3(14f, 0.6f, 3f), CoverTint);
+
+            MovingPlatforms.Add(new MovingPlatformDef(
+                new Vector3(0f, 1.6f, z - sz * 11f),
+                new Vector3(0f, 1.6f, z + sz * 11f),
+                new Vector3(13f, 1.6f, 1.2f), period: 8.5f, dwell: 0.1f, pushes: true));
+        }
+    }
+
+    /// <summary>
+    /// What makes the walk worth it. The strongest guns and every vehicle live out here, so the
+    /// outer band is contested rather than scenery you can ignore.
+    /// </summary>
+    void AddOuterLoot()
+    {
+        foreach (int sx in new[] { -1, 1 })
+        foreach (int sz in new[] { -1, 1 })
+        {
+            // Both on tiers the stairs reach. Nothing is gated behind the elevator: navigation
+            // nodes are built from static geometry, so a weapon that could only be fetched by
+            // riding one would be a weapon no bot could ever contest.
+            WeaponSpawns.Add(new Vector3(sx * 112f, 7.7f, sz * 82f));
+            WeaponSpawns.Add(new Vector3(sx * 98f, 5.3f, sz * 72f));
+
+            if (Layout == 1) Hazard(new Rect2(sx * 72f - 9f, sz * 60f - 9f, 18f, 18f));
+        }
+
+        // On the citadel base, outboard of the second tier so the zone is standing room rather
+        // than a point buried inside a block.
+        ZoneSpots.Add(new Vector3(-87f, 2.5f, -61f));
+        ZoneSpots.Add(new Vector3(87f, 2.5f, 61f));
+        ZoneSpots.Add(new Vector3(90f, 5.3f, 0f));
+        ZoneSpots.Add(new Vector3(-90f, 5.3f, 0f));
+
+        // Vehicle spawns are not placed here. They are chosen from ground a hull can actually
+        // reach — see ChooseVehicleSpawns, which runs once the whole map exists.
+    }
+
+    // ---- where vehicles can go ----
+
+    /// <summary>Grid spacing for the drivable sweep. Fine enough to find a gap a hull fits, cheap.</summary>
+    const float DriveCell = 4f;
+
+    /// <summary>
+    /// Whether a hull of this half-width fits here, standing on the ground.
+    ///
+    /// A vehicle cannot climb. It is a CharacterBody3D with no step handling whatsoever, so
+    /// anything from kerb height up to hull height is a wall to it — which is why this exists
+    /// separately from the pawn navigation graph, where most of those same blocks are stairs.
+    /// </summary>
+    public bool HullFits(Vector3 at, float radius)
+    {
+        if (IsOverPit(at)) return false;
+
+        foreach (var b in Blocks)
+        {
+            float top = b.Centre.Y + b.HalfExtents.Y;
+            float bottom = b.Centre.Y - b.HalfExtents.Y;
+
+            // Below a kerb a hull rides over it; above hull height it drives underneath.
+            if (top <= 0.35f || bottom >= 2.6f) continue;
+
+            if (MathF.Abs(at.X - b.Centre.X) < b.HalfExtents.X + radius
+                && MathF.Abs(at.Z - b.Centre.Z) < b.HalfExtents.Z + radius) return false;
+        }
+        return true;
+    }
+
+    /// <summary>The closest point to <paramref name="near"/> where a hull actually fits.</summary>
+    public Vector3 NearestDrivable(Vector3 near, float radius)
+    {
+        Vector3 best = near;
+        float bestDist = float.MaxValue;
+
+        // Scanned on exactly the lattice DrivableRegion floods — integer multiples of the cell
+        // size — rather than on its own offset grid. They used to disagree, so on Foundry this
+        // returned a point that fitted a hull, the flood rounded it to the neighbouring cell,
+        // that cell was inside the central spine, and the entire map came back undrivable.
+        int nx = Mathf.FloorToInt((HalfWidth - 4f) / DriveCell);
+        int nz = Mathf.FloorToInt((HalfDepth - 4f) / DriveCell);
+
+        for (int cx = -nx; cx <= nx; cx++)
+        for (int cz = -nz; cz <= nz; cz++)
+        {
+            var at = new Vector3(cx * DriveCell, 0f, cz * DriveCell);
+            if (!HullFits(at, radius)) continue;
+
+            float d = at.DistanceSquaredTo(near with { Y = 0f });
+            if (d < bestDist) { bestDist = d; best = at; }
+        }
+        return best;
+    }
+
+    /// <summary>Every grid cell a hull can drive to from <paramref name="from"/>.</summary>
+
+
+    /// <summary>Cell size for the on-foot reachability flood. Fine enough to find a doorway.</summary>
+    const float WalkCell = 1.6f;
+
+    /// <summary>
+    /// How much open floor a spawn has to be able to walk to before it counts as connected.
+    ///
+    /// A sealed vault is perhaps forty square metres of perfectly good floor with no way out of it,
+    /// so "can I stand up" and "is there room to move" both answer yes inside one. The only question
+    /// that separates a room from a cell is how far you can *get*, and this is that question with a
+    /// number on it.
+    /// </summary>
+    const int ReachableCellsNeeded = 400;
+
+    /// <summary>
+    /// Flood the walkable floor outward from a point, up to <paramref name="cap"/> cells.
+    ///
+    /// Written because a player spawned inside a sealed room and could not get out, which is the
+    /// worst class of bug this game can have: not a bad fight or an unfair death, but a match you
+    /// are simply not in. The interiors pass builds rooms, and the ground-spawn pass runs after it
+    /// and only ever asked whether a candidate had room to stand — which is true inside a cell.
+    ///
+    /// Capped rather than exhaustive. Any spawn that reaches four hundred cells is connected to the
+    /// map at large, and continuing to flood the remaining twenty thousand proves nothing further.
+    /// </summary>
+    public int ReachableFrom(Vector3 start, int cap = ReachableCellsNeeded)
+    {
+        var seen = new HashSet<(int, int)>();
+        var queue = new Queue<(int, int)>();
+
+        var at = (Mathf.RoundToInt(start.X / WalkCell), Mathf.RoundToInt(start.Z / WalkCell));
+        seen.Add(at);
+        queue.Enqueue(at);
+
+        while (queue.Count > 0 && seen.Count < cap)
+        {
+            var (cx, cz) = queue.Dequeue();
+
+            foreach (var (dx, dz) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+            {
+                var next = (cx + dx, cz + dz);
+                if (seen.Contains(next)) continue;
+
+                float nx = next.Item1 * WalkCell, nz = next.Item2 * WalkCell;
+                if (MathF.Abs(nx) > HalfWidth - 2f || MathF.Abs(nz) > HalfDepth - 2f) continue;
+
+                var p = new Vector3(nx, 0f, nz);
+
+                // A pit is not a route. Walking into one is a death, not a way out of a room, and
+                // counting it as connectivity would call a ledge over a trench an escape.
+                if (IsOverPit(p)) continue;
+
+                // Tested at the *spawn's* own height, not at floor level.
+                //
+                // Flooding at ground level called every corner-deck spawn sealed, because the deck
+                // it stands on is solid at y=0.6 — the flood could not leave the first cell. What
+                // makes a room a room is walls beside you, so the question has to be asked at the
+                // height you are actually standing at. Five metres up on a deck, the neighbouring
+                // cells are open air and the flood spreads freely, which is correct: you can step
+                // off a deck in any direction.
+                if (!IsClearOfBlocks(p with { Y = start.Y + 0.6f }, Pawn.Radius, Pawn.Height)) continue;
+
+                seen.Add(next);
+                queue.Enqueue(next);
+            }
+        }
+
+        return seen.Count;
+    }
+
+    /// <summary>Whether somewhere is connected to the rest of the map rather than walled in.</summary>
+    public bool IsConnected(Vector3 at) => ReachableFrom(at) >= ReachableCellsNeeded;
+
+    public HashSet<(int, int)> DrivableRegion(Vector3 from, float radius)
+    {
+        var seen = new HashSet<(int, int)>();
+        var queue = new Queue<(int, int)>();
+
+        var start = (Mathf.RoundToInt(from.X / DriveCell), Mathf.RoundToInt(from.Z / DriveCell));
+        seen.Add(start);
+        queue.Enqueue(start);
+
+        while (queue.Count > 0)
+        {
+            var (cx, cz) = queue.Dequeue();
+
+            foreach (var (dx, dz) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+            {
+                var next = (cx + dx, cz + dz);
+                if (seen.Contains(next)) continue;
+
+                float nx = next.Item1 * DriveCell, nz = next.Item2 * DriveCell;
+                if (MathF.Abs(nx) > HalfWidth - 2f || MathF.Abs(nz) > HalfDepth - 2f) continue;
+
+                seen.Add(next);
+                if (HullFits(new Vector3(nx, 0f, nz), radius)) queue.Enqueue(next);
+            }
+        }
+
+        // The frontier cells were added to stop them being revisited but are not themselves
+        // drivable, so they are filtered out before the set is handed back.
+        seen.RemoveWhere(c => !HullFits(new Vector3(c.Item1 * DriveCell, 0f, c.Item2 * DriveCell), radius));
+        return seen;
+    }
+
+    /// <summary>
+    /// Park the vehicles on ground they can actually get out of.
+    ///
+    /// Hand-placing these went wrong three times running, and the last time it went wrong on every
+    /// map at once: the spawns passed a clearance check and were still walled in by a trench on one
+    /// side, a citadel on another and a redoubt on a third, so a tank could turn on the spot and go
+    /// nowhere. Clearance was never the question — connectivity was.
+    ///
+    /// So they are derived instead. Flood the ground a hull can reach from the middle of the map,
+    /// then take the furthest reachable cell in each quadrant. That keeps the intent that made them
+    /// outer-district loot — they are as far from the core as the geometry allows — while making it
+    /// impossible for one to be somewhere a vehicle cannot leave.
+    /// </summary>
+    void ChooseVehicleSpawns()
+    {
+        float radius = 0f, turn = 0f;
+
+        foreach (var v in Vehicles.Spawnable)
+        {
+            if (v.Flies) continue;
+            radius = MathF.Max(radius, v.HalfExtents.Z + 0.4f);
+            turn = MathF.Max(turn, new Vector2(v.HalfExtents.X, v.HalfExtents.Z).Length() + 0.3f);
+        }
+
+        // Seeded from the open ground nearest the middle, not from the middle itself. Three of the
+        // four layouts have a solid structure sitting on the origin — Crossfire's spire, Atrium's
+        // tower — so flooding from (0,0) started inside a block and died before it left it.
+        var region = DrivableRegion(NearestDrivable(Vector3.Zero, radius), radius);
+
+        VehicleSpawns.Clear();
+
+        // Candidates: reachable ground with turning room as well as a lane, or the hull arrives
+        // somewhere it can drive into and never drive out of.
+        var candidates = new List<Vector3>();
+
+        foreach (var (cx, cz) in region)
+        {
+            var at = new Vector3(cx * DriveCell, 1f, cz * DriveCell);
+            if (HullFits(at, turn)) candidates.Add(at);
+        }
+
+        // Ranked by proximity to a band well out from the core, not by raw distance. Raw distance
+        // put every vehicle in a corner jammed against the perimeter wall — technically the
+        // furthest reachable ground and a poor place to keep a car.
+        const float PreferredRadius = 105f;
+
+        candidates.Sort((a, b) =>
+            MathF.Abs(new Vector2(a.X, a.Z).Length() - PreferredRadius)
+                .CompareTo(MathF.Abs(new Vector2(b.X, b.Z).Length() - PreferredRadius)));
+
+        // Greedy, with a separation rule rather than one per quadrant. Quadrants looked tidier and
+        // failed on Foundry, whose geometry leaves one quadrant with no turning room at all — and
+        // an arena short of a vehicle is worse than one whose vehicles are unevenly spread.
+        const float MinApart = 55f;
+
+        foreach (var at in candidates)
+        {
+            bool crowded = false;
+            foreach (var taken in VehicleSpawns)
+                if (taken.DistanceTo(at) < MinApart) { crowded = true; break; }
+
+            if (crowded) continue;
+
+            VehicleSpawns.Add(at);
+            if (VehicleSpawns.Count == 4) break;
+        }
+    }
+
+    /// <summary>
+    /// How far out along the arena's long axis each flag base sits, as a fraction of the half
+    /// width. Far enough apart that a run is a journey; close enough that it is not a commute.
+    /// </summary>
+    const float FlagBaseReach = 0.46f;
+
+    /// <summary>
+    /// Place the two flag bases, one either side of the middle.
+    ///
+    /// Nudged rather than snapped to a grid: the ideal spot is a fixed distance out along X, and
+    /// if that lands inside a structure the search walks outward in rings until it finds floor.
+    /// Every layout puts something on or near the origin — Crossfire's spire, the Atrium's tower —
+    /// so the ideal point being blocked is the normal case rather than the exception.
+    /// </summary>
+    void ChooseFlagBases()
+    {
+        FlagBases.Clear();
+
+        foreach (int side in new[] { -1, 1 })
+        {
+            float wantX = side * HalfWidth * FlagBaseReach;
+            Vector3? found = null;
+
+            for (float radius = 0f; radius <= 46f && found == null; radius += 4f)
+            for (int step = 0; step < 12 && found == null; step++)
+            {
+                float angle = step * MathF.Tau / 12f;
+                float x = wantX + MathF.Cos(angle) * radius;
+                float z = MathF.Sin(angle) * radius;
+
+                if (MathF.Abs(x) > HalfWidth - 8f || MathF.Abs(z) > HalfDepth - 8f) continue;
+
+                var at = new Vector3(x, 1f, z);
+
+                // Room for the flag and for a fight over it, not merely for a standing pawn.
+                if (!IsClearOfBlocks(new Vector3(x, 0.6f, z), 3.2f, 2.6f)) continue;
+                if (IsOverPit(at)) continue;
+
+                found = at;
+            }
+
+            // A layout with nowhere clear at the ideal radius falls back to the middle of its half,
+            // which every arena has open floor in.
+            FlagBases.Add(found ?? new Vector3(side * HalfWidth * 0.3f, 1f, 0f));
+        }
+    }
+
+    /// <summary>
+    /// How many med kits an arena aims to carry. Reached where the geometry allows it.
+    ///
+    /// Twenty-eight sounds a lot until you divide it into 278x206 metres: it works out at roughly
+    /// one med kit per sixty-metre square, and the measured worst case is still a thirty-odd metre
+    /// walk. Sixteen left corners of the map fifty metres from the nearest one.
+    /// </summary>
+    public const int HealthCrateTarget = 34;
+
+    /// <summary>
+    /// Lay med kits over the whole floor.
+    ///
+    /// They used to be every fourth weapon crate, which on a map this size meant three of them, all
+    /// on routes chosen for where a *weapon* should be. Being hurt and having nowhere to go is not
+    /// tension, it is just a long walk, and it pushed every wounded fight into the same three spots.
+    ///
+    /// A grid rather than hand-placed spots, because there are four layouts and this has to work on
+    /// all of them without four sets of coordinates to keep in step with the geometry. Anything the
+    /// grid lands inside a block, over a pit, or on top of a weapon crate is dropped; the rest is
+    /// thinned down to the target so the spacing stays even instead of clumping wherever the map
+    /// happens to be open.
+    /// </summary>
+    void ChooseHealthSpawns()
+    {
+        HealthSpawns.Clear();
+
+        const float StepX = 15f, StepZ = 14f;
+        const float Margin = 7f;
+
+        var candidates = new List<Vector3>();
+
+        for (float z = -HalfDepth + Margin; z <= HalfDepth - Margin; z += StepZ)
+        for (float x = -HalfWidth + Margin; x <= HalfWidth - Margin; x += StepX)
+        {
+            var at = new Vector3(x, 1f, z);
+
+            // Room for a standing pawn, measured from just above the floor. A crate half inside a
+            // wall is a crate nobody can reach.
+            if (!IsClearOfBlocks(new Vector3(x, 0.6f, z), 1.4f, 2.2f)) continue;
+            if (IsOverPit(at)) continue;
+
+            // Never on top of a weapon crate: two pickups in one place is one pickup you cannot see.
+            bool onACrate = false;
+            foreach (var w in WeaponSpawns)
+                if (new Vector2(w.X - x, w.Z - z).Length() < 7f) { onACrate = true; break; }
+
+            if (!onACrate) candidates.Add(at);
+        }
+
+        if (candidates.Count == 0) return;
+
+        // Farthest-point sampling, not a stride through the grid order.
+        //
+        // A stride was the first attempt and it was quietly terrible: the grid is generated row by
+        // row, so taking every nth entry and stopping at the target covers the first seven rows of
+        // ten and leaves the whole far side of the map without a med kit. Measured worst case on
+        // Crossfire was 110 metres from the nearest one, on an arena where a full crossing is 278.
+        //
+        // This picks each kit at the point furthest from every kit already placed, which optimises
+        // exactly the thing that matters — the longest walk to health anywhere on the floor — and
+        // does it without caring what shape the layout is.
+        HealthSpawns.Add(candidates[0]);
+
+        while (HealthSpawns.Count < HealthCrateTarget && HealthSpawns.Count < candidates.Count)
+        {
+            Vector3 best = candidates[0];
+            float bestGap = -1f;
+
+            foreach (var c in candidates)
+            {
+                float nearest = float.MaxValue;
+
+                foreach (var taken in HealthSpawns)
+                    nearest = MathF.Min(nearest, new Vector2(taken.X - c.X, taken.Z - c.Z).Length());
+
+                if (nearest > bestGap) { bestGap = nearest; best = c; }
+            }
+
+            // Everything left is already on top of something placed. More kits than the floor has
+            // distinct places to put them is not an improvement.
+            if (bestGap < 12f) break;
+
+            HealthSpawns.Add(best);
+        }
+    }
+
+    /// <summary>
+    /// A stepped pyramid of concentric slabs climbing to <paramref name="top"/>. Concentric rather
+    /// than a single column so it can be climbed from any side — a tower with one staircase is a
+    /// chokepoint, and up here that reads as a dead end.
+    /// </summary>
+    void Tower(float x, float z, float top, float baseHalf, int tiers = 3)
+    {
+        for (int i = 0; i < tiers; i++)
+        {
+            float h = top * (i + 1) / tiers;
+            float half = baseHalf * (1f - i * 0.72f / tiers);
+            Color tint = i == tiers - 1 ? AccentTint : (i == 0 ? CoverTint : DeckTint);
+            Deck(new Vector3(x, h * 0.5f, z), new Vector3(half, h * 0.5f, half), tint);
+        }
+    }
+
+    /// <summary>
+    /// Crossfire — a high cross mirroring the cross on the floor. Two skybridges span the whole
+    /// arena and meet directly over the central tier, so the best position on the map is also the
+    /// most exposed one: everything below can see you and you can see all of it.
+    /// </summary>
+    void VerticalSpire()
+    {
+        foreach (int sx in new[] { -1, 1 })
+        foreach (int sz in new[] { -1, 1 })
+            Tower(sx * 30f, sz * 24f, 7.2f, 5.5f);
+
+        // The cross itself, one jump above the tower tops.
+        Deck(new Vector3(0f, 9.6f, 0f), new Vector3(52f, 0.4f, 3f));
+        Deck(new Vector3(0f, 9.6f, 0f), new Vector3(3f, 0.4f, 38f));
+
+        // A crow's nest over the junction, reached from the bridges themselves.
+        Deck(new Vector3(0f, 12.0f, 0f), new Vector3(4.5f, 0.4f, 4.5f), AccentTint);
+
+        foreach (int sx in new[] { -1, 1 })
+            Deck(new Vector3(sx * 46f, 9.6f, 0f), new Vector3(6f, 0.4f, 7f), CoverTint);
+
+        Pad(new Vector3(-30f, 0f, 0f), 18f);
+        Pad(new Vector3(30f, 0f, 0f), 18f);
+    }
+
+    /// <summary>
+    /// Foundry — gantries hugging the long walls in a full circuit, deliberately asymmetric: the
+    /// north wall carries a second level the south wall does not. It rewards learning the map
+    /// rather than reading it, and it keeps the fighting off the centre spine.
+    /// </summary>
+    void VerticalGantries()
+    {
+        foreach (int sz in new[] { -1, 1 })
+            Deck(new Vector3(0f, 6.4f, sz * 34f), new Vector3(46f, 0.4f, 2.8f));
+
+        // The ends, closing the circuit.
+        foreach (int sx in new[] { -1, 1 })
+            Deck(new Vector3(sx * 44f, 6.4f, 0f), new Vector3(2.8f, 0.4f, 34f));
+
+        // Access towers at the four corners of the circuit.
+        foreach (int sx in new[] { -1, 1 })
+        foreach (int sz in new[] { -1, 1 })
+            Tower(sx * 44f, sz * 34f, 6.4f, 4.6f);
+
+        // The upper deck, north wall only.
+        Deck(new Vector3(0f, 10.6f, -34f), new Vector3(28f, 0.4f, 2.6f), AccentTint);
+        foreach (int sx in new[] { -1, 1 })
+            Deck(new Vector3(sx * 32f, 8.5f, -34f), new Vector3(3.2f, 0.4f, 2.6f), CoverTint);
+
+        // Spurs reaching in toward the spine catwalks, so the circuit is not sealed off from the
+        // middle of the map.
+        foreach (int sx in new[] { -1, 1 })
+        foreach (int sz in new[] { -1, 1 })
+            Deck(new Vector3(sx * 24f, 6.4f, sz * 24f), new Vector3(2.6f, 0.4f, 8f), CoverTint);
+
+        Pad(new Vector3(-44f, 0f, 0f), 17f);
+        Pad(new Vector3(44f, 0f, 0f), 17f);
+    }
+
+    /// <summary>
+    /// Atrium — a balcony running the full perimeter with the middle left completely open, so the
+    /// upper level is a ring you circle and drop from rather than a place you cross. It doubles the
+    /// moat's logic one storey up: the centre is the prize and there is nothing to hide behind.
+    /// </summary>
+    void VerticalBalcony()
+    {
+        // Held inside the corner spawn decks rather than run to the wall. At x = 50 the side rails
+        // passed straight through all four spawns, which the spawn-clearance test caught: you would
+        // have started the match with a walkway through your head.
+        foreach (int sz in new[] { -1, 1 })
+            Deck(new Vector3(0f, 7.4f, sz * 40f), new Vector3(44f, 0.4f, 3.5f));
+
+        foreach (int sx in new[] { -1, 1 })
+            Deck(new Vector3(sx * 46f, 7.4f, 0f), new Vector3(3.5f, 0.4f, 30f));
+
+        // Access at the midpoint of each side, for the same reason — a tower in a corner and a
+        // spawn deck in a corner want the same ground.
+        foreach (int sx in new[] { -1, 1 })
+            Tower(sx * 41f, 0f, 7.4f, 5.5f);
+
+        foreach (int sz in new[] { -1, 1 })
+            Tower(0f, sz * 33f, 7.4f, 5.5f);
+
+        // Diving platforms cantilevered inward off the balcony corners — the committed way down
+        // into the middle, one jump below the ring so stepping out is deliberate.
+        foreach (int sx in new[] { -1, 1 })
+        foreach (int sz in new[] { -1, 1 })
+            Deck(new Vector3(sx * 38f, 5.6f, sz * 32f), new Vector3(4.5f, 0.4f, 4.5f), AccentTint);
+
+        Pad(new Vector3(-46f, 0f, 22f), 20f);
+        Pad(new Vector3(46f, 0f, -22f), 20f);
+    }
+
+    /// <summary>
+    /// Gauntlet — a climb from both ends to a single perch above the middle pit. The lanes below
+    /// stay the map's identity; this turns the whole arena into a race for one spot, with the
+    /// longest fall on any of the four waiting underneath it.
+    /// </summary>
+    void VerticalAscent()
+    {
+        // Two staircases climbing inward, offset in Z so the two sides are not mirror images and
+        // you can be flanked on the way up.
+        foreach (int sx in new[] { -1, 1 })
+        {
+            float zOff = sx > 0 ? 20f : -20f;
+
+            Deck(new Vector3(sx * 46f, 1.3f, zOff), new Vector3(6f, 1.3f, 6f), CoverTint);
+            Deck(new Vector3(sx * 36f, 2.4f, zOff * 0.8f), new Vector3(5.5f, 2.4f, 5.5f));
+            Deck(new Vector3(sx * 27f, 3.6f, zOff * 0.55f), new Vector3(5f, 3.6f, 5f));
+            Deck(new Vector3(sx * 19f, 4.8f, zOff * 0.3f), new Vector3(4.5f, 4.8f, 4.5f), AccentTint);
+            Deck(new Vector3(sx * 12f, 6.0f, 0f), new Vector3(4f, 0.4f, 4f), AccentTint);
+        }
+
+        // The perch, spanning the pit. Nothing else on the map is this high, and falling off it
+        // lands you in the gap.
+        Deck(new Vector3(0f, 8.2f, 0f), new Vector3(7f, 0.4f, 6f), AccentTint);
+        Deck(new Vector3(0f, 10.4f, 0f), new Vector3(3.5f, 0.4f, 3.5f), AccentTint);
+
+        // Perimeter perches looking down the lanes, so the climb is not the only high ground.
+        foreach (int sz in new[] { -1, 1 })
+        {
+            Deck(new Vector3(-46f, 6.6f, sz * 36f), new Vector3(5f, 0.4f, 4f));
+            Deck(new Vector3(46f, 6.6f, sz * 36f), new Vector3(5f, 0.4f, 4f));
+            Tower(-38f, sz * 36f, 4.4f, 4f, 2);
+            Tower(38f, sz * 36f, 4.4f, 4f, 2);
+        }
+
+        Pad(new Vector3(-30f, 0f, 34f), 19f);
+        Pad(new Vector3(30f, 0f, -34f), 19f);
+    }
+
+    // ---- construction helpers ----
+
+    /// <summary>
+    /// True while the upper storey is being laid down, so the thin walkways built there come out
+    /// destructible without every call site having to say so.
+    /// </summary>
+    bool buildingUpperStorey;
+
+    /// <summary>A walkway rather than structure. Thin decks are the things worth blowing out.</summary>
+    const float FragileThickness = 0.5f;
+
+    void Deck(Vector3 centre, Vector3 halfExtents, Color? tint = null)
+        => Blocks.Add(new Block(centre, halfExtents, tint ?? DeckTint,
+                                buildingUpperStorey && halfExtents.Y <= FragileThickness));
+
+    /// <summary>
+    /// A staircase of boxes climbing to <paramref name="top"/>. Steps rather than a slope because
+    /// everything else in the arena is an axis-aligned box, and a ramp mesh would need its own
+    /// collision shape and would look out of place.
+    /// </summary>
+    void Ramp(Vector3 baseAt, Vector3 dir, float top, int steps, float width)
+    {
+        for (int i = 1; i <= steps; i++)
+        {
+            float h = top * i / steps;
+            Vector3 at = baseAt + dir * (i * 2.4f);
+            Blocks.Add(new Block(at with { Y = h * 0.5f },
+                                 new Vector3(MathF.Abs(dir.X) > 0.5f ? 1.2f : width, h * 0.5f,
+                                             MathF.Abs(dir.Z) > 0.5f ? 1.2f : width),
+                                 CoverTint));
+        }
+    }
+
+    /// <summary>
+    /// A walled room with a roof and doorways cut into it.
+    ///
+    /// The arenas were built almost entirely out of horizontal surfaces — decks, platforms, ledges,
+    /// gantries — and the result was open ground with things standing on it. Every sightline ran
+    /// the width of the map, every fight was a shooting gallery at range, and the only cover was
+    /// something to stand behind rather than somewhere to be.
+    ///
+    /// A room is the opposite kind of space. It cuts sightlines rather than raising you above them,
+    /// it makes a corner worth holding, and it gives a shotgun somewhere it beats a rifle. It also
+    /// makes an arena feel like a place rather than a diagram — the reason a hallway is more
+    /// memorable than a platform is that it has a shape you can be inside of.
+    ///
+    /// Doorways are gaps in the walls rather than holes in a mesh: each wall is built as up to two
+    /// segments with a hole between them, which stays inside the "everything is an axis-aligned
+    /// box" rule the whole game depends on for its navigation and its clearance tests.
+    /// </summary>
+    /// <param name="centre">Middle of the floor of the room.</param>
+    /// <param name="half">Half the interior footprint, and the wall height in Y.</param>
+    /// <param name="doors">Which sides get a doorway: -X, +X, -Z, +Z in that order.</param>
+    /// <param name="roofed">Whether to lid it. An open room is a courtyard; a lid is a corridor.</param>
+    /// <returns>False when the site was already occupied and the room was skipped.</returns>
+    bool Room(Vector3 centre, Vector3 half, bool[] doors, bool roofed = true, Color? tint = null)
+    {
+        const float Thick = 0.9f;
+        const float DoorHalf = 2.4f;
+
+        // Shift onto clear ground if the intended site is taken, but only a little.
+        //
+        // Skipping outright was the first attempt and it was far too brittle: the Furnace's halls
+        // sit ten metres from a corner deck and the Glasshouse's bays fourteen, so both layouts
+        // silently built nothing at all and the arenas came out exactly as bare as before. A room
+        // nudged eight metres is still the room that was designed; a room that does not exist is
+        // not a composition decision, it is a hole.
+        if (FreeRoomSite(centre, half) is not { } site) return false;
+
+        centre = site;
+        LastRoomAt = site;
+
+        Color wall = tint ?? WallTint;
+        float y = centre.Y + half.Y;
+
+        // Each wall runs the full span unless it has a doorway, in which case it becomes the two
+        // pieces either side of the gap. A span too short to leave anything either side of a door
+        // is simply left open — better an oversized opening than a doorframe with no wall in it.
+        void Side(Vector3 at, float span, bool alongX, bool door)
+        {
+            Vector3 Half(float s) => alongX
+                ? new Vector3(s, half.Y, Thick)
+                : new Vector3(Thick, half.Y, s);
+
+            if (!door) { Deck(at with { Y = y }, Half(span), wall); return; }
+
+            float piece = (span - DoorHalf) * 0.5f;
+            if (piece < 1.2f) return;
+
+            float off = DoorHalf + piece;
+            Vector3 step = alongX ? new Vector3(off, 0f, 0f) : new Vector3(0f, 0f, off);
+
+            Deck((at - step) with { Y = y }, Half(piece), wall);
+            Deck((at + step) with { Y = y }, Half(piece), wall);
+        }
+
+        Side(centre - new Vector3(half.X, 0f, 0f), half.Z, alongX: false, doors[0]);
+        Side(centre + new Vector3(half.X, 0f, 0f), half.Z, alongX: false, doors[1]);
+        Side(centre - new Vector3(0f, 0f, half.Z), half.X, alongX: true, doors[2]);
+        Side(centre + new Vector3(0f, 0f, half.Z), half.X, alongX: true, doors[3]);
+
+        RoomsBuilt++;
+
+        if (!roofed) return true;
+
+        // Thin, and built outside the upper-storey pass, so a roof is solid rather than something
+        // a rocket takes out from underneath the people standing on it.
+        Deck(centre with { Y = centre.Y + half.Y * 2f + 0.3f },
+             new Vector3(half.X + Thick, 0.3f, half.Z + Thick), DeckTint);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether a room can be built here without burying something that is already there.
+    ///
+    /// Every interior in the game is placed by hand, over districts also placed by hand, and the
+    /// first pass at them landed walls on four corner spawns, two weapon crates, a capture zone,
+    /// two launch pads and the ground the vehicles park on. Twenty failures, every one of them a
+    /// coordinate somebody would otherwise have had to find by playing the map.
+    ///
+    /// So the rooms ask instead. A site that is not free is skipped rather than shifted: an
+    /// interior is a composition, and a chamber slid eleven metres to the left is not the room that
+    /// was designed — better to lose it and see the gap.
+    /// </summary>
+    /// <summary>
+    /// The nearest place to <paramref name="centre"/> a room of this size fits, or null.
+    ///
+    /// Spirals outward in the same shape the launch pads use, and for the same reason: hand-placed
+    /// geometry laid over other hand-placed geometry needs one rule that resolves the collisions,
+    /// not twenty coordinates that the next layout change invalidates.
+    /// </summary>
+    Vector3? FreeRoomSite(Vector3 centre, Vector3 half)
+    {
+        if (RoomSiteIsFree(centre, half)) return centre;
+
+        for (float r = 6f; r <= 30f; r += 6f)
+        for (int a = 0; a < 12; a++)
+        {
+            float th = a * MathF.Tau / 12f;
+            var at = centre with
+            {
+                X = centre.X + MathF.Cos(th) * r,
+                Z = centre.Z + MathF.Sin(th) * r,
+            };
+
+            if (MathF.Abs(at.X) > HalfWidth - half.X - 4f) continue;
+            if (MathF.Abs(at.Z) > HalfDepth - half.Z - 4f) continue;
+            if (RoomSiteIsFree(at, half)) return at;
+        }
+
+        return null;
+    }
+
+    bool RoomSiteIsFree(Vector3 centre, Vector3 half)
+    {
+        // Generous margin. A wall that merely touches a spawn is still a wall someone materialises
+        // inside of, and a doorway one metre from a weapon crate is a crate you cannot walk around.
+        float mx = half.X + 4f;
+        float mz = half.Z + 4f;
+
+        // Height matters, and leaving it out cost both of the low-walled layouts their interiors.
+        // A capture zone nine metres up on a catwalk is not buried by a two-metre wall underneath
+        // it, and a spawn on a corner deck five metres up is not buried by a courtyard beside it —
+        // but a flat footprint test says both are, which is why the Furnace's crucible and every
+        // one of the Glasshouse's bays refused to build.
+        float ceiling = centre.Y + half.Y * 2f + 1.5f;
+
+        bool Inside(Vector3 p)
+            => p.Y < ceiling
+               && MathF.Abs(p.X - centre.X) < mx
+               && MathF.Abs(p.Z - centre.Z) < mz;
+
+        foreach (var z in ZoneSpots) if (Inside(z)) return false;
+        foreach (var w in WeaponSpawns) if (Inside(w)) return false;
+        // Vehicles need far more clearance than a fighter: the harness asks whether a hull can
+        // turn on the spot where it parks, and a room built at the ordinary margin is close enough
+        // to answer no. Eight metres of extra keep-clear is roughly one tank length.
+        foreach (var v in VehicleSpawns)
+            if (v.Y < ceiling
+                && MathF.Abs(v.X - centre.X) < mx + 9f
+                && MathF.Abs(v.Z - centre.Z) < mz + 9f) return false;
+        foreach (var s in SpawnPoints) if (Inside(s)) return false;
+
+        // Pads are checked both ways round: a room must not sit on a pad, and a pad's whole arc
+        // must not end at a roof. ClearLaunchPadCeilings runs after this and would otherwise spend
+        // its search budget relocating pads away from rooms that had no business being over them.
+        foreach (var pad in LaunchPads) if (Inside(pad.Centre)) return false;
+
+        // The corner decks, which are where everybody spawns and which are not in SpawnPoints yet:
+        // they are added at the very end of construction, after the geometry exists.
+        foreach (int sx in new[] { -1, 1 })
+        foreach (int sz in new[] { -1, 1 })
+            if (Inside(new Vector3(sx * OuterX, 0f, sz * OuterZ))) return false;
+
+        // Not over a hole, and not straddling the lip of one — a room half over a trench is a room
+        // with a floor missing.
+        foreach (int cx in new[] { -1, 0, 1 })
+        foreach (int cz in new[] { -1, 0, 1 })
+            if (IsOverPit(new Vector3(centre.X + cx * mx, 0f, centre.Z + cz * mz))) return false;
+
+        // And the ground it stands on has to be empty. This is the check that was missing when the
+        // Glasshouse put a seed vault inside a district wall: the crate at its centre was correctly
+        // placed in the middle of the room, and the room was inside a building.
+        // The interior only, not the wall line: a room whose wall happens to abut a district wall
+        // is fine and quite often good, and testing out to the full footprint was strict enough
+        // that two layouts built nothing at all again.
+        for (int cx = -1; cx <= 1; cx++)
+        for (int cz = -1; cz <= 1; cz++)
+        {
+            var at = new Vector3(centre.X + cx * half.X * 0.6f,
+                                 centre.Y + 0.6f,
+                                 centre.Z + cz * half.Z * 0.6f);
+
+            if (!IsClearOfBlocks(at, Pawn.Radius, Pawn.Height)) return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Anything flush with the floor is paint, not structure. Pad plates and burning ground.
+    /// </summary>
+    const float FloorDecalTop = 0.5f;
+
+    /// <summary>
+    /// Mark every wall and platform in the arena destructible.
+    ///
+    /// This used to be five to eleven blocks per map — the thin walkways of the upper storey, and
+    /// nothing else — on the reasoning that a map which erodes ends every long match in a flat box.
+    /// That reasoning was sound and the result was still wrong, because what actually happened was
+    /// that the one skybridge on the map was the only thing anybody ever shot at, and every other
+    /// wall in the arena was permanent in a way that read as painted-on rather than built.
+    ///
+    /// The flat-box worry is answered by the rebuild timer rather than by immortal geometry. Nothing
+    /// stays down: a wall comes back on its own, and the bigger it was the longer it takes, so a
+    /// long match is a map that keeps changing shape rather than one that wears away.
+    ///
+    /// Two exceptions, and only two. The perimeter, because a hole in the edge of the world is a way
+    /// out of it. And anything lying flat on the floor — launch pad plates, burning ground — which
+    /// is paint rather than something you could knock down.
+    /// </summary>
+    void MakeStructureBreakable()
+    {
+        for (int i = PerimeterBlocks; i < Blocks.Count; i++)
+        {
+            var b = Blocks[i];
+
+            if (b.Fragile) continue;
+            if (b.Centre.Y + b.HalfExtents.Y <= FloorDecalTop) continue;
+
+            Blocks[i] = new Block(b.Centre, b.HalfExtents, b.Tint, fragile: true);
+        }
+    }
+
+    /// <summary>Burning ground, marked by a glowing slab flush with the floor.</summary>
+    void Hazard(Rect2 area, float damagePerSecond = 34f)
+    {
+        Hazards.Add(new HazardZone(area, 2.2f, damagePerSecond));
+
+        var centre = area.GetCenter();
+        Blocks.Add(new Block(new Vector3(centre.X, 0.05f, centre.Y),
+                             new Vector3(area.Size.X * 0.5f, 0.05f, area.Size.Y * 0.5f),
+                             new Color(0.95f, 0.28f, 0.16f)));
+    }
+
+    /// <summary>Block index of each pad's plate, so a pad and its plate can be moved together.</summary>
+    readonly List<int> padPlates = new();
+
+    void Pad(Vector3 at, float impulse = 17f)
+    {
+        LaunchPads.Add(new LaunchPad(at, 2.4f, impulse));
+        padPlates.Add(Blocks.Count);
+        Blocks.Add(new Block(at with { Y = 0.16f }, new Vector3(2.2f, 0.16f, 2.2f), PadTint));
+    }
+
+    /// <summary>Top of a pad's plate — where a pawn standing on one actually is.</summary>
+    const float PadTop = 0.32f;
+
+    /// <summary>
+    /// How high an impulse carries from a standing start. Straight out of <c>v² / 2g</c>, using the
+    /// same gravity the pawn actually falls under.
+    /// </summary>
+    public static float PadApex(float impulse) => impulse * impulse / (2f * Pawn.Gravity);
+
+    /// <summary>
+    /// Clear vertical distance above a point before something solid stops you.
+    ///
+    /// A cheap AABB scan rather than a raycast: this runs while the arena is still being built,
+    /// before there is a physics world to query, and the whole map is axis-aligned boxes anyway.
+    /// </summary>
+    public float PadHeadroom(Vector3 at)
+    {
+        float lowest = float.MaxValue;
+
+        foreach (var b in Blocks)
+        {
+            float bottom = b.Centre.Y - b.HalfExtents.Y;
+
+            // Only things overhead can cap a jump. A pad's own plate sits down on the floor.
+            if (bottom <= PadTop + 0.2f) continue;
+
+            // A pawn is a body, not a point, so a deck edge a hand's width to the side still takes
+            // the top off a jump. Same radius the standing-clearance test uses.
+            float dx = MathF.Max(0f, MathF.Abs(at.X - b.Centre.X) - b.HalfExtents.X);
+            float dz = MathF.Max(0f, MathF.Abs(at.Z - b.Centre.Z) - b.HalfExtents.Z);
+            if (dx * dx + dz * dz >= 1.4f * 1.4f) continue;
+
+            lowest = MathF.Min(lowest, bottom);
+        }
+
+        return lowest == float.MaxValue ? float.MaxValue : lowest - PadTop;
+    }
+
+    /// <summary>
+    /// Move any pad that got built underneath something.
+    ///
+    /// Pads were placed by hand while laying out each map's floor, and then the upper storey was
+    /// added on top of them by a completely separate pass — <see cref="AddVerticality"/> has never
+    /// known or cared where the pads went. The result was pads that fling you a metre and a half
+    /// into the underside of a skybridge, which is worse than no pad at all: it looks like a route
+    /// and it is a ceiling.
+    ///
+    /// Rather than hand-tune twenty coordinates that the next layout change would bury again, this
+    /// walks each pad outward until it finds open sky. The search spirals because a pad belongs to
+    /// a place in the map's flow — one shoved thirty metres away is a different pad — so the
+    /// nearest clear spot is always the right answer.
+    /// </summary>
+    void ClearLaunchPadCeilings()
+    {
+        for (int i = 0; i < LaunchPads.Count; i++)
+        {
+            var pad = LaunchPads[i];
+            float want = PadApex(pad.Impulse);
+
+            float bestRoom = PadHeadroom(pad.Centre);
+            if (bestRoom >= want) continue;
+
+            Vector3 best = pad.Centre;
+
+            for (float r = 3.5f; r <= 18f && bestRoom < want; r += 2.5f)
+            for (int a = 0; a < 12; a++)
+            {
+                float th = a * MathF.Tau / 12f;
+                var at = new Vector3(pad.Centre.X + MathF.Cos(th) * r, 0f,
+                                     pad.Centre.Z + MathF.Sin(th) * r);
+
+                if (MathF.Abs(at.X) > HalfWidth - 4f || MathF.Abs(at.Z) > HalfDepth - 4f) continue;
+                if (IsOverPit(at)) continue;
+                if (!IsClearOfBlocks(at with { Y = 0.6f }, 2.6f, 2.2f)) continue;
+
+                bool crowded = false;
+                for (int j = 0; j < LaunchPads.Count && !crowded; j++)
+                    if (j != i && new Vector2(LaunchPads[j].Centre.X - at.X,
+                                              LaunchPads[j].Centre.Z - at.Z).Length() < 9f)
+                        crowded = true;
+
+                if (crowded) continue;
+
+                float room = PadHeadroom(at);
+                if (room > bestRoom) { bestRoom = room; best = at; }
+            }
+
+            if (best == pad.Centre) continue;
+
+            LaunchPads[i] = new LaunchPad(best, pad.Radius, pad.Impulse);
+
+            var plate = Blocks[padPlates[i]];
+            Blocks[padPlates[i]] = new Block(best with { Y = 0.16f }, plate.HalfExtents, plate.Tint);
+        }
+    }
+
+    /// <summary>Cuts a hole in the floor. Anything that walks in falls to the kill plane.</summary>
+    void Carve(Rect2 hole)
+    {
+        Pits.Add(hole);
+
+        var result = new List<Rect2>();
+        foreach (var slab in FloorSlabs) result.AddRange(Subtract(slab, hole));
+        FloorSlabs = result;
+    }
+
+    /// <summary>Axis-aligned rectangle subtraction, yielding up to four surviving bands.</summary>
+    static IEnumerable<Rect2> Subtract(Rect2 a, Rect2 b)
+    {
+        if (!a.Intersects(b)) { yield return a; yield break; }
+
+        float ax0 = a.Position.X, ax1 = a.End.X, az0 = a.Position.Y, az1 = a.End.Y;
+        float bx0 = MathF.Max(ax0, b.Position.X), bx1 = MathF.Min(ax1, b.End.X);
+        float bz0 = MathF.Max(az0, b.Position.Y), bz1 = MathF.Min(az1, b.End.Y);
+
+        if (bz0 > az0) yield return new Rect2(ax0, az0, ax1 - ax0, bz0 - az0);
+        if (bz1 < az1) yield return new Rect2(ax0, bz1, ax1 - ax0, az1 - bz1);
+        if (bx0 > ax0) yield return new Rect2(ax0, bz0, bx0 - ax0, bz1 - bz0);
+        if (bx1 < ax1) yield return new Rect2(bx1, bz0, ax1 - bx1, bz1 - bz0);
+    }
+
+    // ---- layouts ----
+
+    /// <summary>
+    /// Crossfire — a tall central deck to hold, reached by ramps or flung onto by launch pads.
+    /// Whoever owns the middle sees everything, which is exactly why it is worth taking.
+    /// </summary>
+    void BuildCrossfire()
+    {
+        Deck(new Vector3(0, 3f, 0), new Vector3(11f, 3f, 8f), AccentTint);
+        Deck(new Vector3(0, 6.4f, 0), new Vector3(4.5f, 0.4f, 3.5f), DeckTint);
+
+        Ramp(new Vector3(-16f, 0, 0), Vector3.Right, 6f, 4, 3.5f);
+        Ramp(new Vector3(16f, 0, 0), Vector3.Left, 6f, 4, 3.5f);
+
+        Pad(new Vector3(0f, 0f, -15f));
+        Pad(new Vector3(0f, 0f, 15f));
+
+        foreach (int sx in new[] { -1, 1 })
+            foreach (int sz in new[] { -1, 1 })
+            {
+                Blocks.Add(new Block(new Vector3(sx * 27f, 3f, sz * 20f), new Vector3(2.2f, 3f, 2.2f), CoverTint));
+                Blocks.Add(new Block(new Vector3(sx * 16f, 1f, sz * 26f), new Vector3(5f, 1f, 1.4f), CoverTint));
+            }
+
+        // Side catwalks, reachable from the corner pillars, giving a flanking route above the floor.
+        foreach (int sx in new[] { -1, 1 })
+            Deck(new Vector3(sx * 34f, 4.5f, 0f), new Vector3(3f, 0.4f, 14f));
+
+        // On top of the upper tier, not level with it — a zone at the deck's own height sits
+        // inside the tier block above it.
+        // One up top as the prize worth climbing for, two on the floor so the arena still hands
+        // out weapons to anyone fighting at ground level.
+        WeaponSpawns.Add(new Vector3(0f, 6.9f, 0f));
+        WeaponSpawns.Add(new Vector3(-30f, 1f, 12f));
+        WeaponSpawns.Add(new Vector3(30f, 1f, -12f));
+
+        ZoneSpots.Add(new Vector3(0f, 6.8f, 0f));
+        ZoneSpots.Add(new Vector3(-30f, 1f, 0f));
+        ZoneSpots.Add(new Vector3(30f, 1f, 0f));
+        ZoneSpots.Add(new Vector3(0f, 1f, -26f));
+        ZoneSpots.Add(new Vector3(0f, 1f, 26f));
+    }
+
+    /// <summary>
+    /// Foundry — a spine down the middle with catwalks over the chokepoints, and a moving platform
+    /// crossing the gap. Timing the platform is the fast way across; the long way round is safer.
+    /// </summary>
+    void BuildFoundry()
+    {
+        Blocks.Add(new Block(new Vector3(0, 4f, 0f), new Vector3(2f, 4f, 9f), WallTint));
+        Blocks.Add(new Block(new Vector3(0, 4f, -28f), new Vector3(2f, 4f, 8f), WallTint));
+        Blocks.Add(new Block(new Vector3(0, 4f, 28f), new Vector3(2f, 4f, 8f), WallTint));
+
+        // Catwalks along the spine, above the two gaps.
+        Deck(new Vector3(0f, 8.2f, -14f), new Vector3(4.5f, 0.4f, 6f));
+        Deck(new Vector3(0f, 8.2f, 14f), new Vector3(4.5f, 0.4f, 6f));
+
+        foreach (int sx in new[] { -1, 1 })
+        {
+            Ramp(new Vector3(sx * 15f, 0, -14f), sx > 0 ? Vector3.Left : Vector3.Right, 8f, 4, 3f);
+            Ramp(new Vector3(sx * 15f, 0, 14f), sx > 0 ? Vector3.Left : Vector3.Right, 8f, 4, 3f);
+            Blocks.Add(new Block(new Vector3(sx * 12f, 1.4f, 0f), new Vector3(3.2f, 1.4f, 3.2f), CoverTint));
+            Blocks.Add(new Block(new Vector3(sx * 28f, 2.4f, 0f), new Vector3(4f, 2.4f, 3f), AccentTint));
+            Blocks.Add(new Block(new Vector3(sx * 40f, 1.6f, -17f), new Vector3(3f, 1.6f, 3f), CoverTint));
+            Blocks.Add(new Block(new Vector3(sx * 40f, 1.6f, 17f), new Vector3(3f, 1.6f, 3f), CoverTint));
+        }
+
+        // Crosses the eastern gap at catwalk height.
+        MovingPlatforms.Add(new MovingPlatformDef(
+            new Vector3(-9f, 8.2f, 14f), new Vector3(9f, 8.2f, 14f),
+            new Vector3(3.2f, 0.35f, 3.2f), 6f));
+
+        Pad(new Vector3(-20f, 0f, -26f));
+        Pad(new Vector3(20f, 0f, 26f));
+
+        WeaponSpawns.Add(new Vector3(0f, 9.1f, -14f));
+        WeaponSpawns.Add(new Vector3(0f, 9.1f, 14f));
+
+        // Not on the centre line: the spine runs straight through it.
+        WeaponSpawns.Add(new Vector3(-20f, 1f, 0f));
+
+        ZoneSpots.Add(new Vector3(0f, 9f, -14f));
+        ZoneSpots.Add(new Vector3(0f, 9f, 14f));
+        ZoneSpots.Add(new Vector3(-36f, 1f, 0f));
+        ZoneSpots.Add(new Vector3(36f, 1f, 0f));
+    }
+
+    /// <summary>
+    /// Atrium — a tiered central tower ringed by a pit. Cross on the two bridges, or launch over
+    /// it and commit to the air. Falling in is fatal, so the middle is genuinely dangerous ground.
+    /// </summary>
+    void BuildAtrium()
+    {
+        // The moat, with two bridges left intact across it.
+        Carve(new Rect2(-20f, -16f, 40f, 12f));
+        Carve(new Rect2(-20f, 4f, 40f, 12f));
+
+        Deck(new Vector3(0, 2.5f, 0), new Vector3(13f, 2.5f, 4f), AccentTint);
+        Deck(new Vector3(0, 5.5f, 0), new Vector3(6f, 0.5f, 3f), DeckTint);
+
+        // Offset half a step so no pillar sits on a cardinal axis. On the axes they blocked the
+        // straight approaches to the middle, which are also where the capture zones live.
+        for (int k = 0; k < 8; k++)
+        {
+            float a = k * MathF.Tau / 8f + MathF.Tau / 16f;
+            var at = new Vector3(MathF.Cos(a) * 30f, 3.5f, MathF.Sin(a) * 24f);
+            Blocks.Add(new Block(at, new Vector3(2f, 3.5f, 2f), CoverTint));
+        }
+
+        Pad(new Vector3(-26f, 0f, 0f), 19f);
+        Pad(new Vector3(26f, 0f, 0f), 19f);
+
+        Blocks.Add(new Block(new Vector3(0, 1f, -30f), new Vector3(8f, 1f, 1.6f), CoverTint));
+        Blocks.Add(new Block(new Vector3(0, 1f, 30f), new Vector3(8f, 1f, 1.6f), CoverTint));
+        Blocks.Add(new Block(new Vector3(-42f, 1.4f, 0f), new Vector3(2.4f, 1.4f, 5f), CoverTint));
+        Blocks.Add(new Block(new Vector3(42f, 1.4f, 0f), new Vector3(2.4f, 1.4f, 5f), CoverTint));
+
+        WeaponSpawns.Add(new Vector3(0f, 6.1f, 0f));      // on the tower, over the moat
+        WeaponSpawns.Add(new Vector3(-46f, 1f, 10f));
+        WeaponSpawns.Add(new Vector3(46f, 1f, -10f));
+
+        ZoneSpots.Add(new Vector3(0f, 6f, 0f));
+        ZoneSpots.Add(new Vector3(-34f, 1f, 0f));
+        ZoneSpots.Add(new Vector3(34f, 1f, 0f));
+        ZoneSpots.Add(new Vector3(0f, 1f, -26f));
+        ZoneSpots.Add(new Vector3(0f, 1f, 26f));
+    }
+
+    /// <summary>
+    /// Gauntlet — three lanes, with the middle one broken by a pit that only a moving platform or
+    /// a well-timed launch crosses. The outer lanes are safe and slow; the middle is fast and can
+    /// kill you.
+    /// </summary>
+    void BuildGauntlet()
+    {
+        foreach (int sz in new[] { -1, 1 })
+            foreach (int sx in new[] { -1, 1 })
+                Blocks.Add(new Block(new Vector3(sx * 32f, 4f, sz * 11f), new Vector3(13f, 4f, 1.5f), WallTint));
+
+        // The gap in the middle lane.
+        Carve(new Rect2(-11f, -7f, 22f, 14f));
+
+        MovingPlatforms.Add(new MovingPlatformDef(
+            new Vector3(-14f, 1.2f, 0f), new Vector3(14f, 1.2f, 0f),
+            new Vector3(3.6f, 0.35f, 4f), 7f));
+
+        Pad(new Vector3(-17f, 0f, 0f), 16f);
+        Pad(new Vector3(17f, 0f, 0f), 16f);
+
+        foreach (int sz in new[] { -1, 1 })
+        {
+            Blocks.Add(new Block(new Vector3(-24f, 1.6f, sz * 24f), new Vector3(3f, 1.6f, 3f), AccentTint));
+            Blocks.Add(new Block(new Vector3(24f, 1.6f, sz * 24f), new Vector3(3f, 1.6f, 3f), AccentTint));
+            Deck(new Vector3(0f, 5f, sz * 26f), new Vector3(9f, 0.4f, 4f));
+            Ramp(new Vector3(0f, 0f, sz * 13f), sz > 0 ? Vector3.Back : Vector3.Forward, 4.6f, 3, 4f);
+        }
+
+        WeaponSpawns.Add(new Vector3(0f, 5.5f, -26f));
+        WeaponSpawns.Add(new Vector3(0f, 5.5f, 26f));
+        WeaponSpawns.Add(new Vector3(-38f, 1f, 0f));
+
+        ZoneSpots.Add(new Vector3(0f, 5.5f, -26f));
+        ZoneSpots.Add(new Vector3(0f, 5.5f, 26f));
+        ZoneSpots.Add(new Vector3(-34f, 1f, 0f));
+        ZoneSpots.Add(new Vector3(34f, 1f, 0f));
+    }
+
+    void AddInteriors()
+    {
+        switch (Layout)
+        {
+            case 0: RoomsReliquary(); break;
+            case 1: RoomsFurnace(); break;
+            case 2: RoomsGlasshouse(); break;
+            default: RoomsThousand(); break;
+        }
+    }
+
+    // ---- interiors ----
+    //
+    // Four rooms-and-corridors passes, one per layout, laid over the outer districts.
+    //
+    // These arenas were built out of horizontal surfaces almost exclusively — decks, tiers,
+    // gantries, catwalks, ledges — with pits and lava for punctuation. That produces a particular
+    // and quite narrow kind of fight: every sightline runs the full width of the map, every
+    // engagement opens at forty metres, and cover is something to crouch behind rather than
+    // somewhere to be. Playing it, the arenas read as smaller than they are, because open ground
+    // you can see all of is ground you have already been to.
+    //
+    // Interiors fix that from the other direction. A wall shortens a sightline the way a hundred
+    // metres of extra floor never can, a doorway is a decision, and a roofed room is the only
+    // place on these maps where a shotgun beats a rifle on merit. So each layout gets a district
+    // of them, and each is themed to one of the four faiths — because the arenas are their places,
+    // and a map that is only geometry is a map nobody remembers the name of.
+
+    /// <summary>
+    /// Crossfire → THE RELIQUARY, of the Vessels.
+    ///
+    /// They hold that humanity *was* its mortality, so their architecture is a place for keeping
+    /// bodies: long vaulted galleries of stacked cradles, cell after identical cell, opening onto
+    /// each other down the length of the hall. Achilles' own reliquary, and the map with the
+    /// tightest interior on the board — most fights in here happen inside four metres.
+    /// </summary>
+    void RoomsReliquary()
+    {
+        // Two long galleries either side of the centre, each a run of cells that open into one
+        // another. The doorways are all on the long axis, so the gallery reads as a corridor you
+        // can be flanked down rather than a row of boxes.
+        foreach (int sz in new[] { -1, 1 })
+        {
+            for (int i = -2; i <= 2; i++)
+            {
+                // Spaced with real gaps between the cells rather than butted together.
+                //
+                // The first version put them on a fifteen-metre pitch, which with thirteen-metre
+                // cells is a continuous seventy-metre wall across the middle of the district — and
+                // the harness caught it as two vehicles that could no longer drive out of their
+                // own corner. A gallery is a run of rooms you can walk between, not a barricade.
+                var at = new Vector3(i * 24f, 0f, sz * 44f);
+                bool end = i == -2 || i == 2;
+
+                Room(at, new Vector3(6.5f, 2.6f, 7f),
+                     doors: new[] { true, true, end, !end },
+                     roofed: true);
+            }
+        }
+
+        // Cradles: waist-high slabs inside the cells, which is cover at exactly the height that
+        // matters in a room this size.
+        foreach (int sz in new[] { -1, 1 })
+        for (int i = -2; i <= 2; i++)
+            Blocks.Add(new Block(new Vector3(i * 24f, 0.75f, sz * 44f + sz * 3f),
+                                 new Vector3(4.5f, 0.75f, 1.2f), CoverTint));
+
+        // A closed vault at each end of the western gallery. No through route, one door, and the
+        // best gun on the floor inside it — somewhere worth going that you cannot be chased out of
+        // without someone coming through the door you are looking at.
+        foreach (int sz in new[] { -1, 1 })
+            if (Room(new Vector3(-58f, 0f, sz * 62f), new Vector3(7f, 3f, 7f),
+                     doors: new[] { false, true, false, false }))
+                WeaponSpawns.Add(LastRoomAt with { Y = 1f });
+    }
+
+    /// <summary>
+    /// Foundry → THE FURNACE, of the Custodians.
+    ///
+    /// Prometheus stole the fire and was chained to it, and this is the place he was chained: heavy
+    /// machine halls wrapped around a single crucible. Every hazard left in the game lives here and
+    /// nowhere else — the other three arenas had burning ground scattered across them for no reason
+    /// anyone could name, which made lava a nuisance rather than a landmark.
+    /// </summary>
+    void RoomsFurnace()
+    {
+        // The machine halls: big, roofed, four ways in, arranged as a ring around the middle. Wide
+        // enough to fight across and closed enough that arriving through a door is a commitment.
+        foreach (int sx in new[] { -1, 1 })
+        foreach (int sz in new[] { -1, 1 })
+        {
+            if (!Room(new Vector3(sx * 62f, 0f, sz * 46f), new Vector3(9f, 3.2f, 8f),
+                      doors: new[] { true, true, true, true })) continue;
+
+            // Machinery inside, so a hall is not an empty box with four doors.
+            Blocks.Add(new Block(new Vector3(sx * 62f - 5f, 1.4f, sz * 46f),
+                                 new Vector3(2.4f, 1.4f, 5f), CoverTint));
+            Blocks.Add(new Block(new Vector3(sx * 62f + 5f, 1.1f, sz * 46f + sz * 4f),
+                                 new Vector3(3.2f, 1.1f, 1.6f), CoverTint));
+        }
+
+        // A second rank of halls inboard of the first, so the Furnace reads as a works rather than
+        // four sheds in the corners of a field.
+        foreach (int sx in new[] { -1, 1 })
+        {
+            if (!Room(new Vector3(sx * 40f, 0f, 66f), new Vector3(10f, 3.2f, 8f),
+                      doors: new[] { true, true, false, true })) continue;
+
+            Blocks.Add(new Block(LastRoomAt with { Y = 1.3f },
+                                 new Vector3(3f, 1.3f, 3f), CoverTint));
+        }
+
+        // The crucible: the one piece of burning ground on this map meant to be looked at, in a
+        // roofless ring you can be pushed into. Off the centre line, because the centre line is
+        // where the Foundry's spine runs and there has never been room there.
+        if (Room(new Vector3(0f, 0f, -66f), new Vector3(14f, 2.2f, 14f),
+                 doors: new[] { true, true, true, true }, roofed: false, tint: AccentTint))
+        {
+            var at = LastRoomAt;
+            Hazard(new Rect2(at.X - 8f, at.Z - 8f, 16f, 16f), 44f);
+        }
+    }
+
+    /// <summary>
+    /// Atrium → THE GLASSHOUSE, of the Garden.
+    ///
+    /// Noah carried the living through the flood, and the Garden keeps carrying them: a vivarium of
+    /// growing halls under long ribbed roofs, threaded with water channels. Structurally the airiest
+    /// of the four — plenty of walls, but low ones, so it reads as bays in a greenhouse rather than
+    /// rooms in a building and you can still see the map over the top of them.
+    /// </summary>
+    void RoomsGlasshouse()
+    {
+        // Growing bays down each side. Low and open-topped: cover from the ground, transparent from
+        // the balcony, which gives the upper storey a real reason to exist beyond height.
+        foreach (int sx in new[] { -1, 1 })
+        for (int i = -1; i <= 1; i++)
+        {
+            if (!Room(new Vector3(sx * 66f, 0f, i * 30f), new Vector3(8f, 1.7f, 8f),
+                      doors: new[] { true, true, true, true }, roofed: false)) continue;
+
+            Blocks.Add(new Block(LastRoomAt with { Y = 0.5f },
+                                 new Vector3(4.5f, 0.5f, 3f), new Color(0.30f, 0.52f, 0.36f)));
+        }
+
+        // Two seed vaults, roofed and single-doored, at the ends of the long axis. The one enclosed
+        // space on the map, which is what makes them worth taking.
+        foreach (int sz in new[] { -1, 1 })
+            if (Room(new Vector3(0f, 0f, sz * 62f), new Vector3(12f, 3f, 9f),
+                     doors: new[] { true, true, false, false }))
+                WeaponSpawns.Add(LastRoomAt with { Y = 1f });
+    }
+
+    /// <summary>
+    /// Gauntlet → THE THOUSAND ROOMS, of the Muses.
+    ///
+    /// Scheherazade lived one more night for every story, and her faction's answer to being told
+    /// humanity was a specification sheet is a building that will not stop adding rooms. The
+    /// densest interior in the game: a warren of small chambers with doors that do not line up,
+    /// where nothing can be seen from more than a room away and every corner is somebody's.
+    /// </summary>
+    void RoomsThousand()
+    {
+        // A grid of small chambers whose doorways alternate, so there is no straight run through
+        // the block in either direction — you are always turning, and you are never sure which of
+        // the two walls in front of you is the one that opens.
+        //
+        // Every other chamber is open to the sky, and that is not decoration.
+        //
+        // The first version roofed all twenty-six, and the harness measured what that did: a full
+        // Dominion round on this map produced eight shots and *zero damage*, where the identical
+        // mode with the identical bots on the Furnace produced fifty-nine and fifty-one. Nothing
+        // was broken — the map had simply cut every sightline in the district, so twelve fighters
+        // walked three hundred metres each and never saw one another. A maze with a lid is not a
+        // close-quarters map, it is a building nobody meets inside.
+        //
+        // Open cells put the sightlines back without giving up the warren: you still cannot see
+        // *through* a chamber, but you can see across the block, and the upper storey can see down
+        // into it. Which is the version of this that is worth walking into.
+        for (int gx = -2; gx <= 2; gx++)
+        for (int gz = -1; gz <= 1; gz++)
+        {
+            bool odd = ((gx + gz) & 1) == 0;
+
+            // The corner of the warren carries the gun, wherever that corner ended up. Fixing the
+            // crate to the coordinate instead put two of them inside walls on a layout where the
+            // warren had been nudged over.
+            if (Room(new Vector3(gx * 22f, 0f, 46f + gz * 20f), new Vector3(9f, 2.8f, 8f),
+                     doors: new[] { odd, odd, !odd, !odd }, roofed: odd)
+                && gx == -2 && gz == 0)
+                WeaponSpawns.Add(LastRoomAt with { Y = 1f });
+        }
+
+        // The mirror of it on the far side, offset half a cell so the two warrens do not read as
+        // one repeated stamp.
+        for (int gx = -2; gx <= 1; gx++)
+        for (int gz = -1; gz <= 1; gz++)
+        {
+            bool odd = ((gx + gz) & 1) == 1;
+
+            if (Room(new Vector3(gx * 22f + 11f, 0f, -46f + gz * 20f), new Vector3(9f, 2.8f, 8f),
+                     doors: new[] { odd, odd, !odd, !odd }, roofed: odd)
+                && gx == 1 && gz == 0)
+                WeaponSpawns.Add(LastRoomAt with { Y = 1f });
+        }
+    }
+
+
+    // ---- the puzzle chambers ----
+    //
+    // A completely separate build path from the four arenas, and it has to be.
+    //
+    // Every pass those maps run — the outer districts, the vehicles, the interiors, the weapon
+    // crates, the launch pads — exists to make a *fight* work. A puzzle map wants none of it. What
+    // it wants is the opposite: no route between two places except the one you make yourself, which
+    // is precisely the thing the connectivity checks elsewhere in this file were written to
+    // guarantee never happens.
+    //
+    // So a puzzle arena is chambers of solid floor with nothing between them, and the only thing
+    // that crosses the nothing is a portal. That is the whole design.
+
+    /// <summary>How many of the arenas at the end of <see cref="Names"/> are puzzle chambers.</summary>
+    public const int PuzzleLayouts = 2;
+
+    /// <summary>Whether a layout index is a puzzle map rather than an arena.</summary>
+    public static bool IsPuzzle(int layout) => layout >= Names.Length - PuzzleLayouts;
+
+    /// <summary>This arena's checkpoints, in the order they must be reached.</summary>
+    public readonly List<Vector3> Checkpoints = new();
+
+    /// <summary>True when this layout is a puzzle chamber set rather than a combat arena.</summary>
+    public bool Puzzle => IsPuzzle(Layout);
+
+    /// <summary>
+    /// A slab of floor with a lip, floating in the void.
+    ///
+    /// The lip matters: without a raised edge a player walking backwards while lining up a portal
+    /// steps off without ever seeing the drop, and a puzzle that kills you for looking up is not a
+    /// puzzle. Low enough to shoot a portal over, high enough to feel underfoot.
+    /// </summary>
+    void Ledge(Vector3 centre, float halfX, float halfZ, bool lip = true)
+    {
+        Deck(centre, new Vector3(halfX, 0.6f, halfZ), DeckTint);
+        FloorSlabs.Add(new Rect2(centre.X - halfX, centre.Z - halfZ, halfX * 2f, halfZ * 2f));
+
+        if (!lip) return;
+
+        foreach (int sx in new[] { -1, 1 })
+            Blocks.Add(new Block(centre + new Vector3(sx * halfX, 1.0f, 0f),
+                                 new Vector3(0.3f, 0.4f, halfZ), WallTint));
+
+        foreach (int sz in new[] { -1, 1 })
+            Blocks.Add(new Block(centre + new Vector3(0f, 1.0f, sz * halfZ),
+                                 new Vector3(halfX, 0.4f, 0.3f), WallTint));
+    }
+
+    /// <summary>
+    /// A wall you can put a portal on. The only currency in a puzzle map.
+    ///
+    /// Tall and flat and deliberately unmissable: every crossing in these maps is "there is a
+    /// surface over there, and the far side of the gap is behind you", so the surfaces have to read
+    /// as targets rather than as scenery.
+    /// </summary>
+    void PortalWall(Vector3 centre, float halfX, float halfY, float halfZ)
+        => Blocks.Add(new Block(centre, new Vector3(halfX, halfY, halfZ), AccentTint));
+
+    /// <summary>A checkpoint, and the pad under it so it reads as somewhere to stand.</summary>
+    void Checkpoint(Vector3 at)
+    {
+        Checkpoints.Add(at);
+        Blocks.Add(new Block(at with { Y = 0.7f }, new Vector3(2.2f, 0.12f, 2.2f), PadTint));
+    }
+
+    /// <summary>
+    /// THE ANTECHAMBER — the teaching map.
+    ///
+    /// Four islands in a line, each gap wider than any jump, each with a portal wall facing back
+    /// across it. Nothing here is clever: it exists so that two people who have never used the gun
+    /// work out, once, that a gate on the far wall and a gate at their feet is a bridge. Every
+    /// later chamber assumes that lesson.
+    /// </summary>
+    void BuildAntechamber()
+    {
+        SpawnPoints.Add(new Vector3(-96f, 1.4f, -6f));
+        SpawnPoints.Add(new Vector3(-96f, 1.4f, 6f));
+
+        for (int i = 0; i < 4; i++)
+        {
+            float x = -96f + i * 44f;
+
+            Ledge(new Vector3(x, 0f, 0f), 14f, 16f);
+
+            // The wall stands on the far side of each island, facing back the way you came, so the
+            // shot you need is always the one across the gap you are looking at.
+            PortalWall(new Vector3(x + 15f, 6f, 0f), 0.6f, 6f, 12f);
+
+            if (i > 0) Checkpoint(new Vector3(x, 0f, 0f));
+        }
+
+        // One high wall at the far end, so the last crossing is upward as well as across — the
+        // first thing in the game that asks you to think about where a portal *puts* you rather
+        // than only about reaching it.
+        PortalWall(new Vector3(48f, 16f, 0f), 0.6f, 10f, 14f);
+        Ledge(new Vector3(76f, 18f, 0f), 12f, 12f);
+        Checkpoint(new Vector3(76f, 18f, 0f));
+    }
+
+    /// <summary>
+    /// THE ORRERY — the one that needs two people.
+    ///
+    /// A ring of islands around a tower, and the tower's own walls face outward only. One player
+    /// standing on the ring can open a gate onto a face the other cannot see from where they are,
+    /// which is the point: the checkpoints at the top are reachable, but not by anybody working
+    /// alone.
+    /// </summary>
+    void BuildOrrery()
+    {
+        SpawnPoints.Add(new Vector3(-70f, 1.4f, -70f));
+        SpawnPoints.Add(new Vector3(70f, 1.4f, 70f));
+
+        // The outer ring: six islands, each with a wall facing the middle.
+        for (int i = 0; i < 6; i++)
+        {
+            float a = i * MathF.Tau / 6f;
+            var at = new Vector3(MathF.Cos(a) * 76f, 0f, MathF.Sin(a) * 76f);
+
+            Ledge(at, 13f, 13f);
+
+            var inward = new Vector3(-MathF.Cos(a), 0f, -MathF.Sin(a));
+            PortalWall(at + inward * 12f + Vector3.Up * 7f, 6f, 7f, 6f);
+
+            if (i % 2 == 0) Checkpoint(at);
+        }
+
+        // The tower, in stages, each stage's landing only reachable from a wall on the ring.
+        for (int tier = 0; tier < 3; tier++)
+        {
+            float y = 12f + tier * 16f;
+            Ledge(new Vector3(0f, y, 0f), 16f - tier * 3f, 16f - tier * 3f);
+
+            // Outward-facing faces, so a gate placed from the ring lands you on the tier.
+            foreach (int sx in new[] { -1, 1 })
+                PortalWall(new Vector3(sx * (17f - tier * 3f), y + 6f, 0f), 0.6f, 6f, 10f - tier * 2f);
+        }
+
+        Checkpoint(new Vector3(0f, 44f, 0f));
+    }
+
+    // ---- build ----
+
+    /// <summary>
+    /// Realise the arena. <paramref name="fog"/> is off for the map preview, whose camera sits far
+    /// enough back that aerial perspective tuned for a player inside the arena hazes the whole map.
+    /// </summary>
+    public void Build(Node3D parent, bool visuals, bool fog = true)
+    {
+        root = new Node3D { Name = "Arena" };
+        parent.AddChild(root);
+
+        foreach (var slab in FloorSlabs)
+        {
+            var body = new StaticBody3D
+            {
+                Position = new Vector3(slab.GetCenter().X, -1f, slab.GetCenter().Y),
+            };
+            root.AddChild(body);
+            body.AddChild(new CollisionShape3D
+            {
+                Shape = new BoxShape3D { Size = new Vector3(slab.Size.X, 2f, slab.Size.Y) },
+            });
+
+            if (!visuals) continue;
+
+            body.AddChild(new MeshInstance3D
+            {
+                Mesh = new BoxMesh { Size = new Vector3(slab.Size.X, 2f, slab.Size.Y) },
+                MaterialOverride = Flat(new Color(0.44f, 0.48f, 0.56f)),
+            });
+        }
+
+        for (int i = 0; i < Blocks.Count; i++)
+        {
+            var b = Blocks[i];
+            var body = new StaticBody3D { Position = b.Centre };
+            root.AddChild(body);
+            body.AddChild(new CollisionShape3D { Shape = new BoxShape3D { Size = b.HalfExtents * 2f } });
+
+            // Handed out by index so the match can take a walkway away and put it back. Only the
+            // fragile ones are kept — nothing else is ever going to move.
+            if (b.Fragile) FragileBodies[i] = body;
+
+            if (!visuals) continue;
+
+            float top = b.Centre.Y + b.HalfExtents.Y;
+            bool outer = MathF.Abs(b.Centre.X) > CoreX || MathF.Abs(b.Centre.Z) > CoreZ;
+
+            body.AddChild(new MeshInstance3D
+            {
+                Mesh = new BoxMesh { Size = b.HalfExtents * 2f },
+                MaterialOverride = Graphics.SurfaceAt(b.Tint, b.Centre, top, outer),
+            });
+
+            // No edge trim any more. Every block used to get four glowing bars stuck along its top
+            // edges, and each bar had *two* faces exactly coplanar with the block it was decorating
+            // — its top on the block's top, its outer face on the block's side. Two hundred blocks
+            // times four bars times two surfaces is why the arena shimmered along every edge.
+            //
+            // The plating in the material does what the trim was there for, and does it without
+            // nine hundred extra mesh instances in four splitscreen viewports.
+        }
+
+        if (!visuals) return;
+
+        root.AddChild(Graphics.BuildSun());
+        root.AddChild(Graphics.BuildFill());
+        root.AddChild(Graphics.BuildEnvironment(fog));
+    }
+
+    /// <summary>
+    /// Emissive bars along the four top edges of a block. Flat shading gives two adjacent surfaces
+    /// of similar value no boundary at all; a lit edge draws that boundary and is what makes the
+    /// geometry read as built rather than as a silhouette.
+    ///
+    /// A frame, not a plate. Covering the whole top face was fine on waist-high cover but turned
+    /// the big decks into glowing slabs, which was especially obvious from underneath.
+    /// </summary>
+
+    public static StandardMaterial3D Flat(Color c) => Graphics.Surface(c);
+
+    // ---- queries ----
+
+    /// <summary>Whether a point in XZ is over a pit, and so has nothing to stand on.</summary>
+    public bool IsOverPit(Vector3 p)
+    {
+        foreach (var pit in Pits)
+            if (p.X > pit.Position.X && p.X < pit.End.X && p.Z > pit.Position.Y && p.Z < pit.End.Y)
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Spawn furthest from any living opponent, so respawning never drops you into someone's
+    /// crosshair. With no opponents alive it falls back to the slot's own corner.
+    /// </summary>
+    public Vector3 BestSpawn(IReadOnlyList<Pawn> pawns, Pawn forPawn)
+    {
+        Vector3 best = SpawnPoints[forPawn.Slot % SpawnPoints.Count];
+        float bestScore = float.NegativeInfinity;
+
+        foreach (var sp in SpawnPoints)
+        {
+            float nearest = float.PositiveInfinity;
+            foreach (var p in pawns)
+            {
+                if (p == forPawn || !p.Alive) continue;
+                nearest = MathF.Min(nearest, sp.DistanceTo(p.Position));
+            }
+
+            if (float.IsPositiveInfinity(nearest)) continue;
+            if (nearest > bestScore) { bestScore = nearest; best = sp; }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// Whether a capsule of <paramref name="radius"/> at <paramref name="p"/> clears every block.
+    /// Used to assert that no spawn drops a player inside cover.
+    /// </summary>
+    public bool IsClearOfBlocks(Vector3 p, float radius, float height)
+    {
+        foreach (var b in Blocks)
+        {
+            // Vertical bands must overlap before a horizontal overlap matters — standing on top
+            // of a deck is fine, standing inside it is not.
+            float lowA = p.Y, highA = p.Y + height;
+            float lowB = b.Centre.Y - b.HalfExtents.Y, highB = b.Centre.Y + b.HalfExtents.Y;
+            if (highA <= lowB || highB <= lowA) continue;
+
+            float dx = MathF.Max(0f, MathF.Abs(p.X - b.Centre.X) - b.HalfExtents.X);
+            float dz = MathF.Max(0f, MathF.Abs(p.Z - b.Centre.Z) - b.HalfExtents.Z);
+            if (dx * dx + dz * dz < radius * radius) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Whether a point is somewhere a player is allowed to be.
+    ///
+    /// Tighter than <see cref="Contains"/>, which carries slack because it is an invariant check
+    /// looking for gross escapes. This one is the play boundary: outside it is fatal.
+    /// </summary>
+    public bool InPlay(Vector3 p)
+        => MathF.Abs(p.X) <= HalfWidth + 1.5f
+        && MathF.Abs(p.Z) <= HalfDepth + 1.5f
+        && p.Y > KillPlaneY - 1f
+        && p.Y < WallHeight + 26f;
+
+    public bool Contains(Vector3 p)
+        => MathF.Abs(p.X) <= HalfWidth + 4f
+        && MathF.Abs(p.Z) <= HalfDepth + 4f
+        && p.Y > KillPlaneY - 30f && p.Y < 60f;
+}

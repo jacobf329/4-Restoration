@@ -1,0 +1,140 @@
+[
+  {
+    "name": "assault_rifle",
+    "prompt": "A sci-fi assault rifle laid out horizontally along its length, barrel pointing forward. Blocky angular receiver, straight box magazine, short vertical foregrip, collapsible stock, low-profile iron sights. Utilitarian military hardware, no ornament.",
+    "texture_prompt": "matte gunmetal grey, scuffed dark polymer furniture, worn edges",
+    "target_polycount": 9000
+  },
+  {
+    "name": "shotgun",
+    "prompt": "A short heavy sci-fi combat shotgun laid out horizontally, barrel pointing forward. Wide flat receiver, thick stubby twin barrels, pump grip under the barrel, heavy shoulder stock. Brutally simple, front-heavy.",
+    "texture_prompt": "blued steel, oiled dark wood grip, brass shell rims",
+    "target_polycount": 9000
+  },
+  {
+    "name": "smg",
+    "prompt": "A compact sci-fi submachine gun laid out horizontally, barrel pointing forward. Very short barrel, long curved magazine, skeletal folding stock, tall thin receiver. Light and cheap-looking.",
+    "texture_prompt": "dull black polymer, bare aluminium receiver, scratched finish",
+    "target_polycount": 8000
+  },
+  {
+    "name": "sniper_rifle",
+    "prompt": "A long sci-fi sniper rifle laid out horizontally, barrel pointing forward. Very long slender barrel with muzzle brake, large cylindrical telescopic scope mounted on top, bipod folded under the barrel, angular skeleton stock with a cheek rest.",
+    "texture_prompt": "matte black metal, dark green composite stock, glass scope lens",
+    "target_polycount": 11000
+  },
+  {
+    "name": "railgun",
+    "prompt": "A heavy sci-fi railgun laid out horizontally, barrel pointing forward. Two long parallel accelerator rails instead of a barrel, thick insulated coils and capacitor blocks along the body, a large scope, heavy squared stock. Industrial and over-engineered.",
+    "texture_prompt": "brushed steel rails, matte black casing, copper coil windings, glowing blue capacitor slots",
+    "target_polycount": 12000
+  },
+  {
+    "name": "minigun",
+    "prompt": "A handheld sci-fi rotary minigun laid out horizontally, barrels pointing forward. Six long rotating barrels in a circular cluster, bulky cylindrical breech housing, side-mounted ammunition drum, twin spade grips at the rear.",
+    "texture_prompt": "heat-blued barrel cluster, olive drab housing, brass ammunition belt",
+    "target_polycount": 12000
+  },
+  {
+    "name": "rocket_launcher",
+    "prompt": "A shoulder-fired sci-fi rocket launcher laid out horizontally, tube pointing forward. Thick smooth launch tube with a flared blast cone at the rear, boxy optical sight on top, pistol grip and forward grip beneath, single rocket nose visible in the muzzle.",
+    "texture_prompt": "olive drab tube with stencilled markings, black rubber grips, dull steel rocket nose",
+    "target_polycount": 10000
+  },
+  {
+    "name": "grenade_launcher",
+    "prompt": "A sci-fi grenade launcher laid out horizontally, barrel pointing forward. Fat short barrel with a wide bore, large cylindrical rotary drum magazine behind it, angled foregrip, folding stock, simple ladder sight on top.",
+    "texture_prompt": "flat olive green metal, black polymer grips, dull brass grenade noses in the drum",
+    "target_polycount": 10000
+  },
+  {
+    "name": "flamethrower",
+    "prompt": "A sci-fi flamethrower laid out horizontally, nozzle pointing forward. Short wide nozzle with a small pilot flame housing at the tip, thick corrugated fuel hose running back along the body to a pressure regulator, pistol grip with a large trigger guard, twin small pressure gauges.",
+    "texture_prompt": "scorched blackened nozzle, red painted fuel lines, tarnished brass gauges, soot staining",
+    "target_polycount": 10000
+  },
+  {
+    "name": "portal_gun",
+    "prompt": "A stubby front-heavy sci-fi energy pistol laid out horizontally, emitter pointing forward. Three curved prongs at the front forming an open claw around a floating spherical core, smooth rounded body, single pistol grip, no barrel and no magazine. Elegant laboratory instrument rather than a weapon.",
+    "texture_prompt": "white ceramic panels, chrome prongs, glowing cyan core, orange accent stripe",
+    "target_polycount": 9000
+  },
+  {
+    "name": "grapple_gun",
+    "prompt": "A compact sci-fi grappling hook launcher laid out horizontally, hook pointing forward. Four-pronged folding harpoon head at the front, thick cable spool drum mounted on top, chunky pistol grip, short wide body. Industrial rescue equipment.",
+    "texture_prompt": "safety yellow painted metal, black steel cable, scuffed bare metal hook",
+    "target_polycount": 9000
+  },
+  {
+    "name": "sword",
+    "prompt": "A straight double-edged sci-fi shortsword standing along its length, blade pointing up. Flat broad blade with a shallow fuller down the centre, simple straight crossguard, wrapped grip, plain pommel. No ornament.",
+    "texture_prompt": "polished steel blade, dark wrapped leather grip, gunmetal guard",
+    "target_polycount": 6000
+  },
+  {
+    "name": "saber",
+    "prompt": "An ornate ceremonial sci-fi energy sword standing along its length, blade pointing up. Long slender single-edged blade, elaborate flared handguard, long two-handed grip wrapped in cord, heavy engraved pommel. Regal and old.",
+    "texture_prompt": "pale glowing gold blade, blackened engraved guard, deep red cord wrap",
+    "target_polycount": 8000
+  },
+  {
+    "name": "repeater",
+    "prompt": "A very heavy sci-fi belt-fed machine gun laid out horizontally, barrel pointing forward. Thick heat-shrouded barrel with visible cooling fins, large open feed tray with an ammunition belt hanging from it, bulky squared receiver, heavy shoulder brace. Oversized, built for a huge user.",
+    "texture_prompt": "heat-stained gunmetal, pale bone-white ceramic side plates, brass ammunition belt",
+    "target_polycount": 11000
+  },
+  {
+    "name": "surgical_beam",
+    "prompt": "A slender sci-fi medical beam emitter laid out horizontally, emitter pointing forward. Narrow tapered body ending in a fine focusing lens ring, delicate exposed instrument armature along the top, thin grip, small fluid reservoir underneath. Clinical instrument, not a gun.",
+    "texture_prompt": "matte bone-white ceramic, brushed steel armature, dark red fluid reservoir, pale green lens",
+    "target_polycount": 8000
+  },
+  {
+    "name": "marking_rifle",
+    "prompt": "A long slender sci-fi marksman rifle laid out horizontally, barrel pointing forward. Thin barrel, tall narrow scope, and a cylindrical scroll case forming the stock, with fine engraved text along the receiver. Monastic and precise.",
+    "texture_prompt": "ivory ceramic body, black lacquer barrel, polished gold engraving and trim",
+    "target_polycount": 10000
+  },
+  {
+    "name": "sidearm",
+    "prompt": "A heavy sci-fi automatic sidearm laid out horizontally, barrel pointing forward. Broad squared slide, thick grip, short wide barrel with a flared muzzle, small squared iron sights. Slab-sided and blunt.",
+    "texture_prompt": "ivory ceramic slide, black lacquer frame, worn gold muzzle ring",
+    "target_polycount": 7000
+  },
+  {
+    "name": "seed_launcher",
+    "prompt": "An improvised sci-fi seed pod launcher laid out horizontally, spout pointing forward. Body like a heavy watering can crossed with a mortar tube, wide flared spout, a hopper of round seed pods on top, simple bent-pipe grip. Agricultural and hand-made.",
+    "texture_prompt": "weathered dull green painted metal, moss growing in the seams, damp soil, pale seed pods",
+    "target_polycount": 9000
+  },
+  {
+    "name": "pod_thrower",
+    "prompt": "A wide bulbous sci-fi scattergun laid out horizontally, muzzle pointing forward. Very wide flared bell muzzle, short fat body, brass banding, a small glass vivarium panel on the side with plants inside, simple wooden grip.",
+    "texture_prompt": "tarnished brass, green glass panel with foliage inside, bark-textured grip",
+    "target_polycount": 9000
+  },
+  {
+    "name": "machine_pistols",
+    "prompt": "A pair of small sci-fi machine pistols side by side, barrels pointing forward. Each is short and light with a stubby barrel, small curved magazine, and a thin skeletal frame. Hand-painted and mismatched.",
+    "texture_prompt": "chipped hand-painted bright orange over blue and cream, bare scratched metal showing through",
+    "target_polycount": 8000
+  },
+  {
+    "name": "prop_blade",
+    "prompt": "A curved theatrical sci-fi stage sword standing along its length, blade pointing up. Wide curved single-edged blade with a slightly crude silhouette, ornate but obviously fake-looking scrolled guard, ribbon wrapped around the grip. A prop that turned out to be real.",
+    "texture_prompt": "flaking gold paint over dull steel, cracked white lacquer guard, faded red ribbon",
+    "target_polycount": 7000
+  },
+  {
+    "name": "scattergun",
+    "prompt": "A wide sci-fi break-action double shotgun laid out horizontally, barrels pointing forward. Two very wide side-by-side barrels, exposed hammers, break-open hinge, thin skeleton stock. Crude and menacing.",
+    "texture_prompt": "rusted iron barrels, split dark wood stock, tarnished brass hinge",
+    "target_polycount": 8000
+  },
+  {
+    "name": "longshot",
+    "prompt": "A sci-fi scoped battle rifle laid out horizontally, barrel pointing forward. Medium-length heavy barrel, large boxy telescopic scope, straight box magazine, solid squared stock with a cheek riser, angled foregrip.",
+    "texture_prompt": "desert tan composite furniture, dark grey metal, glass scope lens",
+    "target_polycount": 10000
+  }
+]

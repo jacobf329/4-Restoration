@@ -1,0 +1,16 @@
+# Godot
+.godot/
+/android/
+
+# .NET
+.mono/
+bin/
+obj/
+*.user
+
+# Exported builds and captured screenshots
+/dist/
+/shots/
+
+# Meshy generation job records — per-machine task ids, not source
+.meshy/

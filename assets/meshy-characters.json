@@ -1,0 +1,74 @@
+[
+  {
+    "name": "sinew",
+    "prompt": "A hulking bone-white humanoid war machine, over-muscled to the point of an anatomical diagram, with sculpted deltoids and pectorals rendered as smooth ceramic plates with visible seams like an ecorche model cast in porcelain. Smooth featureless ovoid head with a single horizontal sensor slit and no face. A heavy belt-fed repeater gun fused to the right forearm. Thick ribbed cabling in pale sinew-yellow where tendons would be. Broad low stance, very wide feet, short thick legs, enormous shoulders.",
+    "texture_prompt": "polished bone-white ceramic with fine seam lines, pale sinew-yellow ribbed cabling, dull gunmetal on the arm-mounted gun",
+    "pose_mode": "a-pose",
+    "target_polycount": 22000,
+    "rig": true,
+    "height_meters": 1.8
+  },
+  {
+    "name": "anatomist",
+    "prompt": "A tall narrow bone-white humanoid robot surgeon wearing a long segmented apron of overlapping curved plates resembling a ribcage worn backwards. Four arms: two full-size lower arms, two smaller upper arms folded against the chest ending in fine surgical instruments. Smooth featureless domed head ringed with a band of small round lenses where a surgeon's loupe would sit. A bundle of flexible dark-red tubes trailing from the lower back. Clean, calm, slender proportions.",
+    "texture_prompt": "matte bone-white ceramic, dark red rubber tubing, brushed steel instruments and lens rings",
+    "pose_mode": "a-pose",
+    "target_polycount": 22000,
+    "rig": true,
+    "height_meters": 1.8
+  },
+  {
+    "name": "lector",
+    "prompt": "A lean upright monastic humanoid robot in ivory and black lacquer with gold trim. Its head is a tall narrow closed book stood on end, with a single vertical golden reading-lens running down the front and no face. Robes rendered as rigid overlapping armour plates etched with dense fine lines of engraved text. Carries a long slender marking rifle whose stock is a cylindrical scroll case. A broken gold halo ring of three separate arcs floats behind the head.",
+    "texture_prompt": "ivory ceramic, black lacquer limbs, polished gold trim and halo, fine engraved text across the robe plates",
+    "pose_mode": "a-pose",
+    "target_polycount": 22000,
+    "rig": true,
+    "height_meters": 1.8
+  },
+  {
+    "name": "apologist",
+    "prompt": "A broad squat heavily armoured humanoid robot in ivory and black carrying an enormous rectangular gold-edged tower shield on its left arm, large enough to hide its whole body, the shield face engraved like a page of dense text. Blank featureless gold face mask with no eyes and a single thin engraved horizontal line where a mouth would be. Massive pauldrons shaped like closed book covers. Short thick legs, very wide heavy frame.",
+    "texture_prompt": "ivory ceramic plate, black lacquer joints, engraved gold shield face and mask, worn gold edging",
+    "pose_mode": "a-pose",
+    "target_polycount": 22000,
+    "rig": true,
+    "height_meters": 1.8
+  },
+  {
+    "name": "grafter",
+    "prompt": "A stooped wide humanoid robot whose dull green metal skeleton is half buried in plant growth, with moss and creeping vines packed into every joint so the silhouette reads soft and lumpy rather than mechanical. A broad flat planter box built into its back with real foliage sprouting from it. Its right arm is a heavy seed launcher shaped like a cross between a watering can and a mortar. Small blunt domed head almost hidden between high shoulders, with two round green lamps for eyes. Trailing roots at the heels.",
+    "texture_prompt": "weathered dull green painted metal, thick living moss and vines, damp dark soil in the planter, glowing green lamp eyes",
+    "pose_mode": "a-pose",
+    "target_polycount": 24000,
+    "rig": true,
+    "height_meters": 1.8
+  },
+  {
+    "name": "orchard",
+    "prompt": "An enormous slow humanoid robot built like a walking greenhouse. Its torso is a glass and brass vivarium containing living plants, lit from within. Its limbs are thick trunk-like columns with bark-textured metal plating. It has no head: the top of the torso is an open bowl with a small tree growing out of it. Broad flat spade-like hands. Trailing vines hang from its arms and drag behind it. Very heavy, very wide, tall.",
+    "texture_prompt": "green glass panels in tarnished brass frames, bark-textured verdigris metal limbs, bright living foliage inside the torso",
+    "pose_mode": "a-pose",
+    "target_polycount": 25000,
+    "rig": true,
+    "height_meters": 1.8
+  },
+  {
+    "name": "chorus",
+    "prompt": "A slight fast dancer-like humanoid robot on a slender armature, standing high on the toes. Painted in mismatched salvaged colours: bright orange over patches of blue and cream, visibly hand-applied and chipped. A stiff ruff of torn fabric strips around the neck. Its face is a smooth painted theatre mask, and it carries two more differently painted masks slung at the hip and on the back of the head. Long light limbs, narrow frame, twin small machine pistols.",
+    "texture_prompt": "chipped hand-painted orange over blue and cream, scuffed bare metal showing through, torn dirty canvas ruff",
+    "pose_mode": "a-pose",
+    "target_polycount": 20000,
+    "rig": true,
+    "height_meters": 1.8
+  },
+  {
+    "name": "tragedian",
+    "prompt": "A tall theatrical humanoid robot draped in a long ragged cloak of stitched canvas painted with faded scenes. Its face is a cracked porcelain mask fixed in an expression of grief, split down the middle with the two halves slightly misaligned. Slim dark armature limbs. It holds a single curved blade like an oversized stage prop. Gold paint runs from the mask's eyes down the chest like tears rendered in gold leaf.",
+    "texture_prompt": "cracked white porcelain mask, dark tarnished metal limbs, faded painted canvas cloak, streaks of gold leaf down the chest",
+    "pose_mode": "a-pose",
+    "target_polycount": 22000,
+    "rig": true,
+    "height_meters": 1.8
+  }
+]

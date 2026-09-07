@@ -1,0 +1,23 @@
+# Text files: normalise to LF in the repository, check out native.
+# Without this, git warned on every single source file at `git add` time about LF
+# becoming CRLF, and the same file would look modified on Windows and on Linux.
+* text=auto
+
+# Binary assets. These MUST be marked, or the line-ending normalisation above will
+# rewrite bytes inside them and corrupt every model in the project.
+*.glb    binary
+*.gltf   binary
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.ogg    binary
+*.wav    binary
+*.mp3    binary
+*.ttf    binary
+*.otf    binary
+*.import binary
+
+# Scripts that a shell has to read must keep their own endings.
+*.cmd    text eol=crlf
+*.bat    text eol=crlf
+*.sh     text eol=lf

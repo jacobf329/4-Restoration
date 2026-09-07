@@ -200,7 +200,7 @@ public static class Graphics
     static ImageTexture? panelTexture;
 
     /// <summary>Edge of one panel in metres. Sets how big the plating reads across the arena.</summary>
-    const float PanelMetres = 2.6f;
+    public const float PanelMetres = 2.6f;
 
     /// <summary>
     /// A tiling plate pattern, generated rather than loaded.
@@ -271,7 +271,8 @@ public static class Graphics
     /// painted one exact value reads as a texture-less plane; the wobble is far too small to notice
     /// as colour and just enough to stop adjacent blocks fusing into one shape.
     /// </summary>
-    public static StandardMaterial3D SurfaceAt(Color c, Vector3 centre, float topY, bool outer)
+    public static StandardMaterial3D SurfaceAt(Color c, Vector3 centre, float topY, bool outer,
+                                               SurfaceKind kind = SurfaceKind.Panel)
     {
         float h = Mathf.Clamp(topY / ShadeCeiling, 0f, 1f);
 
@@ -296,9 +297,33 @@ public static class Graphics
         // would stretch across the first and be invisible on the second. Projecting from world
         // space gives every surface in the arena the same texel size, which is the only way the
         // plating reads as one material rather than as a scale error.
-        m.AlbedoTexture = PanelTexture();
+        // The material library first, the procedural plating if it has nothing.
+        //
+        // The tint stays either way, as a multiplier rather than a replacement. Everything above
+        // this line — the height wash, the outer-district warming, the per-block wobble — is
+        // readability work, not decoration: it is how a raised walkway reads as raised from across
+        // an arena. A photographed brick that threw all of that away would look better in a
+        // screenshot and worse to play.
+        var set = Surfaces.For(kind);
+        var spec = Surfaces.SpecFor(kind);
+
+        m.AlbedoTexture = set.Albedo ?? PanelTexture();
+
+        if (set.Normal != null)
+        {
+            m.NormalEnabled = true;
+            m.NormalTexture = set.Normal;
+        }
+
+        // Green is roughness, which is how every exporter in this project's pipeline packs it.
+        if (set.Roughness != null)
+        {
+            m.RoughnessTexture = set.Roughness;
+            m.RoughnessTextureChannel = BaseMaterial3D.TextureChannel.Green;
+        }
+
         m.Uv1Triplanar = true;
-        m.Uv1Scale = Vector3.One / PanelMetres;
+        m.Uv1Scale = Vector3.One / spec.Metres;
 
         // Anisotropic, not plain mipmapping. A long wall or a causeway floor is seen at a very
         // glancing angle from across the arena, where plain trilinear picks one mip for the whole

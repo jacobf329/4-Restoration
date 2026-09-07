@@ -1129,6 +1129,70 @@ public static class UiSelfTest
     /// matters because an empty scene is a legal state - four of the six are deliberately empty
     /// today - so "the script loaded" is not evidence that anything is in it.
     /// </summary>
+
+    /// <summary>
+    /// The environment material library, and the fallback that lets it be empty.
+    ///
+    /// The fallback is the part under test. Eight materials will arrive one at a time, and the
+    /// whole arrangement is worth nothing if the game looks broken while seven of them are still
+    /// missing — so "no files on disk" has to be an ordinary, working state rather than the state
+    /// nobody tried.
+    /// </summary>
+    static void TestSurfaces()
+    {
+        TestLog.Line("- surfaces fall back to plating when there is no art");
+
+        Surfaces.ClearCacheForTest();
+
+        foreach (SurfaceKind kind in System.Enum.GetValues<SurfaceKind>())
+        {
+            var spec = Surfaces.SpecFor(kind);
+
+            Check(spec.Metres > 0.1f && spec.Metres < 12f,
+                  $"{kind} tiles at a believable size ({spec.Metres:0.0}m)");
+
+            // Every kind but the default names a file stem, and the default names none - it is
+            // the procedural plating and there is nothing to look for.
+            if (kind == SurfaceKind.Panel)
+                Check(spec.Name.Length == 0, "the panel kind is procedural and asks for no files");
+            else
+                Check(spec.Name.Length > 0, $"{kind} knows what its files are called");
+
+            // Asking for a material with nothing on disk must be quiet and must be cached, or a
+            // missing texture becomes a file probe per block per frame.
+            var set = Surfaces.For(kind);
+            Check(set != null, $"{kind} resolves to a set");
+            Check(ReferenceEquals(set, Surfaces.For(kind)), $"{kind} is cached, hit or miss");
+        }
+
+        // Two kinds must not share a stem, or one material silently becomes another.
+        var stems = new HashSet<string>();
+        foreach (SurfaceKind kind in System.Enum.GetValues<SurfaceKind>())
+        {
+            string name = Surfaces.SpecFor(kind).Name;
+            if (name.Length == 0) continue;
+            Check(stems.Add(name), $"{kind} has its own files, not {name} again");
+        }
+
+        // And the town says what it is made of, which is the only reason any of this exists yet.
+        var town = new Arena(Arena.CombatLayouts);
+        var used = new HashSet<SurfaceKind>();
+        foreach (var b in town.Blocks) used.Add(b.Surface);
+
+        TestLog.Line($"    Fairview is built from {used.Count} materials");
+        Check(used.Count >= 4, $"Fairview is made of several materials, not one ({used.Count})");
+        Check(used.Contains(SurfaceKind.Plaster), "its houses are rendered");
+        Check(used.Contains(SurfaceKind.RoofTile), "and roofed");
+        Check(used.Contains(SurfaceKind.Tarmac), "and it has a road");
+
+        // Arenas are untouched: they were built before materials existed and still ask for none.
+        var arena = new Arena(0);
+        bool allPanel = true;
+        foreach (var b in arena.Blocks) if (b.Surface != SurfaceKind.Panel) allPanel = false;
+        Check(allPanel, "the arenas still ask for the plating they were built with");
+    }
+
+
     static void TestStoryScript()
     {
         TestLog.Line("- the story script is wired to the acts");
@@ -1661,6 +1725,7 @@ public static class UiSelfTest
         TestCampaignState();
         TestFairview();
         TestStoryScript();
+        TestSurfaces();
         TestPlayBoundsAreTight();
 
         // Every wall and platform on the map comes down, and the two things that must not are the

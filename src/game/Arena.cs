@@ -22,12 +22,23 @@ public readonly struct Block
     /// </summary>
     public readonly bool Fragile;
 
-    public Block(Vector3 centre, Vector3 halfExtents, Color tint, bool fragile = false)
+    /// <summary>
+    /// What this block is made of. Defaults to the plating every arena has always been built from.
+    ///
+    /// A role, not a look — see <see cref="SurfaceKind"/>. Defaulted so that adding materials did
+    /// not mean editing several hundred existing block constructions, and so an arena that has no
+    /// opinion about its materials still gets the one the game shipped with.
+    /// </summary>
+    public readonly SurfaceKind Surface;
+
+    public Block(Vector3 centre, Vector3 halfExtents, Color tint, bool fragile = false,
+                 SurfaceKind surface = SurfaceKind.Panel)
     {
         Centre = centre;
         HalfExtents = halfExtents;
         Tint = tint;
         Fragile = fragile;
+        Surface = surface;
     }
 }
 
@@ -1277,9 +1288,11 @@ public sealed class Arena
     /// <summary>A walkway rather than structure. Thin decks are the things worth blowing out.</summary>
     const float FragileThickness = 0.5f;
 
-    void Deck(Vector3 centre, Vector3 halfExtents, Color? tint = null)
+    void Deck(Vector3 centre, Vector3 halfExtents, Color? tint = null,
+              SurfaceKind surface = SurfaceKind.Panel)
         => Blocks.Add(new Block(centre, halfExtents, tint ?? DeckTint,
-                                buildingUpperStorey && halfExtents.Y <= FragileThickness));
+                                buildingUpperStorey && halfExtents.Y <= FragileThickness,
+                                surface));
 
     /// <summary>
     /// A staircase of boxes climbing to <paramref name="top"/>. Steps rather than a slope because
@@ -1321,7 +1334,8 @@ public sealed class Arena
     /// <param name="doors">Which sides get a doorway: -X, +X, -Z, +Z in that order.</param>
     /// <param name="roofed">Whether to lid it. An open room is a courtyard; a lid is a corridor.</param>
     /// <returns>False when the site was already occupied and the room was skipped.</returns>
-    bool Room(Vector3 centre, Vector3 half, bool[] doors, bool roofed = true, Color? tint = null)
+    bool Room(Vector3 centre, Vector3 half, bool[] doors, bool roofed = true, Color? tint = null,
+              SurfaceKind surface = SurfaceKind.Panel)
     {
         const float Thick = 0.9f;
         const float DoorHalf = 2.4f;
@@ -1350,7 +1364,7 @@ public sealed class Arena
                 ? new Vector3(s, half.Y, Thick)
                 : new Vector3(Thick, half.Y, s);
 
-            if (!door) { Deck(at with { Y = y }, Half(span), wall); return; }
+            if (!door) { Deck(at with { Y = y }, Half(span), wall, surface); return; }
 
             float piece = (span - DoorHalf) * 0.5f;
             if (piece < 1.2f) return;
@@ -1358,8 +1372,8 @@ public sealed class Arena
             float off = DoorHalf + piece;
             Vector3 step = alongX ? new Vector3(off, 0f, 0f) : new Vector3(0f, 0f, off);
 
-            Deck((at - step) with { Y = y }, Half(piece), wall);
-            Deck((at + step) with { Y = y }, Half(piece), wall);
+            Deck((at - step) with { Y = y }, Half(piece), wall, surface);
+            Deck((at + step) with { Y = y }, Half(piece), wall, surface);
         }
 
         Side(centre - new Vector3(half.X, 0f, 0f), half.Z, alongX: false, doors[0]);
@@ -1374,7 +1388,7 @@ public sealed class Arena
         // Thin, and built outside the upper-storey pass, so a roof is solid rather than something
         // a rocket takes out from underneath the people standing on it.
         Deck(centre with { Y = centre.Y + half.Y * 2f + 0.3f },
-             new Vector3(half.X + Thick, 0.3f, half.Z + Thick), DeckTint);
+             new Vector3(half.X + Thick, 0.3f, half.Z + Thick), DeckTint, surface);
 
         return true;
     }
@@ -2187,6 +2201,7 @@ public sealed class Arena
         const float First = -78f;
         const float Pitch = 26f;                          // door to door along the street
         const int Houses = 6;                             // per side
+        const float StreetEnd = 92f;                      // where the specification stopped
 
         // Spawns are on the doorstep of the house that is meant to be his, not on a grid. There is
         // no versus match here to balance, and a story that begins by dropping you in a field
@@ -2219,33 +2234,41 @@ public sealed class Arena
                     ? new[] { false, false, false, true }
                     : new[] { false, false, true, false };
 
-                if (!Room(at, half, doors, roofed: true, render)) continue;
+                if (!Room(at, half, doors, roofed: true, render, SurfaceKind.Plaster)) continue;
 
                 // A roof, sat on top of the box, purely so the skyline is not flat. It is the one
                 // piece of this map that exists for no reason but to look like a place.
                 Deck(LastRoomAt + Vector3.Up * (half.Y * 2f + 0.4f),
-                     new Vector3(half.X + 0.6f, 0.4f, half.Z + 0.6f), roof);
+                     new Vector3(half.X + 0.6f, 0.4f, half.Z + 0.6f), roof, SurfaceKind.RoofTile);
 
                 // A hedge along the front, leaving the doorway clear.
                 float front = side * (Row - half.Z - 2.2f);
-                Deck(new Vector3(x - half.X * 0.55f, 0.5f, front), new Vector3(2.2f, 0.5f, 0.4f), hedge);
-                Deck(new Vector3(x + half.X * 0.55f, 0.5f, front), new Vector3(2.2f, 0.5f, 0.4f), hedge);
+                Deck(new Vector3(x - half.X * 0.55f, 0.5f, front),
+                     new Vector3(2.2f, 0.5f, 0.4f), hedge, SurfaceKind.Foliage);
+                Deck(new Vector3(x + half.X * 0.55f, 0.5f, front),
+                     new Vector3(2.2f, 0.5f, 0.4f), hedge, SurfaceKind.Foliage);
             }
         }
 
+        // The road. Flat enough to be a surface rather than a kerb, and the one thing in the town
+        // that is not a building — without it the houses read as boxes on a field.
+        Deck(new Vector3(0f, 0.04f, 0f), new Vector3(StreetEnd, 0.04f, StreetHalf),
+             new Color(0.30f, 0.30f, 0.32f), SurfaceKind.Tarmac);
+
         // The green, dead centre, with everything looking at it.
-        Deck(new Vector3(0f, 0.06f, 0f), new Vector3(13f, 0.06f, StreetHalf + 1f), hedge);
+        Deck(new Vector3(0f, 0.06f, 0f), new Vector3(13f, 0.06f, StreetHalf + 1f),
+             hedge, SurfaceKind.Foliage);
 
         // The school, on the north side of the green. One classroom.
         Room(new Vector3(0f, 0f, -Row - 6f), new Vector3(11f, 4.0f, 7f),
-             new[] { false, false, false, true }, roofed: true, civic);
-        Deck(LastRoomAt + Vector3.Up * 8.4f, new Vector3(11.6f, 0.5f, 7.6f), roof);
+             new[] { false, false, false, true }, roofed: true, civic, SurfaceKind.Concrete);
+        Deck(LastRoomAt + Vector3.Up * 8.4f, new Vector3(11.6f, 0.5f, 7.6f), roof, SurfaceKind.RoofTile);
 
         // The hall opposite it, which is the only other public building and has never been used
         // for anything. It is there because a town has one.
         Room(new Vector3(0f, 0f, Row + 6f), new Vector3(9f, 3.6f, 6f),
-             new[] { false, false, true, false }, roofed: true, civic);
-        Deck(LastRoomAt + Vector3.Up * 7.6f, new Vector3(9.6f, 0.5f, 6.6f), roof);
+             new[] { false, false, true, false }, roofed: true, civic, SurfaceKind.Concrete);
+        Deck(LastRoomAt + Vector3.Up * 7.6f, new Vector3(9.6f, 0.5f, 6.6f), roof, SurfaceKind.RoofTile);
 
         // And the end of the street. A low wall across it, and nothing drawn past it.
         //
@@ -2253,11 +2276,9 @@ public sealed class Arena
         // specification stopped. A player who walks the length of Fairview arrives at the edge of
         // what was built for him, which is the act's turn arriving early for anyone curious enough
         // to go looking. It should be possible to find in the first ten minutes.
-        const float StreetEnd = 92f;
-
         foreach (int end in new[] { -1, 1 })
             Deck(new Vector3(end * StreetEnd, 2.0f, 0f),
-                 new Vector3(1.0f, 2.0f, Row + 12f), civic.Darkened(0.35f));
+                 new Vector3(1.0f, 2.0f, Row + 12f), civic.Darkened(0.35f), SurfaceKind.Concrete);
     }
 
     void BuildAntechamber()
@@ -2378,7 +2399,7 @@ public sealed class Arena
             body.AddChild(new MeshInstance3D
             {
                 Mesh = new BoxMesh { Size = b.HalfExtents * 2f },
-                MaterialOverride = Graphics.SurfaceAt(b.Tint, b.Centre, top, outer),
+                MaterialOverride = Graphics.SurfaceAt(b.Tint, b.Centre, top, outer, b.Surface),
             });
 
             // No edge trim any more. Every block used to get four glowing bars stuck along its top

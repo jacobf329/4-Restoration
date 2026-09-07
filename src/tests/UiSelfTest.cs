@@ -1228,19 +1228,37 @@ public static class UiSelfTest
         // Enough building to be a place rather than a diagram. The houses alone are six a side.
         Check(town.Blocks.Count > 60, $"there is a town here ({town.Blocks.Count} blocks)");
 
-        // And a versus match must never land on it, however the picker is asked.
-        var settings = new MatchSettings { Mode = GameMode.Deathmatch, ArenaIndex = layout };
-        Check(!Arena.IsStory(Match.ChooseArenaForTest(settings)),
-              "a deathmatch asked for Fairview by name is given an arena instead");
+        // The index the puzzles start at is not the number of combat arenas, and was until
+        // Fairview sat between them.
+        Check(Arena.FirstPuzzleLayout == Arena.CombatLayouts + Arena.StoryLayouts,
+              "the puzzle chambers start after the story sets, not after the arenas");
+        Check(Arena.IsPuzzle(Arena.FirstPuzzleLayout), "and that index really is a puzzle chamber");
 
-        for (int i = 0; i < 40; i++)
+        // And no match of any kind may land on the town, however the picker is asked.
+        //
+        // Both modes and both paths, which is the shape this test was missing the first time: it
+        // covered a deathmatch by name and a deathmatch at random, and the bug that got through was
+        // a *puzzle* at random — the fallback counted up from the end of the arenas, which had been
+        // where the puzzles began right up until it wasn't.
+        foreach (var mode in new[] { GameMode.Deathmatch, GameMode.Portal })
         {
-            var random = new MatchSettings { Mode = GameMode.Deathmatch, ArenaIndex = -1 };
-            if (Arena.IsStory(Match.ChooseArenaForTest(random)))
+            string which = mode == GameMode.Portal ? "Portal" : "a deathmatch";
+
+            var named = new MatchSettings { Mode = mode, ArenaIndex = layout };
+            Check(!Arena.IsStory(Match.ChooseArenaForTest(named)),
+                  $"{which} asked for Fairview by name is given something else");
+
+            bool wantPuzzle = new MatchSettings { Mode = mode }.IsPuzzle;
+            bool wrong = false;
+
+            for (int i = 0; i < 60 && !wrong; i++)
             {
-                Check(false, "a random deathmatch picked the town");
-                break;
+                int got = Match.ChooseArenaForTest(new MatchSettings { Mode = mode, ArenaIndex = -1 });
+                wrong = Arena.IsStory(got) || Arena.IsPuzzle(got) != wantPuzzle;
+                if (wrong) Check(false, $"{which} rolled {Arena.Names[got]}, which is the wrong kind");
             }
+
+            if (!wrong) Check(true, $"{which} only ever rolls a map of its own kind");
         }
     }
 

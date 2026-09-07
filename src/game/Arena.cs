@@ -2069,8 +2069,18 @@ public sealed class Arena
     /// number somewhere else.
     public static int CombatLayouts => Names.Length - PuzzleLayouts - StoryLayouts;
 
+    /// <summary>
+    /// The index the puzzle chambers start at.
+    ///
+    /// Named because it is *not* <see cref="CombatLayouts"/>, and it was until Fairview arrived.
+    /// Those were the same number for as long as there were only two kinds of layout, and one
+    /// caller was picking a random puzzle chamber by counting up from the end of the arenas — which
+    /// silently became "or the town" the moment something sat between them.
+    /// </summary>
+    public static int FirstPuzzleLayout => Names.Length - PuzzleLayouts;
+
     /// <summary>Whether a layout index is a puzzle map rather than an arena.</summary>
-    public static bool IsPuzzle(int layout) => layout >= Names.Length - PuzzleLayouts;
+    public static bool IsPuzzle(int layout) => layout >= FirstPuzzleLayout;
 
     /// <summary>Whether a layout belongs to story mode. Never picked by a versus match.</summary>
     public static bool IsStory(int layout) => layout >= CombatLayouts && !IsPuzzle(layout);

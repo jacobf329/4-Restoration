@@ -637,8 +637,11 @@ public partial class Match : Node3D
             if (ok) return settings.ArenaIndex;
         }
 
+        // Counted from where the puzzles actually start, not up from the end of the arenas. Those
+        // were the same index until a story set was put between them, and the difference is a
+        // Portal match rolling the town.
         return settings.IsPuzzle
-            ? combat + (int)(GD.Randi() % (uint)Arena.PuzzleLayouts)
+            ? Arena.FirstPuzzleLayout + (int)(GD.Randi() % (uint)Arena.PuzzleLayouts)
             : (int)(GD.Randi() % (uint)combat);
     }
 

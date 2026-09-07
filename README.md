@@ -31,6 +31,15 @@ both of these before `Play.cmd` will work:
 | **Godot 4.7.1 — .NET / mono build** | [godotengine.org/download](https://godotengine.org/download). It must be the **.NET** build. The plain build cannot run C# at all and fails with a wall of script errors that do not say that is the problem. |
 | **.NET 8 SDK** | [dotnet.microsoft.com/download](https://dotnet.microsoft.com/download). The SDK, not the runtime — the runtime cannot compile. |
 
+**Or double-click `Setup.cmd` and skip this section.** It checks what is already present
+using the same search order `Play.cmd` uses, installs only what is missing through
+`winget`, and then sets `GODOT_HOME` — which matters, because `winget` drops Godot as a
+portable package that never lands on `PATH`, so without that step `Play.cmd` would still
+report it missing. Safe to run twice; if both are already installed it says so and does
+nothing. Close the window afterwards and open a new one, since `PATH` and `GODOT_HOME`
+both changed while it was running. Everything below is what it does, for when you would
+rather do it yourself or `winget` is not available.
+
 `Play.cmd` finds them in this order, and stops with a message naming the missing one
 rather than failing obscurely:
 

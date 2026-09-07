@@ -14,3 +14,18 @@ obj/
 
 # Meshy generation job records — per-machine task ids, not source
 .meshy/
+
+# Godot's import artefacts, all of which are derived from the .glb files beside them.
+#
+# Running the game generates about 200MB of these: an .import descriptor per asset, and the
+# textures Godot extracts out of each .glb into siblings of it. The .glb is the source of truth
+# and the only thing tracked here - none of the files these patterns match has ever been in the
+# repository, which is what makes ignoring them safe rather than a change of policy.
+#
+# Untracked and unignored, they turn `git status` into 300 lines of noise on any machine that has
+# actually run the thing, which is how a batch of them nearly ended up committed.
+*.import
+*_base_color.jpg
+*_metallic_roughness.jpg
+*_normal.jpg
+*_texture_[0-9].png

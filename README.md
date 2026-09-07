@@ -58,6 +58,31 @@ The first launch is slow: Godot imports every model in `assets/` into a `.godot/
 that is deliberately not in the repository, because it is derived data and it is bigger
 than the models it is derived from.
 
+### Running it, and testing it, on Linux
+
+`./Test.sh` builds and then runs the whole self-test suite. It is the Linux counterpart of
+`Play.cmd` and the only command that actually verifies anything: the build is not optional,
+because Godot does not compile C# on launch and `godot --headless -- --selftest` on its own will
+run the *previous* assembly and report a green suite for code that was never compiled.
+
+It finds Godot through `$GODOT`, then `$GODOT_HOME`, then `PATH` — the same order `Play.cmd` uses,
+so both platforms answer "where is Godot" the same way.
+
+### Claude Code on the web
+
+`.claude/hooks/session-start.sh` installs both halves of the toolchain into a fresh web session and
+imports the assets once, so an agent working on this repository can run `./Test.sh` and get a real
+answer instead of only being able to prove that the code compiles. It is a no-op on a local
+machine — your own Godot and SDK are your business.
+
+Two things about that hook are not guessable and are the reason it is written down:
+
+- **`godotengine.org` is blocked** by the sandbox network policy, and the GitHub release is not.
+  The release URL redirects to the assets CDN, which is allowed, so the download works from
+  `github.com/godotengine/godot/releases/download/...` and fails from the obvious address.
+- **`apt-get update` is not optional** before installing `dotnet-sdk-8.0`. The base image's package
+  index is stale enough that the dotnet8 packages 404 on a straight install.
+
 ### The manual equivalents
 
 For when you want the pieces separately. Substitute your own paths for the `H:` ones.

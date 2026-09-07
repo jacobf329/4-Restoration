@@ -354,7 +354,7 @@ whether a pawn carries its class gun or something off the floor.
 
 ### Headshots
 
-Hits above 72% of a pawn's height deal **2.2×** damage and throw a large **HEADSHOT** banner up for
+Hits above 72% of a pawn's height deal **6.6×** damage and throw a large **HEADSHOT** banner up for
 the shooter. Detection comes from the raycast's impact height rather than a second collider: the
 pawn is a single capsule, and a separate head body would double the physics cost of every pawn for
 something a height comparison resolves exactly.
@@ -1486,7 +1486,7 @@ assumption in one go.
 |---|---|---|
 | Vessels | **Second Wind** | Pays back 75% of the damage you have taken in the last six seconds |
 | Custodians | **Revelation** | Outlines every enemy through walls for 4.5s, for your whole side |
-| Garden | **Bloom** | A patch that heals your side and slows everyone else, for 9s |
+| Garden | **Bloom** | A patch that heals your side 30/s and slows everyone else to 74%, for 9s |
 | Muses | **Understudy** | A decoy walks on while you drop off the targeting list for 5s |
 
 Each is the faction's argument as a verb rather than a stat line. Second Wind is worth nothing at
@@ -2481,3 +2481,146 @@ guns down for entire matches; a cumulative total would have caught that just as 
 is the ability to fail on one quiet map, which was never information.
 
 Per-scenario *"bots opened fire"* stays, because that one is reliable.
+
+## Ten changes and a butter car
+
+A tuning pass, one bug, and two things that were missing.
+
+### Slower, and easier to hit
+
+Everyone moves at **80%** of the class table, through one `Pawn.MoveScale` rather than twelve
+rewritten rows. The class table's job is the *differences* between the classes; burying the spread
+in a global change would make the next adjustment twelve edits again.
+
+At full pace a duel across open ground went to whoever happened to be pointing the right way, because
+both fighters crossed the other's field of view faster than a thumbstick can follow. Every stance
+multiplier scales with it, so sprint, crouch and ADS keep their relative weight, and the slide
+scales with it too — a slide is how you cross ground, and leaving it at full speed would have made
+it the best way to travel by a wider margin than it was designed to win by.
+
+The **dash is deliberately not scaled**. Its reach is a stated distance the ability is balanced
+around rather than a pace, and it is a burst nobody was expected to track anyway.
+
+### Headshots are worth taking
+
+**2.2× → 6.6×.** A railgun headshot is 693 and a Longshot headshot is 290, against a health pool
+that tops out at 340 — so a clean shot to the head is a kill and not a negotiation, which is what a
+scoped rifle is for.
+
+It is not only the snipers, and that is deliberate: the minigun's 6.5 a round becomes 43, so a burst
+held on someone's head kills in about a fifth of a second. Every weapon rewards the head now.
+
+### Aim assist down a scope
+
+At a 14-degree field of view every stick twitch is six times the angle it would be at the hip, so
+the last degree onto a head — the shot the whole weapon exists for — was below what a thumbstick can
+resolve. No amount of steadying the look rate fixes a resolution problem.
+
+Scoped and aiming, the view is pulled onto a target at 4.5 rad/s: it closes the gap in about a fifth
+of a second and then holds. Unlike the hip-fire magnetism it does not decay and does not wait for
+the stick to move, which is the difference between a snap and a nudge. It replaces the magnetism
+rather than stacking with it — two pulls on one axis, one decaying and one not, shows up as the
+crosshair easing off a target it has just arrived on.
+
+Still cone-gated, still line-of-sight, still gamepad-only, and it still never fires the gun. Off if
+you have aim assist set to Off.
+
+### The guns moved in
+
+The held model sits **15% closer to the centre** on both axes. At the old offset most of the barrel
+was off the edge of a splitscreen quarter — you could see that you were carrying something and not
+what.
+
+### A minimap
+
+Bottom right of each slice, north-up. A map that rotates under you is easier to read for two seconds
+and useless for what a map is actually for: the Reliquary is the same shape every round and can only
+become familiar if it is drawn the same way up every round.
+
+It shows crates, vehicles, your own side, and **enemies only while revealed** — the flag that
+Revelation and Prometheus' reign already set. Painting every enemy permanently would delete
+flanking, ambush and map knowledge in one stroke, and would make the reveal abilities worthless by
+giving their effect away for free.
+
+Crates are the reason it exists. A crate you have never found is a part of the game you do not know
+about, and they are already announced by a coloured pillar in the world — putting them on the map
+gives away nothing that walking past would not.
+
+### Three portal guns
+
+The portal gun is now the only entry that repeats in the pickup table, at **3 of 12** rather than 1
+of 10. One slot in ten meant an arena laid out perhaps one, in one corner, and a crate that has
+already been taken looks exactly like a crate that was never there. The three are spread across the
+order so consecutive crates are still unalike.
+
+### Bloom, cut to a third
+
+Ninety health a second out-healed most of the armoury, so the counter to a planted Bloom was to
+leave rather than to fight. **90 → 30.**
+
+The slow was a hold rather than a slow: a fifth of walking pace inside a twenty-two metre circle
+meant crossing one was several seconds of being shot at with no say in it. It took 78% of your pace
+and now takes 26%, so the number the movement code multiplies by goes **0.22 → 0.74**. Radius and
+duration are untouched — this is potency, not reach.
+
+### Jetpack, halved again
+
+**Rise 17 → 8.5, thrust 52 → 26**, which is where both started. At 17 the pack was still doing most
+of a player's vertical movement for them. A climb is now something you spend fuel on over several
+seconds rather than something one tap buys outright. Thrust is still twice gravity, so it climbs
+without argument. The eighteen-second tank is untouched, again: this is how hard it pushes, not how
+long.
+
+### Tank shells versus buildings
+
+A shell does **3×** damage to structure, and nothing extra to people. The cannon was already the
+best thing in the game for opening a building up and still took three or four to get through a
+machine-hall wall — long enough that nobody did it on purpose, because standing still and reloading
+twice in the open is how a tank dies.
+
+One shell now takes a wall and a citadel tier is four rather than thirteen. The multiplier rides on
+the round rather than being decided where it detonates, because by then the only trace of where a
+shell came from is its owner, and the owner of a tank shell is a pawn like any other.
+
+Bounded by the rule the arena depends on: 135 × 3 = 405, still under the 900 structure cap, so
+nothing in the game drops heavy structure in one hit. The self-test that guards that now measures
+the effective damage rather than the weapon table — checking the raw number would have gone on
+passing while saying nothing about the rule it exists to protect.
+
+### Getting out of a tank, again
+
+*"I spawn under the tank when I try to leave it"*, for the third time.
+
+The last fix stopped the hull vetoing its own doors, and the search then had thirteen candidates.
+Length was the bug rather than a defence against it: four of them sat off the nose and the tail,
+which is exactly where a hull that is still rolling arrives a moment later. The four diagonals had
+the same problem at half strength, and the three further-out spots put the driver inside whatever
+the tank was parked against.
+
+**Three directions now, and no others: left flank, right flank, roof.** Nose and tail are gone.
+
+The other half of it survived the last fix untouched. A flank spot is measured from where the hull
+is *now*, and a tank doing 15 m/s covers a quarter of a metre before the next tick — so leaving a
+moving hull at its own skin put the driver where it was about to be, whichever side they used. Each
+flank is offered clear of the hull's travel first and hugging it second, five candidates over three
+ways out. Standing still, the lead is zero and only the near pair exists.
+
+### The butter car
+
+The car is the only vehicle with no gun, which made it transport rather than a play. It is butter
+now — hull and trail the same colour, so the first person to go over backwards can see what did it
+without being told.
+
+Driven above 7 m/s it drops a 2.4m patch every 0.11 seconds, and anyone on foot who crosses one
+**slips**: a second on the floor, thrown backwards, looking at the sky, with no steering, shooting,
+jumping or ability. The input is replaced wholesale for that second rather than a dozen consumers
+each being taught about slipping, which is a dozen places for the next ability to forget one.
+
+Metered by time and not by distance, on purpose. At 34 m/s a car covers four metres per dollop and
+lays a trail with gaps you can run between — driving fast should thin the trail rather than cost
+more to lay. A hundred and fifty patches across all cars, oldest evicted first, because a hazard
+that is everywhere is not a hazard, it is the ground rules.
+
+Everyone slips, the driver included. A hazard you are immune to is a weapon, and the car is not
+supposed to have one: what makes the trail fair is that getting out of your own car in the middle of
+it is exactly as bad an idea as it looks.

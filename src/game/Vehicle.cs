@@ -71,10 +71,22 @@ public sealed class VehicleDef
 /// </summary>
 public static class Vehicles
 {
+    /// <summary>
+    /// The butter car.
+    ///
+    /// Same hull, same numbers, new job. It is the only vehicle with no gun, and driving a fast
+    /// unarmed box around a shooter was transport rather than a play — the trail it now lays is
+    /// the weapon, and it is one you aim by choosing where to *be* rather than where to point.
+    /// See <c>Match.StepButter</c> for what crossing one does.
+    ///
+    /// The tint is the trail's own colour, deliberately: a slick and the thing that laid it should
+    /// be obviously the same substance, so the first time somebody goes over backwards they can
+    /// see what did it without being told.
+    /// </summary>
     public static readonly VehicleDef Car = new()
     {
         Kind = VehicleKind.Car,
-        Name = "Car",
+        Name = "Butter Car",
         Health = 260f,
         MaxSpeed = 34f,
         Accel = 26f,
@@ -82,7 +94,7 @@ public static class Vehicles
         RamDamage = 55f,
         Gun = null,
         HalfExtents = new Vector3(3.2f, 0.8f, 1.7f),
-        Tint = new Color(0.92f, 0.78f, 0.28f),
+        Tint = new Color(0.99f, 0.90f, 0.46f),
         EyeHeight = 1.5f,
     };
 
@@ -193,6 +205,15 @@ public static class Vehicles
 public partial class Vehicle : CharacterBody3D
 {
     public VehicleDef Def = Vehicles.Car;
+
+    /// <summary>
+    /// Counts down to the next dollop of butter. Only a car uses it.
+    ///
+    /// Held on the hull rather than in the match's own bookkeeping because it belongs to this
+    /// vehicle: a match-side dictionary keyed on the rig would have to be cleaned up when a car is
+    /// wrecked and respawned, and forgetting that is a leak nobody would notice.
+    /// </summary>
+    public float ButterTimer;
 
     /// <summary>Who is driving, or null when it is parked and enterable.</summary>
     public Pawn? Driver { get; private set; }
@@ -522,59 +543,61 @@ public partial class Vehicle : CharacterBody3D
     }
 
     /// <summary>
-    /// A place beside this hull where <paramref name="p"/> fits, in order of preference.
+    /// A place beside this hull where <paramref name="p"/> fits.
     ///
-    /// Sideways first because that is where a door would be, then the back, then the nose, then the
-    /// roof — which is always reachable if the hull itself is, since the vehicle got there.
+    /// Three directions and no others: the left flank, the right flank, and the roof. Flanks
+    /// first because that is where a door would be, roof last because it is always reachable if
+    /// the hull itself is — the vehicle got there. Each flank is offered at two distances, so
+    /// that is five candidates covering three ways out.
+    ///
+    /// The list used to be thirteen, and length was the bug rather than a defence against it.
+    /// Four of those candidates sat off the nose and the tail, which is exactly where a hull that
+    /// is still rolling arrives a moment later: step out of a moving tank at its own back bumper
+    /// and it drives over you, which is the "I get out and I am under the tank" report. The four
+    /// diagonals had the same problem at half strength, and the three further-out spots put the
+    /// driver far enough from the hull to land inside whatever it was parked against. Dropping to
+    /// the two flanks and the roof gives up nothing real: a hull with both flanks and its roof
+    /// blocked is wedged somewhere a longer list would only have found a worse answer for.
     /// </summary>
     Vector3 FreeSpotFor(Pawn p)
     {
         // The hull's own axes. Local +X is the nose and local +Z is its left, which is why the
         // clearances below are not interchangeable: a tank is 8m long and 4.8m wide.
-        var nose = new Vector3(MathF.Cos(Facing), 0f, MathF.Sin(Facing));
         var side = new Vector3(-MathF.Sin(Facing), 0f, MathF.Cos(Facing));
 
         float outSide = Def.HalfExtents.Z + Pawn.Radius + 0.35f;
-        float outEnd = Def.HalfExtents.X + Pawn.Radius + 0.35f;
         float roof = Def.HalfExtents.Y * 2f + 0.15f;
 
-        // Doors first, then further out, then the roof.
+        // Extra clearance proportional to how fast the hull is going.
         //
-        // The list is long on purpose. A vehicle can be parked anywhere — beside a wall, in a
-        // doorway, between two rooms — and the more ways there are to step out of it, the less
-        // often the search has to fall back on anything. The old list was five entries and the
-        // fallback was being taken constantly, which is how drivers ended up on the roof of a
-        // moving tank and then under its tracks.
-        Span<Vector3> candidates = stackalloc Vector3[13];
-        int n = 0;
+        // This is the other half of the reported bug, and the half that survived the last fix. A
+        // flank spot is measured from where the hull is *now*, and a tank doing 15 m/s covers a
+        // quarter of a metre before the next physics tick — so stepping out of a moving hull at
+        // its own skin put the driver exactly where it was about to be, whichever side they left
+        // by. Standing still, this is zero and the near spots below are the only ones.
+        //
+        // Capped so a fast car cannot fling its driver across a room into whatever is there; the
+        // fit test would reject that anyway, but the cap means the *first* candidate is usually
+        // the one taken rather than the third.
+        float lead = MathF.Min(HorizontalSpeed * 0.12f, 3f);
 
-        // The four sides, at the hull's own clearance.
-        candidates[n++] = GlobalPosition + side * outSide + Vector3.Up * 0.15f;
-        candidates[n++] = GlobalPosition - side * outSide + Vector3.Up * 0.15f;
-        candidates[n++] = GlobalPosition - nose * outEnd + Vector3.Up * 0.15f;
-        candidates[n++] = GlobalPosition + nose * outEnd + Vector3.Up * 0.15f;
+        // Left, right, and the roof. No other directions, ever: the nose and the tail are where a
+        // hull that is still rolling arrives a moment later, and putting a driver there is the
+        // "I get out and I am under the tank" report. Each flank is tried clear of the hull's
+        // travel first and hugging it second, so a parked hull in a tight spot still has a door.
+        Span<Vector3> candidates = stackalloc Vector3[5];
+        candidates[0] = GlobalPosition + side * (outSide + lead) + Vector3.Up * 0.15f;
+        candidates[1] = GlobalPosition - side * (outSide + lead) + Vector3.Up * 0.15f;
+        candidates[2] = GlobalPosition + side * outSide + Vector3.Up * 0.15f;
+        candidates[3] = GlobalPosition - side * outSide + Vector3.Up * 0.15f;
+        candidates[4] = GlobalPosition + Vector3.Up * roof;
 
-        // The four corners, which are open surprisingly often when the flat sides are not — a hull
-        // parked along a wall has both its length blocked and both its diagonals free.
-        foreach (int sx in new[] { 1, -1 })
-        foreach (int sz in new[] { 1, -1 })
-            candidates[n++] = GlobalPosition + nose * (outEnd * 0.8f * sx)
-                                             + side * (outSide * 0.9f * sz) + Vector3.Up * 0.15f;
-
-        // Further out along each axis, for when the hull is wedged against something close.
-        candidates[n++] = GlobalPosition + side * (outSide * 1.8f) + Vector3.Up * 0.15f;
-        candidates[n++] = GlobalPosition - side * (outSide * 1.8f) + Vector3.Up * 0.15f;
-        candidates[n++] = GlobalPosition - nose * (outEnd * 1.6f) + Vector3.Up * 0.15f;
-
-        // And the roof, which is always reachable if the hull itself is.
-        candidates[n++] = GlobalPosition + Vector3.Up * roof;
-
-        for (int i = 0; i < n; i++)
+        for (int i = 0; i < candidates.Length; i++)
             if (InsideWalls(candidates[i]) && Fits(p, candidates[i])) return candidates[i];
 
-        // Nowhere clear at all. The roof unchecked is the least bad answer: a pawn left there falls
-        // off rather than being welded into the geometry, and falling off a tank is survivable in a
-        // way that being inside one is not.
+        // Both flanks blocked and the roof somehow occupied. The roof anyway is the least bad
+        // answer: a pawn left there falls off rather than being welded into the geometry, and
+        // falling off a tank is survivable in a way that being under one is not.
         //
         // Deliberately *not* lifted above the roof. Doing that put the driver through the ceiling
         // of whatever the tank happened to be parked beside — the spawn nearest the Reliquary's

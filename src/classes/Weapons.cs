@@ -417,10 +417,19 @@ public static class Weapons
     // bullet hose, then an explosive, and so on. The crate list is walked in order, so putting the
     // two scoped rifles next to each other would mean whole corners of a map offering the same
     // fight twice.
+    //
+    // The portal gun appears three times, which is the only entry that repeats.
+    //
+    // One slot in ten meant a given arena laid out perhaps one of them, in one corner, and a
+    // crate that has already been taken is indistinguishable from a crate that was never there —
+    // so the gun that changes how you move around a map was something players never reliably
+    // found. At three in twelve it is a quarter of the floor and you can go looking for one with
+    // some expectation of success. The three are spread across the order rather than adjacent, so
+    // the "unlike your neighbours" rule above still holds at every position.
     public static readonly WeaponDef[] Pickups =
         {
-            Railgun, Minigun, RocketLauncher, Grapple, Longshot, Flamethrower,
-            Scattergun, PortalGun, GrenadeLauncher, Sword,
+            Railgun, Minigun, PortalGun, RocketLauncher, Grapple, Longshot,
+            Flamethrower, PortalGun, Scattergun, GrenadeLauncher, PortalGun, Sword,
         };
 
     public static WeaponDef ByIndex(int i)

@@ -1468,12 +1468,18 @@ public static class UiSelfTest
 
         // One tank shell takes a walkway. Nothing in the game takes a citadel tier in one, which is
         // the point of the cap being where it is.
+        //
+        // Measured through the vehicle multiplier rather than off the weapon table. The raw
+        // BlastDamage is no longer what a shell does to a wall, so checking it would have gone on
+        // passing while saying nothing about the rule it exists to protect.
         var shell = Vehicles.Tank.Gun!;
+        float againstStructure = shell.BlastDamage * Match.VehicleStructureMultiplier;
 
-        Check(shell.BlastDamage >= Match.PlatformHealth,
-              "one shell brings a walkway down");
-        Check(shell.BlastDamage < Match.StructureHealthCap,
-              "and nothing in the game drops heavy structure in one hit");
+        Check(againstStructure >= Match.PlatformHealth,
+              $"one shell brings a walkway down ({againstStructure:0} against {Match.PlatformHealth:0})");
+        Check(againstStructure < Match.StructureHealthCap,
+              $"and nothing in the game drops heavy structure in one hit "
+              + $"({againstStructure:0} against {Match.StructureHealthCap:0})");
         Check(Match.StructureRebuildTime(Match.StructureHealthCap)
               > Match.StructureRebuildTime(Match.PlatformHealth),
               "heavy structure stays down longer than a catwalk");

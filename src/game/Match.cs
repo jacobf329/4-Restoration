@@ -79,6 +79,15 @@ public partial class Match : Node3D
         public float BlastDamage;
         public float BlastRadius;
 
+        /// <summary>
+        /// What this round's blast is worth against structure, as a multiple of its blast damage.
+        ///
+        /// Carried on the round rather than decided at the point of detonation, because by the
+        /// time a shell goes off the only thing left of where it came from is its owner — and the
+        /// owner of a tank shell is a pawn, indistinguishable from one holding a rocket launcher.
+        /// </summary>
+        public float StructureScale = 1f;
+
         /// <summary>True when the round plants a gate where it lands rather than doing damage.</summary>
         public bool PlantsPortal;
 
@@ -146,7 +155,21 @@ public partial class Match : Node3D
     public int Headshots { get; private set; }
 
     /// <summary>Rewards precision without making body shots pointless.</summary>
-    public const float HeadshotMultiplier = 2.2f;
+    /// <summary>
+    /// What a hit above the head line is worth.
+    ///
+    /// Three times what it was. At 2.2 a headshot was a bonus you noticed on the damage numbers
+    /// and nowhere else; the shot that deserves the most from the player should be worth the most
+    /// to them. At 6.6 the scoped rifles do what a sniper rifle is supposed to do — a railgun
+    /// headshot is 693 and a Longshot headshot is 290, against a health pool that tops out well
+    /// under either, so a clean shot to the head is a kill and not a negotiation.
+    ///
+    /// Worth knowing what else this touches, because it is not only the snipers: the minigun's
+    /// 6.5 a round becomes 43, so a burst held on someone's head is lethal in about a fifth of a
+    /// second. That is the intended shape of the change — every weapon rewards the head — but it
+    /// is the reason the number is a constant rather than being folded into the sniper damage.
+    /// </summary>
+    public const float HeadshotMultiplier = 6.6f;
 
     public const float HeadshotBannerTime = 1.15f;
 
@@ -289,7 +312,7 @@ public partial class Match : Node3D
 
             // A press boards a vehicle; a hold takes a weapon. The two never fight because a press
             // only counts when a hull is actually in reach.
-            if (input.Use && NearestBoardable(pawn) != null) ToggleVehicle(pawn);
+            if (input.Use && !pawn.Slipping && NearestBoardable(pawn) != null) ToggleVehicle(pawn);
             if (input.SwapWeapon) pawn.SwapWeapon();
 
             pawn.TrackPickupHold(dt, input.UseHeld);
@@ -316,6 +339,7 @@ public partial class Match : Node3D
         StepVehicles(dt);
         StepBreakables(dt);
         StepBlooms(dt);
+        StepButter(dt);
         StepDecoys(dt);
         StepPortals(dt);
         StepGrappleLines();
@@ -2241,6 +2265,7 @@ public partial class Match : Node3D
                 Damage = gun.Damage,
                 BlastDamage = gun.BlastDamage,
                 BlastRadius = gun.BlastRadius,
+                StructureScale = VehicleStructureMultiplier,
             };
 
             if (Visuals)
@@ -2944,12 +2969,25 @@ public partial class Match : Node3D
     /// Healing a second inside one. Enough to out-heal sustained fire, on purpose.
     ///
     /// Twenty-two a second lost to any two people shooting at you, so standing in it was never a
-    /// decision anybody had to respect. At ninety it beats most single weapons in the game, which
-    /// means clearing somebody out of their own Bloom is a thing you have to actually commit to.
+    /// decision anybody had to respect. Ninety was the overcorrection: it out-healed most of the
+    /// armoury, so the counter to a planted Bloom was to leave rather than to fight. Thirty is a
+    /// third of that — it wins a duel you were already winning and loses one you were not, which
+    /// is the amount of help an ability should be.
     /// </summary>
-    public const float BloomHealPerSecond = 90f;
-    /// <summary>What an enemy caught in one is reduced to. A great deal more than a nuisance.</summary>
-    public const float BloomSlow = 0.22f;
+    public const float BloomHealPerSecond = 30f;
+
+    /// <summary>
+    /// What an enemy caught in one is reduced to.
+    ///
+    /// A third of the slow it was, which is not a third of this number: at 0.22 the patch took
+    /// away 78% of your pace, and a third of that is 26%, so what is left is 0.74. Stated as the
+    /// leftover fraction because that is what the movement code multiplies by, but it is the
+    /// *taken* part that was tuned.
+    ///
+    /// Being cut to a fifth of walking pace inside a twenty-two metre circle was not a slow, it
+    /// was a hold — crossing one meant being shot at for several seconds with no say in it.
+    /// </summary>
+    public const float BloomSlow = 0.74f;
 
     /// <summary>How slowed this pawn is right now, 1 meaning unaffected. Read by the pawn's move.</summary>
     public float BloomSlowFor(Pawn p)
@@ -3029,6 +3067,152 @@ public partial class Match : Node3D
         }
 
         blooms.Add(patch);
+    }
+
+    // ---- butter trail ----
+    //
+    // The car greases the floor behind it. Anyone on foot who crosses the slick goes over
+    // backwards and spends a second looking at the sky.
+    //
+    // It is the one thing the car has. The tank has a cannon and the plane has wing guns; the car
+    // had a top speed and a bumper, which made it transport rather than a weapon. A trail turns
+    // driving *through* a fight into a play — you are not trying to hit anybody, you are trying to
+    // be somewhere they are about to run.
+
+    sealed class ButterPatch
+    {
+        public Vector3 At;
+        public float Left;
+        public Node3D? Node;
+    }
+
+    readonly List<ButterPatch> butter = new();
+
+    /// <summary>How wide one dollop of the trail is.</summary>
+    public const float ButterRadius = 2.4f;
+
+    /// <summary>Seconds a patch stays slick before it wears off.</summary>
+    public const float ButterLife = 11f;
+
+    /// <summary>
+    /// Seconds between dollops while a car is moving.
+    ///
+    /// Distance would be the obvious measure and is the wrong one: at 34 m/s a car covers four
+    /// metres in this interval and lays a trail with gaps you can run between, which is exactly
+    /// the reward a fast driver should get for driving fast. Metering by time means the trail
+    /// thins as you speed up rather than costing more to lay.
+    /// </summary>
+    public const float ButterDropInterval = 0.11f;
+
+    /// <summary>Below this the car is parked or crawling, and a stationary car should not puddle.</summary>
+    public const float ButterMinSpeed = 7f;
+
+    /// <summary>
+    /// Ceiling on live patches, shared across every car on the map.
+    ///
+    /// Without it a four-car match laying nine dollops a second each has the whole floor greased
+    /// inside a minute, and a hazard that is everywhere is not a hazard — it is the ground rules.
+    /// The oldest goes when the cap is reached, so the trail behind you is always the newest.
+    /// </summary>
+    public const int ButterMaxPatches = 150;
+
+    /// <summary>Live butter patches. Read by the harness.</summary>
+    public int ButterCount => butter.Count;
+
+    /// <summary>Advance the butter trail once, for the harness.</summary>
+    public void StepButterForTest(float dt) => StepButter(dt);
+
+    /// <summary>Lay one patch where the harness asks, without needing a car to drive over it.</summary>
+    public void DropButterForTest(Vector3 at) => DropButter(at);
+
+    void StepButter(float dt)
+    {
+        foreach (var v in VehicleList)
+        {
+            if (!v.Alive || v.Def.Kind != VehicleKind.Car) continue;
+
+            // Driven or not. A wreck rolling to a stop should not keep buttering, and neither
+            // should an empty car shoved along by a blast.
+            if (v.Driver == null || v.HorizontalSpeed < ButterMinSpeed)
+            {
+                v.ButterTimer = 0f;
+                continue;
+            }
+
+            v.ButterTimer -= dt;
+            if (v.ButterTimer > 0f) continue;
+
+            v.ButterTimer = ButterDropInterval;
+            DropButter(v.GlobalPosition);
+        }
+
+        for (int i = butter.Count - 1; i >= 0; i--)
+        {
+            var b = butter[i];
+            b.Left -= dt;
+
+            if (b.Left <= 0f)
+            {
+                b.Node?.QueueFree();
+                butter.RemoveAt(i);
+                continue;
+            }
+
+            foreach (var p in Pawns)
+            {
+                if (!p.Alive || p.InVehicle || p.Slipping) continue;
+
+                // Feet, not centre of mass. Measured flat and then gated on height, so the
+                // skybridge over a slick is not slippery and neither is a jetpack four metres up.
+                var d = p.GlobalPosition - b.At;
+                if (MathF.Abs(d.Y) > 1.6f) continue;
+                if (new Vector2(d.X, d.Z).Length() > ButterRadius) continue;
+
+                // Everyone, the driver included. A hazard you are immune to is a weapon, and the
+                // car is not supposed to have one — what makes the trail fair is that getting out
+                // of your own car in the middle of it is exactly as bad an idea as it looks.
+                p.Slip();
+            }
+        }
+    }
+
+    void DropButter(Vector3 at)
+    {
+        if (butter.Count >= ButterMaxPatches)
+        {
+            butter[0].Node?.QueueFree();
+            butter.RemoveAt(0);
+        }
+
+        var patch = new ButterPatch { At = at, Left = ButterLife };
+
+        if (Visuals)
+        {
+            var node = new Node3D();
+            AddChild(node);
+
+            // Just off the floor, like the Bloom disc. Any lower and it z-fights the slab it is
+            // lying on, which reads as the trail flickering rather than as a decal.
+            node.GlobalPosition = at + Vector3.Up * 0.05f;
+
+            node.AddChild(new MeshInstance3D
+            {
+                Mesh = new CylinderMesh
+                {
+                    TopRadius = ButterRadius,
+                    BottomRadius = ButterRadius,
+                    Height = 0.08f,
+                },
+                // The trail is painted in the colour of the thing that laid it, read from the
+                // car itself rather than restated here, so a reskin cannot leave a butter car
+                // dropping puddles of the colour it used to be.
+                MaterialOverride = Graphics.Hot(Vehicles.Car.Tint, 0.55f),
+            });
+
+            patch.Node = node;
+        }
+
+        butter.Add(patch);
     }
 
     // ---- Understudy ----
@@ -3998,15 +4182,35 @@ public partial class Match : Node3D
         }
     }
 
+    /// <summary>
+    /// What a vehicle's own gun is worth against walls and walkways, over what it does to people.
+    ///
+    /// A tank shell was already the single best thing in the game for opening a building up, and
+    /// it still took three or four to get through a machine-hall wall — long enough that nobody
+    /// did it on purpose, because standing still and reloading twice in the open is how a tank
+    /// dies. At three times, one shell takes a wall and a citadel tier is four rather than
+    /// thirteen: demolition becomes a thing you drive a tank somewhere to do.
+    ///
+    /// Applied to structure only. What the shell does to people is untouched — this is about
+    /// making the cannon the answer to the *map*, not making it a better anti-personnel weapon.
+    ///
+    /// Bounded by the invariant the arena depends on: at this multiple the cannon's 135 comes to
+    /// 405, still well under <see cref="StructureHealthCap"/>, so nothing in the game drops heavy
+    /// structure in a single hit. Raising it past that would flatten the biggest pieces on every
+    /// map and there would be nothing left to fight over.
+    /// </summary>
+    public const float VehicleStructureMultiplier = 3f;
+
     public const float VehicleWreckDamage = 90f;
     public const float VehicleWreckRadius = 9f;
 
     /// <summary>Seconds before a wreck is cleared and a fresh hull is parked back on its spawn.</summary>
     public const float VehicleRespawnTime = 22f;
 
-    void Blast(Pawn owner, Vector3 centre, float damage, float radius, bool hurtSelf)
+    void Blast(Pawn owner, Vector3 centre, float damage, float radius, bool hurtSelf,
+               float structureScale = 1f)
     {
-        DamageBreakables(centre, damage, radius);
+        DamageBreakables(centre, damage * structureScale, radius);
 
         // Vehicles catch the blast too. Without this a shell landing against a hull did nothing to
         // it unless the ray happened to strike the hull directly, so splash weapons were the one
@@ -4349,7 +4553,7 @@ public partial class Match : Node3D
 
         if (s.BlastDamage <= 0f) return;
 
-        Blast(s.Owner, s.Pos, s.BlastDamage, s.BlastRadius, hurtSelf: true);
+        Blast(s.Owner, s.Pos, s.BlastDamage, s.BlastRadius, hurtSelf: true, s.StructureScale);
         if (Visuals) Impact.Death(this, s.Pos, s.Owner.Tint);
     }
 
@@ -4649,7 +4853,8 @@ public partial class Match : Node3D
                 // hull, or the floor under someone's feet.
                 if (s.BlastDamage > 0f)
                 {
-                    Blast(s.Owner, where, s.BlastDamage, s.BlastRadius, hurtSelf: true);
+                    Blast(s.Owner, where, s.BlastDamage, s.BlastRadius, hurtSelf: true,
+                          s.StructureScale);
                     if (Visuals) Impact.Death(this, where, s.Owner.Tint);
                 }
 

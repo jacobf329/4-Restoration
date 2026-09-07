@@ -377,6 +377,7 @@ public static class MatchSelfTest
         Once(CheckGrapple);
         Once(CheckJetpack);
         Once(CheckLeavingAVehicleUnderWay);
+        Once(CheckButterTrail);
         BeginPushWallProbe();
     }
 
@@ -390,6 +391,73 @@ public static class MatchSelfTest
     /// produced eleven unrelated failures across the vehicles, the bots and the eject placement,
     /// none of which were real. Diagnosing that cost more than writing this.
     /// </summary>
+
+    /// <summary>
+    /// The butter trail: crossing one takes your feet out from under you for a second.
+    ///
+    /// Driven through the harness hook rather than by actually driving a car, because what is
+    /// under test is the slip and not the driving. A car doing more than
+    /// <see cref="Match.ButterMinSpeed"/> in a headless world is a second thing to get working
+    /// before this one can be checked at all, and if it broke, this test would fail for a reason
+    /// that has nothing to do with butter.
+    /// </summary>
+    static void CheckButterTrail()
+    {
+        var m = current!;
+        var p = m.Pawns[0];
+
+        if (p.InVehicle) m.ToggleVehicle(p);
+        p.Respawn(m.Arena.SpawnPoints[0]);
+        p.ClearSpawnProtectionForTest();
+
+        var still = new PawnInput { Aim = MathU.FromAngle(p.Facing) };
+
+        Check(!p.Slipping, "a pawn on clean ground is on its feet");
+
+        int before = m.ButterCount;
+        m.DropButterForTest(p.GlobalPosition);
+        Check(m.ButterCount == before + 1, "a patch of butter goes down where it is laid");
+
+        m.StepButterForTest(1f / 60f);
+        Check(p.Slipping, "and standing in one takes your feet out from under you");
+
+        // Held down for about the second it claims. Ticked without stepping the trail again, so
+        // this measures the slip's own timer rather than the patch re-slipping them underneath it.
+        int ticks = 0;
+        while (p.Slipping && ticks < 240)
+        {
+            p.Tick(1f / 60f, still, m);
+            ticks++;
+        }
+
+        float held = ticks / 60f;
+        TestLog.Line($"    a slip holds you down for {held:0.00}s");
+
+        Check(!p.Slipping, "and you get back up again");
+        Check(MathF.Abs(held - Pawn.SlipDuration) < 0.2f,
+              $"about a second later ({held:0.00}s against {Pawn.SlipDuration:0.00}s)");
+
+        // The trail is terrain, not an attack: it must not be lethal on its own, or driving in
+        // circles round a spawn would be a way of killing people who never saw a weapon.
+        Check(p.Alive, "and slipping over does not kill you");
+
+        // Nothing left greased behind the test. A patch surviving into the scenarios below would
+        // have bots falling over for reasons those tests know nothing about.
+        //
+        // Checked by standing in it again rather than by counting patches. The count is shared
+        // with every car on the map, and one being driven by another part of the suite would drop
+        // a fresh patch during the very step that ages this one out — a count of zero is not
+        // something this test can honestly demand. Whether the spot is still slippery is.
+        m.StepButterForTest(Match.ButterLife + 1f);
+
+        p.Respawn(m.Arena.SpawnPoints[0]);
+        p.ClearSpawnProtectionForTest();
+        m.StepButterForTest(1f / 60f);
+
+        Check(!p.Slipping, "and the trail wears off");
+    }
+
+
     static void Once(Action check)
     {
         try

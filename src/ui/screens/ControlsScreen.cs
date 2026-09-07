@@ -88,7 +88,7 @@ public sealed class ControlsScreen : UiScreen
             "Melee always works, whatever is in your hands.",
             "Aiming tightens spread and steadies your look, but slows you.",
             "You cannot fire while sprinting.",
-            "Headshots do 2.2x damage.",
+            $"Headshots do {Match.HeadshotMultiplier:0.#}x damage — aim high.",
             "Green pads launch you. Crates on the map hold better guns.",
             "Walk up to a car or tank and interact to drive it.",
             "Explosives bring down skybridges. Mind what you are standing on.",

@@ -238,6 +238,17 @@ public sealed class MatchScreen : UiScreen
             float steady = pawn.LookRateScale;
             if (pawn.Ads && pawn.Weapon.HasScope) steady *= 0.45f;
 
+            // Slipped on a butter trail: the view goes over backwards with the player and the
+            // stick is dead for the second it lasts. Handled here rather than in the pawn because
+            // the pawn does not own a human's view — it is told where the camera is pointing, so
+            // leaving this out would have the body on the floor and the camera still level.
+            if (pawn.Slipping && pawn.Alive)
+            {
+                v.Pitch = Mathf.Lerp(v.Pitch, Pawn.MaxPitch, 1f - MathF.Exp(-11f * dt));
+                if (d.StartPressed) { Pause(); return; }
+                continue;
+            }
+
             ApplyAimAssist(v, pawn, d.Look, dt, ref steady);
 
             v.Yaw += d.Look.X * TurnRate * steady * dt;
@@ -328,6 +339,26 @@ public sealed class MatchScreen : UiScreen
     /// <summary>Beyond this a target is too far away to be worth helping with.</summary>
     const float AssistRange = 70f;
 
+    /// <summary>
+    /// Radians per second the view is pulled onto a target while looking through a scope.
+    ///
+    /// Nearly seven times the hip-fire magnetism, and unlike it this one does not decay and does
+    /// not wait for the stick to move: inside the cone it closes the gap in about a fifth of a
+    /// second and then holds. That is a snap rather than a nudge, and it is deliberate here and
+    /// nowhere else.
+    ///
+    /// A scope is the one place the general-purpose assist cannot help. At a 14-degree field of
+    /// view every stick twitch is six times the angle it would be at the hip, so the last degree
+    /// onto a head — the shot the whole weapon exists for — is below what a thumbstick can
+    /// resolve at all. The scoped rifles were the one thing on the map a pad genuinely could not
+    /// use, and no amount of steadying the look rate fixes a resolution problem.
+    ///
+    /// Still cone-gated and still line-of-sight, so it never takes the aim off someone who is
+    /// deliberately looking elsewhere, and it never fires the gun. What it does not do is aim for
+    /// you at range: past <see cref="AssistRange"/> there is no target and the scope is yours.
+    /// </summary>
+    const float ScopeSnap = 4.5f;
+
     void ApplyAimAssist(View v, Pawn self, Vector2 look, float dt, ref float steady)
     {
         int level = UserSettings.AimAssist;
@@ -352,6 +383,24 @@ public sealed class MatchScreen : UiScreen
         // This half stays on the whole time — it is fine control, not assistance, and it never
         // moves your aim anywhere you did not push it.
         steady *= 1f - AssistFriction * strength * closeness * closeness;
+
+        // Down a scope the snap replaces the magnetism below outright rather than stacking with
+        // it. Two pulls on the same axis, one of them decaying and one of them not, is a fight
+        // between them that shows up as the crosshair easing off a target it just arrived on.
+        if (self.Ads && self.Weapon.HasScope)
+        {
+            if (target != v.AssistTarget)
+            {
+                v.AssistTarget = target;
+                v.AssistHeld = 0f;
+            }
+
+            float snap = ScopeSnap * strength * closeness * dt;
+            v.Yaw = MathU.MoveAngleToward(v.Yaw, v.Yaw + offYaw, snap);
+            v.Pitch = MathU.Clamp(v.Pitch + MathU.Clamp(offPitch, -snap, snap),
+                                  -Pawn.MaxPitch, Pawn.MaxPitch);
+            return;
+        }
 
         // Magnetism: scaled by stick deflection, so it never moves the aim on its own.
         float effort = MathU.Clamp01(look.Length());
@@ -802,6 +851,8 @@ public sealed class MatchScreen : UiScreen
 
         // Border so each player can find their own slice instantly.
         p.RectOutline(r.Position.X, r.Position.Y, r.Size.X, r.Size.Y, tint * new Color(1, 1, 1, 0.5f), 3f);
+
+        DrawMinimap(p, v, pawn, r);
 
         float x = r.Position.X + 22f;
 
@@ -1676,6 +1727,100 @@ public sealed class MatchScreen : UiScreen
             GameMode.Portal => settings.IsPuzzle ? 26f + match.CheckpointCount * 18f : 22f,
             _ => 0f,
         };
+
+
+    // ---- minimap ----
+
+    /// <summary>
+    /// A north-up plan of the arena in the corner of each player's slice.
+    ///
+    /// North-up rather than rotating with the view. A map that turns under you is easier to read
+    /// for the two seconds you are looking at it and useless for the thing a map is actually for,
+    /// which is building a picture of a place you keep coming back to: the Reliquary is the same
+    /// shape every round, and it can only become familiar if it is drawn the same way up every
+    /// round. The heading wedge says which way you are pointing, which is the part that changes.
+    ///
+    /// What it shows, and the reasoning, because a minimap is an information decision before it is
+    /// a drawing one:
+    ///
+    /// - **Weapon and gear crates.** The point of the thing. A crate you have never found is a
+    ///   part of the game you do not know exists, and the portal gun in particular was something
+    ///   players had heard of rather than used. Crates are static, public and already announced by
+    ///   a coloured pillar in the world, so putting them on the map gives away nothing that
+    ///   walking past would not.
+    /// - **Vehicles**, for the same reason: a parked hull is a fixture, not a secret.
+    /// - **Your own side**, always. Knowing where your team is, is what a team mode is made of.
+    /// - **Enemies only while revealed** — the existing <see cref="Pawn.RevealedFor"/> flag that a
+    ///   scan special or Prometheus' reign sets. This is the line the whole design turns on. A map
+    ///   that paints every enemy permanently deletes flanking, ambush and map knowledge in one
+    ///   stroke, and it would make the reveal abilities worthless by giving their effect away for
+    ///   free. Revealed enemies appear here because being revealed is exactly what that means.
+    /// </summary>
+    void DrawMinimap(UiPainter p, View v, Pawn self, Rect2 r)
+    {
+        // Skip it on a slice too small to read one. Four-way splitscreen on a 1080p window gives
+        // each player a 960x540 quarter, which still clears this comfortably.
+        if (r.Size.X < 420f || r.Size.Y < 320f) return;
+
+        float w = Mathf.Clamp(r.Size.X * 0.22f, 120f, 190f);
+        float h = w * (Arena.HalfDepth / Arena.HalfWidth);
+
+        // Bottom right. The health, gauges and tips column runs up the bottom *left* of every
+        // slice, so this is the one corner with nothing already in it.
+        float x = r.Position.X + r.Size.X - w - 22f;
+        float y = r.Position.Y + r.Size.Y - h - 22f;
+
+        p.Panel(x, y, w, h, new Color(0.05f, 0.06f, 0.08f, 0.62f),
+                self.Tint * new Color(1f, 1f, 1f, 0.45f));
+
+        // World XZ onto the panel. +Z is south and screen Y grows downward, so the two agree and
+        // no axis is flipped — which is also why the heading wedge below can use the yaw directly.
+        Vector2 Plot(Vector3 at) => new(
+            x + (at.X + Arena.HalfWidth) / (Arena.HalfWidth * 2f) * w,
+            y + (at.Z + Arena.HalfDepth) / (Arena.HalfDepth * 2f) * h);
+
+        // Anything outside the arena bounds is dropped rather than clamped to the edge. A hull
+        // shoved through the perimeter would otherwise sit on the border pretending to be a
+        // position, and a wrong dot is worse than a missing one.
+        bool Inside(Vector2 at)
+            => at.X >= x && at.X <= x + w && at.Y >= y && at.Y <= y + h;
+
+        void Dot(Vector2 at, float size, Color c)
+        {
+            if (!Inside(at)) return;
+            p.Rect(at.X - size * 0.5f, at.Y - size * 0.5f, size, size, c);
+        }
+
+        foreach (var (at, _, pickTint) in match.AvailablePickups())
+            Dot(Plot(at), 5f, pickTint);
+
+        foreach (var rig in match.VehicleList)
+            if (rig.Alive)
+                Dot(Plot(rig.GlobalPosition), 7f, rig.Def.Tint);
+
+        foreach (var other in match.Pawns)
+        {
+            if (other == self || !other.Alive) continue;
+
+            bool friend = settings.Def.Teams && Match.SameTeam(self, other);
+            if (!friend && other.RevealedFor <= 0f) continue;
+
+            Dot(Plot(other.GlobalPosition), 6f, other.Tint);
+        }
+
+        // You, and which way you are looking. The wedge is three dots stepping out along the yaw
+        // rather than a triangle, because the painter draws rectangles and text and nothing else —
+        // and at this size a stepped nose and a drawn one are the same three pixels.
+        var me = Plot(self.GlobalPosition);
+        var heading = new Vector2(MathF.Cos(v.Yaw), MathF.Sin(v.Yaw));
+
+        for (int i = 1; i <= 3; i++)
+            Dot(me + heading * (i * 4f), 4f - i * 0.5f, self.Tint * new Color(1f, 1f, 1f, 0.85f));
+
+        Dot(me, 8f, Colors.White);
+        Dot(me, 5f, self.Tint);
+    }
+
 
     void DrawScoreboard(UiPainter p)
     {

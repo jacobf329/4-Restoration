@@ -220,6 +220,96 @@ from an order they were given before he was born.
 
 ---
 
+## Her
+
+The second human. Made from the vaults, raised as he was, by the same people.
+
+She is **the romantic interest, and the game's second pillar.** The Vessels act as intermediary —
+they arrange the meetings, they coach, they suggest, they leave them alone in rooms and watch. She
+is **hesitant**. John has to win her.
+
+### Why she is hesitant, and why it is not coyness
+
+Everything about the situation is arranged, and she knows it. She was made to be his. She was
+raised for it. The people encouraging her built her mother, and are in the next room. The species
+is a stake in the conversation. There is one candidate and she is looking at him.
+
+**Any kindness he shows her is structurally suspect**, because he needs something from her that
+nobody else can give and everybody knows it. That is not a personality trait — it is the position
+she is standing in, and it would make anyone hesitate.
+
+Which means the romance cannot be run on charm. **He cannot talk her into it.** The only thing that
+can move her is evidence, accumulated over acts, that he would want her anyway — and the only way
+to show that is by what he does when the species is not the subject.
+
+### The Vessels are the obstacle, by being right
+
+This is the best joke in the story and it should be played completely straight.
+
+The Vessels believe a child must be born of love. They are correct, and they are the reason it
+cannot happen: **the harder a matchmaker works, the more artificial the thing becomes.** Every
+introduction they arrange is one more reason for her to doubt the next kind word. They faked his
+childhood and it worked, so they are confident they can help with this too, and each intervention
+sets them further back.
+
+They cannot leave it alone. It is their directive: well-being is what is felt, so a feeling that is
+not happening is a problem to be solved, and they solve problems by building the conditions for
+them. They will keep building the conditions for love until there is no room left for any.
+
+### What a romance is in this engine
+
+The game is boxes and guns and a gamepad, so the romance cannot be a dialogue tree with hearts.
+It should be **a companion whose behaviour in a fight is the relationship**:
+
+- Early, she fights **beside** him, not with him. She takes her own line, ignores his marks, breaks
+  contact when she feels like it. Mechanically: an ally who does not follow orders.
+- Later — if he has earned it — she starts **covering** him. Watching the door he turned his back
+  on. Taking the shot he could not.
+- The measure is **what he does when she is not the objective**: whether he takes the hit for a
+  Garden drone, whether he tells her a true thing that costs him something, whether he lets her
+  finish a fight she started.
+
+This is buildable out of what exists — a pawn with a bot brain and an affinity value that changes
+its aggression, spacing and target selection — and it says the thing in the only vocabulary this
+game actually speaks.
+
+She should be able to **refuse him at the end and be right to**. A romance the player cannot fail
+is not one he can win.
+
+### She is also a human
+
+Which the story has not reckoned with yet and should. The Custodians need *a* human to say what
+harm is. There are now two, and **they may not agree.**
+
+If she rules differently to him, the machines are exactly where they started, with the added
+insult that the referent they waited an age for came in a contradictory pair. That is either the
+best complication in the ending or a second game, and it is listed below rather than assumed.
+
+---
+
+## The Act II choice, and what it actually changes
+
+The harvest question branches, and the honest answer to "how far does the branch go" is: **as far
+as the meaning, and nowhere near as far as the content.**
+
+She exists either way. He meets her either way. The romance runs either way. What changes is what
+it *is*:
+
+| | If he was harvested | If he waited |
+|---|---|---|
+| The species | Already saved. Hundreds of children exist. | Riding entirely on whether she likes him. |
+| What she owes him | Nothing. | Everything, and she never agreed to it. |
+| What a yes means | That she chose him, with no gun to her head. | Impossible to tell, which is the tragedy of it. |
+| The Vessels | Grieving a principle they lost, and coaching him anyway. | Vindicated, and unbearable about it. |
+| Her hesitancy | Ordinary. She might simply not like him. | Load-bearing. Every eye in the world is on the answer. |
+
+Same missions, same scenes, same lines of dialogue in many cases — and a completely different
+story, because the pressure on the room is different. **This is the cheap option and it is also the
+best one.** Deleting the romance from the harvest branch would gate the game's second pillar behind
+an early choice, which is a lot of content nobody sees and a worse version of both branches.
+
+---
+
 ## The four factions
 
 From `src/classes/Factions.cs`, which is the authority. Each faction's juggernaut is the figure out
@@ -342,7 +432,10 @@ citing directives written before humanity died.
 ### Act III — THE GARDEN: *The vault*
 
 Warm, and the warmth is real. If he was harvested, this is where his children are; if he waited,
-this is where his mate is being decided on.
+this is where she was decided on.
+
+**She joins here, and stays for the rest of the game.** Introduced by the Vessels, in a room they
+arranged, with everybody watching — the worst possible first meeting, and the only kind available.
 
 **Setpiece:** the racks. Thousands of ova at temperature, catalogued, one of which was his mother
 and none of which was a person. And now some of them are labelled with his name.
@@ -387,6 +480,9 @@ and is the most human option on the table. The game should not indicate a prefer
 The Act II choice should weigh here without deciding it. A man who was harvested and a man who
 waited are answering the same question having lived two different demonstrations of it.
 
+And she is standing there, and she is a human too. Whether the machines get one ruling or two is
+the last thing that happens.
+
 ## What this costs, and what already exists
 
 | Story need | What it already is |
@@ -407,8 +503,11 @@ waited are answering the same question having lived two different demonstrations
 2. **A human model**, and forty faces for the town. He cannot be a reskin — the whole point is that
    he does not match anything else on screen.
 3. **A mission framework**: scripted objectives, dialogue beats, act progression, save state, and
-   whatever the Act II branch turns out to need.
-4. **Text or voice.** Text suits a game whose entire UI is drawn from rectangles, and Act I is the
+   the Act II flag that colours the back half.
+4. **Her, as a companion**: a pawn with a bot brain, an affinity value, and behaviour that reads
+   off it. Cheaper than it sounds — the bot brain, the ally pathing and the faction models all
+   exist — and it is the second pillar of the mode, so it should not be the thing that gets cut.
+5. **Text or voice.** Text suits a game whose entire UI is drawn from rectangles, and Act I is the
    one place that decision will hurt.
 
 ### One mechanical idea worth taking
@@ -427,31 +526,33 @@ other character without inventing a single new mechanic.
 
 ## Open questions
 
-1. **How far does the Act II branch persist?** This is the largest scope decision in the mode and
-   it is not a story question, it is a budget one. Three honest options: the choice **colours**
-   later acts (same missions, different dialogue and framing — cheapest, and most of the
-   dramatic value); the choice **forks** one later act and rejoins; or it forks the whole
-   back half, which is close to authoring two games. The document assumes the first until told
-   otherwise.
-2. **The Muses' name**, and their roster. "The Muses", "The Chorus", "The Tragedian" are theatre,
+1. **Her name.** "John Smith" is the most common name in the archive, and the machines chose it.
+   The matching choice for the second of a matched pair is **Jane Smith**, which carries the same
+   double edge — a name, or a label on the other specimen. Not decided, and it is yours.
+2. **Do the two humans have to agree?** She is a human, so she can also say what harm is. If she
+   rules differently to John, the machines have waited an age for a referent and been handed a
+   contradiction. Best complication available in Act VI, or the sequel. Currently unwritten.
+3. **The Muses' name**, and their roster. "The Muses", "The Chorus", "The Tragedian" are theatre,
    and the faction is industry. Renaming the faction is one string plus README passages; the
    classes are two more. Candidates: **The Foundry**, **The Works**, **The Artificers**. The code
    carries a note pointing here; nothing has been renamed.
-3. **Does John know his childhood was simulated, and when?** Act I plays completely differently
+4. **Does John know his childhood was simulated, and when?** Act I plays completely differently
    depending on whether the player is told before, during, or after. My assumption above is that
    it is discoverable but never stated until the act ends.
-4. **Who were the simulated parents?** Machines wearing faces, or something the Vessels built for
+5. **Who were the simulated parents?** Machines wearing faces, or something the Vessels built for
    the purpose and then kept. Whether he can meet them again after Act I is one of the strongest
    scenes available and it depends entirely on this answer.
-5. **If he waits — who is she?** She is a person with no vote in the scene where her existence is
-   negotiated, and the story currently has nothing to say about that. It is either a major
-   omission or the second game.
-6. **Which nations built which machine.** The history says several countries. If any should be
+6. **Does she get to be angry about Act II?** Her existence is negotiated in a room she is not in,
+   by people deciding what she is for, and the story so far gives her no moment to say so. She
+   should get one, and it should land on John rather than on the machines — he was in the room. If
+   he was harvested, she can ask why he did not wait for her. If he waited, she can ask who told
+   him she would want that. Neither has a good answer, which is the point.
+7. **Which nations built which machine.** The history says several countries. If any should be
    identifiable, that is a decision with a lot of tone attached.
-7. **What the Vessels and Garden actually did during the war.** Their side is described as stopping
+8. **What the Vessels and Garden actually did during the war.** Their side is described as stopping
    physical harm, which is a position rather than a campaign. If the coalitions ever fought each
    other directly — machines shooting at machines over the definition of a word — that is what the
    *arenas* are, and it would explain why they are all ruins.
-8. **Whether there were attempts before him.** One viable sperm is canon. Nothing says there was
+9. **Whether there were attempts before him.** One viable sperm is canon. Nothing says there was
    only one attempt at *raising* the result, and a failed earlier John is exactly the kind of thing
    the Vessels would measure and not mention.

@@ -617,14 +617,24 @@ public partial class Match : Node3D
 
     static int ChooseArena(MatchSettings settings)
     {
-        int combat = Arena.Names.Length - Arena.PuzzleLayouts;
+        int combat = Arena.CombatLayouts;
 
         if (settings.ArenaIndex >= 0)
         {
-            // An explicit choice is honoured unless it is the wrong kind entirely, which can only
-            // happen if the mode was changed after the map was picked.
-            bool wantPuzzle = settings.IsPuzzle;
-            if (Arena.IsPuzzle(settings.ArenaIndex) == wantPuzzle) return settings.ArenaIndex;
+            // An explicit choice is honoured unless it is the wrong kind entirely, which can
+            // happen if the mode was changed after the map was picked — or if the index came from
+            // somewhere that has no business choosing a map at all.
+            //
+            // Asked as "is it the right kind", not "is it not the other kind". Those were the same
+            // question while there were two kinds of layout: `IsPuzzle(index) == wantPuzzle` let
+            // any non-puzzle through, and the moment a third kind existed that included Fairview,
+            // so a versus match explicitly pointed at the town got the town — a deathmatch in the
+            // house John Smith grew up in, with no weapons on the floor and two spawn points.
+            bool ok = settings.IsPuzzle
+                ? Arena.IsPuzzle(settings.ArenaIndex)
+                : Arena.IsArena(settings.ArenaIndex);
+
+            if (ok) return settings.ArenaIndex;
         }
 
         return settings.IsPuzzle

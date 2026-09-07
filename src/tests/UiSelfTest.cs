@@ -553,9 +553,9 @@ public static class UiSelfTest
 
         for (int layout = 0; layout < Arena.Names.Length; layout++)
         {
-            // Puzzle chambers are not arenas and are checked in CheckPortalMode instead. Every
-            // invariant below is about a map that has a fight on it.
-            if (Arena.IsPuzzle(layout)) continue;
+            // Only combat arenas. Puzzle chambers are checked in CheckPortalMode and story sets
+            // have no fight on them at all; every invariant below is about a map that does.
+            if (!Arena.IsArena(layout)) continue;
 
             var arena = new Arena(layout);
             Check(arena.SpawnPoints.Count >= LobbyScreen.MaxPlayers,
@@ -988,9 +988,9 @@ public static class UiSelfTest
 
         for (int layout = 0; layout < Arena.Names.Length; layout++)
         {
-            // Puzzle chambers are not arenas and are checked in CheckPortalMode instead. Every
-            // invariant below is about a map that has a fight on it.
-            if (Arena.IsPuzzle(layout)) continue;
+            // Only combat arenas. Puzzle chambers are checked in CheckPortalMode and story sets
+            // have no fight on them at all; every invariant below is about a map that does.
+            if (!Arena.IsArena(layout)) continue;
 
             var arena = new Arena(layout);
             var nav = new NavGraph(arena);
@@ -1087,6 +1087,77 @@ public static class UiSelfTest
     /// harvest leaking into the later acts crashes nothing and simply plays the neutral version of
     /// every scene from there on, which is the kind of thing that gets shipped.
     /// </summary>
+
+    /// <summary>
+    /// Fairview: a town, and specifically *not* an arena.
+    ///
+    /// The checks that matter here are the absences. Every other map in the game is scored on what
+    /// it has on it; this one is only right if it has none of that, and an absence is exactly the
+    /// kind of property that quietly stops holding when somebody adds a pass to the constructor
+    /// and does not think about the third kind of map.
+    /// </summary>
+    static void TestFairview()
+    {
+        TestLog.Line("- Fairview is a town, not an arena");
+
+        // The three kinds partition the list, with nothing in two of them and nothing in none.
+        int arenas = 0, story = 0, puzzles = 0;
+        for (int i = 0; i < Arena.Names.Length; i++)
+        {
+            if (Arena.IsArena(i)) arenas++;
+            if (Arena.IsStory(i)) story++;
+            if (Arena.IsPuzzle(i)) puzzles++;
+        }
+
+        Check(arenas + story + puzzles == Arena.Names.Length,
+              $"every layout is exactly one kind ({arenas} arenas, {story} story, {puzzles} puzzle)");
+        Check(arenas == Arena.CombatLayouts, "and the combat count agrees with the predicate");
+        Check(story == Arena.StoryLayouts, "and the story count does too");
+
+        int layout = Arena.CombatLayouts;
+        Check(Arena.IsStory(layout), $"{Arena.Names[layout]} is a story set");
+
+        var town = new Arena(layout);
+        TestLog.Line($"    {town.Name}: {town.Blocks.Count} blocks, {town.SpawnPoints.Count} spawns");
+
+        Check(town.Name == "Fairview", "and it is Fairview");
+        Check(town.SpawnPoints.Count > 0, "somebody can stand in it");
+
+        // The absences. A town with a rocket-launcher crate on the corner says what it is louder
+        // than any amount of dialogue can say otherwise.
+        Check(town.WeaponSpawns.Count == 0, "there are no weapon crates on the green");
+        Check(town.HealthSpawns.Count == 0, "and no med kits");
+        Check(town.VehicleSpawns.Count == 0, "and no tank parked outside the school");
+        Check(town.LaunchPads.Count == 0, "and nothing to bounce off");
+        Check(town.Checkpoints.Count == 0, "and nothing to race through");
+
+        int fragile = 0;
+        foreach (var b in town.Blocks) if (b.Fragile) fragile++;
+        Check(fragile == 0, $"and nothing in it can be blown up ({fragile})");
+
+        // It has a floor, unlike a puzzle chamber, because people live on it.
+        Check(town.FloorSlabs.Count > 0, "it has ground under it");
+
+        // Enough building to be a place rather than a diagram. The houses alone are six a side.
+        Check(town.Blocks.Count > 60, $"there is a town here ({town.Blocks.Count} blocks)");
+
+        // And a versus match must never land on it, however the picker is asked.
+        var settings = new MatchSettings { Mode = GameMode.Deathmatch, ArenaIndex = layout };
+        Check(!Arena.IsStory(Match.ChooseArenaForTest(settings)),
+              "a deathmatch asked for Fairview by name is given an arena instead");
+
+        for (int i = 0; i < 40; i++)
+        {
+            var random = new MatchSettings { Mode = GameMode.Deathmatch, ArenaIndex = -1 };
+            if (Arena.IsStory(Match.ChooseArenaForTest(random)))
+            {
+                Check(false, "a random deathmatch picked the town");
+                break;
+            }
+        }
+    }
+
+
     static void TestCampaignState()
     {
         TestLog.Line("- the campaign runs in order and remembers one choice");
@@ -1254,9 +1325,9 @@ public static class UiSelfTest
 
         for (int layout = 0; layout < Arena.Names.Length; layout++)
         {
-            // Puzzle chambers are not arenas and are checked in CheckPortalMode instead. Every
-            // invariant below is about a map that has a fight on it.
-            if (Arena.IsPuzzle(layout)) continue;
+            // Only combat arenas. Puzzle chambers are checked in CheckPortalMode and story sets
+            // have no fight on them at all; every invariant below is about a map that does.
+            if (!Arena.IsArena(layout)) continue;
 
             var arena = new Arena(layout);
 
@@ -1380,9 +1451,9 @@ public static class UiSelfTest
         // Every arena has to actually park them somewhere legal.
         for (int layout = 0; layout < Arena.Names.Length; layout++)
         {
-            // Puzzle chambers are not arenas and are checked in CheckPortalMode instead. Every
-            // invariant below is about a map that has a fight on it.
-            if (Arena.IsPuzzle(layout)) continue;
+            // Only combat arenas. Puzzle chambers are checked in CheckPortalMode and story sets
+            // have no fight on them at all; every invariant below is about a map that does.
+            if (!Arena.IsArena(layout)) continue;
 
             var arena = new Arena(layout);
             Check(arena.VehicleSpawns.Count >= Vehicles.Spawnable.Length,
@@ -1426,9 +1497,9 @@ public static class UiSelfTest
         // the shared district pass rather than per layout.
         for (int layout = 0; layout < Arena.Names.Length; layout++)
         {
-            // Puzzle chambers are not arenas and are checked in CheckPortalMode instead. Every
-            // invariant below is about a map that has a fight on it.
-            if (Arena.IsPuzzle(layout)) continue;
+            // Only combat arenas. Puzzle chambers are checked in CheckPortalMode and story sets
+            // have no fight on them at all; every invariant below is about a map that does.
+            if (!Arena.IsArena(layout)) continue;
 
             var arena = new Arena(layout);
 
@@ -1483,6 +1554,7 @@ public static class UiSelfTest
         TestWeaponsLookDifferent();
         TestModeLimitsMakeSense();
         TestCampaignState();
+        TestFairview();
         TestPlayBoundsAreTight();
 
         // Every wall and platform on the map comes down, and the two things that must not are the
@@ -1496,9 +1568,9 @@ public static class UiSelfTest
         // and about things coming back rather than about how little is breakable.
         for (int layout = 0; layout < Arena.Names.Length; layout++)
         {
-            // Puzzle chambers are not arenas and are checked in CheckPortalMode instead. Every
-            // invariant below is about a map that has a fight on it.
-            if (Arena.IsPuzzle(layout)) continue;
+            // Only combat arenas. Puzzle chambers are checked in CheckPortalMode and story sets
+            // have no fight on them at all; every invariant below is about a map that does.
+            if (!Arena.IsArena(layout)) continue;
 
             var arena = new Arena(layout);
 

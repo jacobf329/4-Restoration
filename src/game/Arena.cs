@@ -181,7 +181,8 @@ public sealed class Arena
     /// picker is what keeps a puzzle chamber out of a deathmatch rotation.
     /// </summary>
     public static readonly string[] Names =
-        { "Reliquary", "Furnace", "Glasshouse", "Thousand Rooms", "Antechamber", "Orrery" };
+        { "Reliquary", "Furnace", "Glasshouse", "Thousand Rooms",
+          "Fairview", "Antechamber", "Orrery" };
 
     public readonly int Layout;
     public string Name => Names[Layout];
@@ -292,6 +293,18 @@ public sealed class Arena
             else BuildOrrery();
 
             MakeStructureBreakable();
+            return;
+        }
+
+        // A story set is built and then left alone too, and for a stronger reason than a puzzle
+        // chamber. Fairview is a town: it has a floor and a perimeter like an arena, and then none
+        // of the rest of it. No weapon crates on the green, no tank parked outside the school, no
+        // launch pads, and above all nothing destructible — the whole act depends on the place
+        // reading as somewhere people live, and one rocket-launcher crate on the corner would say
+        // otherwise louder than any amount of dialogue.
+        if (Story)
+        {
+            BuildFairview();
             return;
         }
 
@@ -2041,14 +2054,46 @@ public sealed class Arena
     /// <summary>How many of the arenas at the end of <see cref="Names"/> are puzzle chambers.</summary>
     public const int PuzzleLayouts = 2;
 
+    /// <summary>
+    /// How many layouts before the puzzle chambers belong to story mode instead of to a fight.
+    ///
+    /// Ordered combat, story, puzzle so that <see cref="IsPuzzle"/> stays "the last few" and did
+    /// not have to change when Fairview arrived.
+    /// </summary>
+    public const int StoryLayouts = 1;
+
+    /// <summary>How many layouts are combat arenas — the only ones a versus match may pick.</summary>
+    ///
+    /// A property rather than a const because it is derived from the length of the name list, and
+    /// deriving it is the point: adding a map should not require anybody to remember to change a
+    /// number somewhere else.
+    public static int CombatLayouts => Names.Length - PuzzleLayouts - StoryLayouts;
+
     /// <summary>Whether a layout index is a puzzle map rather than an arena.</summary>
     public static bool IsPuzzle(int layout) => layout >= Names.Length - PuzzleLayouts;
+
+    /// <summary>Whether a layout belongs to story mode. Never picked by a versus match.</summary>
+    public static bool IsStory(int layout) => layout >= CombatLayouts && !IsPuzzle(layout);
+
+    /// <summary>
+    /// Whether a layout is a combat arena — not a puzzle chamber, not a story set.
+    ///
+    /// The predicate the invariants actually want. Six checks across the harness were written as
+    /// "skip puzzle chambers" and meant "only real arenas", and the difference did not exist until
+    /// there was a third kind of map. A town has no weapon crates, no vehicle spawns and no
+    /// destructible skybridges, and every one of those checks would have failed on it while being
+    /// completely right about arenas.
+    /// </summary>
+    public static bool IsArena(int layout) => !IsPuzzle(layout) && !IsStory(layout);
 
     /// <summary>This arena's checkpoints, in the order they must be reached.</summary>
     public readonly List<Vector3> Checkpoints = new();
 
     /// <summary>True when this layout is a puzzle chamber set rather than a combat arena.</summary>
     public bool Puzzle => IsPuzzle(Layout);
+
+    /// <summary>True when this layout is a story set rather than somewhere a match happens.</summary>
+    public bool Story => IsStory(Layout);
 
     /// <summary>
     /// A slab of floor with a lip, floating in the void.
@@ -2098,6 +2143,113 @@ public sealed class Arena
     /// work out, once, that a gate on the far wall and a gate at their feet is a bridge. Every
     /// later chamber assumes that lesson.
     /// </summary>
+    /// <summary>
+    /// FAIRVIEW — the town the Vessels built to raise John Smith in.
+    ///
+    /// The only map in the game that is not a place to fight. Everything else here is a ruin or an
+    /// arena; this is somewhere people live, and Act I does not work unless the player believes
+    /// that for an hour before finding out otherwise.
+    ///
+    /// Built to be *readable as a set* on a second look rather than on the first. The tells are
+    /// deliberate and none of them is pointed at:
+    ///
+    /// - **Every house is the same house.** Four footprints, repeated down both sides of one
+    ///   street, alternating so it scans as variety in motion and as a pattern when you stop.
+    /// - **The street runs straight and stops.** No junctions, no side roads, nowhere the layout
+    ///   admits anything exists beyond it — because nothing does.
+    /// - **The school has one classroom.** A town of this size needs eight. This one needed one,
+    ///   because there was one child.
+    /// - **The green is exactly central**, and everything faces it, the way nothing real ever is.
+    ///
+    /// No crates, no hazards, no launch pads, nothing breakable. Those are all handled by the
+    /// early return in the constructor rather than here, so this method is only the town.
+    /// </summary>
+    void BuildFairview()
+    {
+        var render = new Color(0.86f, 0.84f, 0.78f);      // rendered walls, sun-bleached
+        var roof = new Color(0.42f, 0.36f, 0.34f);
+        var civic = new Color(0.78f, 0.80f, 0.84f);       // the school and the hall, colder
+        var hedge = new Color(0.36f, 0.50f, 0.34f);
+
+        // The street. One axis, and it is the whole town plan.
+        const float StreetHalf = 5.5f;
+        const float Row = 16f;                            // house centres, off the street
+        const float First = -78f;
+        const float Pitch = 26f;                          // door to door along the street
+        const int Houses = 6;                             // per side
+
+        // Spawns are on the doorstep of the house that is meant to be his, not on a grid. There is
+        // no versus match here to balance, and a story that begins by dropping you in a field
+        // begins worse than one that begins with you leaving your own front door.
+        SpawnPoints.Add(new Vector3(First + Pitch * 2f, 1.4f, -Row + 6f));
+        SpawnPoints.Add(new Vector3(First + Pitch * 2f + 3f, 1.4f, -Row + 6f));
+
+        for (int i = 0; i < Houses; i++)
+        {
+            float x = First + i * Pitch;
+
+            foreach (int side in new[] { -1, 1 })
+            {
+                // Four footprints in rotation. The variation is real and the vocabulary is tiny,
+                // which is exactly the impression wanted: a place somebody specified.
+                int kind = (i + (side > 0 ? 2 : 0)) % 4;
+                var half = kind switch
+                {
+                    0 => new Vector3(6.0f, 3.2f, 5.0f),
+                    1 => new Vector3(5.0f, 3.6f, 5.0f),
+                    2 => new Vector3(6.5f, 3.0f, 4.5f),
+                    _ => new Vector3(5.5f, 3.4f, 5.5f),
+                };
+
+                var at = new Vector3(x, 0f, side * Row);
+
+                // The door faces the street, always. Which side that is depends on which side of
+                // the street the house is on, and nothing else about the house changes.
+                var doors = side < 0
+                    ? new[] { false, false, false, true }
+                    : new[] { false, false, true, false };
+
+                if (!Room(at, half, doors, roofed: true, render)) continue;
+
+                // A roof, sat on top of the box, purely so the skyline is not flat. It is the one
+                // piece of this map that exists for no reason but to look like a place.
+                Deck(LastRoomAt + Vector3.Up * (half.Y * 2f + 0.4f),
+                     new Vector3(half.X + 0.6f, 0.4f, half.Z + 0.6f), roof);
+
+                // A hedge along the front, leaving the doorway clear.
+                float front = side * (Row - half.Z - 2.2f);
+                Deck(new Vector3(x - half.X * 0.55f, 0.5f, front), new Vector3(2.2f, 0.5f, 0.4f), hedge);
+                Deck(new Vector3(x + half.X * 0.55f, 0.5f, front), new Vector3(2.2f, 0.5f, 0.4f), hedge);
+            }
+        }
+
+        // The green, dead centre, with everything looking at it.
+        Deck(new Vector3(0f, 0.06f, 0f), new Vector3(13f, 0.06f, StreetHalf + 1f), hedge);
+
+        // The school, on the north side of the green. One classroom.
+        Room(new Vector3(0f, 0f, -Row - 6f), new Vector3(11f, 4.0f, 7f),
+             new[] { false, false, false, true }, roofed: true, civic);
+        Deck(LastRoomAt + Vector3.Up * 8.4f, new Vector3(11.6f, 0.5f, 7.6f), roof);
+
+        // The hall opposite it, which is the only other public building and has never been used
+        // for anything. It is there because a town has one.
+        Room(new Vector3(0f, 0f, Row + 6f), new Vector3(9f, 3.6f, 6f),
+             new[] { false, false, true, false }, roofed: true, civic);
+        Deck(LastRoomAt + Vector3.Up * 7.6f, new Vector3(9.6f, 0.5f, 6.6f), roof);
+
+        // And the end of the street. A low wall across it, and nothing drawn past it.
+        //
+        // Not a fence, not a gate, not a road going on into fog — a wall, at the point where the
+        // specification stopped. A player who walks the length of Fairview arrives at the edge of
+        // what was built for him, which is the act's turn arriving early for anyone curious enough
+        // to go looking. It should be possible to find in the first ten minutes.
+        const float StreetEnd = 92f;
+
+        foreach (int end in new[] { -1, 1 })
+            Deck(new Vector3(end * StreetEnd, 2.0f, 0f),
+                 new Vector3(1.0f, 2.0f, Row + 12f), civic.Darkened(0.35f));
+    }
+
     void BuildAntechamber()
     {
         SpawnPoints.Add(new Vector3(-96f, 1.4f, -6f));

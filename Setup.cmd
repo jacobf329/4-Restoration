@@ -143,8 +143,19 @@ REM Desktop, which is why the path is asked for rather than assumed - and why th
 REM USERPROFILE fallback below is only a fallback.
 if not exist "!LNK!" for /f "delims=" %%D in ('powershell -NoProfile -Command "[Environment]::GetFolderPath('Desktop')" 2^>nul') do set "LNK=%%D\HitboxClone.lnk"
 
+REM A second shortcut for updating.
+REM
+REM On the Desktop rather than left in the folder because of how the game is actually
+REM played: the folder is opened once, at setup, and never again - everything after that
+REM happens from the Desktop icon. An update script nobody can see is an update script
+REM nobody runs, and a clone that never pulls launches a months-old game perfectly
+REM happily and says nothing about it.
+set "ULNK=%USERPROFILE%\Desktop\Update HitboxClone.lnk"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $lnk = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\Update HitboxClone.lnk'); $lnk.TargetPath = $env:PROJ + '\Update.cmd'; $lnk.WorkingDirectory = $env:PROJ; $lnk.Description = 'HitboxClone - fetch the latest version'; if ($env:ICON) { $lnk.IconLocation = $env:ICON + ',0' }; $lnk.Save()"
+
 if exist "!LNK!" (
   echo   Desktop shortcut created: HitboxClone
+  echo   Desktop shortcut created: Update HitboxClone
   echo.
 ) else (
   echo   Could not create the Desktop shortcut. Right-drag Play.cmd
@@ -168,6 +179,10 @@ echo ============================================
 echo   Setup finished.
 echo.
 echo   Double-click HitboxClone on your Desktop.
+echo.
+echo   Run "Update HitboxClone" whenever you want
+echo   the latest version. Play.cmd builds what is
+echo   in this folder - it does not fetch.
 echo.
 echo   First launch is slow - Godot imports every
 echo   model in assets\ before the game appears.

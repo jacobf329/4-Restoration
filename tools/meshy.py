@@ -44,18 +44,34 @@ MAX_TRIANGLES = 7000
 MAX_MATERIALS = 2
 
 
+def auth_headers():
+    """
+    The Authorization header, or nothing when something else is supplying it.
+
+    Two ways this script gets authenticated, and it must not do both. Run locally you
+    hold the key and it goes in the header here. Run inside a Claude Code cloud session
+    with Meshy added as an environment API credential, the agent proxy attaches the header
+    after the request leaves the VM and the key is never visible in here at all - so
+    sending our own would be a second Authorization on the same request.
+
+    No key and no proxy is a 401 from Meshy, which is a clearer error than anything this
+    script could invent by guessing which case it is in.
+    """
+    return {"Authorization": f"Bearer {KEY}"} if KEY else {}
+
+
 def post(path, body):
     req = urllib.request.Request(
         path,
         data=json.dumps(body).encode(),
-        headers={"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"},
+        headers={**auth_headers(), "Content-Type": "application/json"},
         method="POST",
     )
     return call(req)
 
 
 def get(path):
-    req = urllib.request.Request(path, headers={"Authorization": f"Bearer {KEY}"})
+    req = urllib.request.Request(path, headers=auth_headers())
     return call(req)
 
 
@@ -70,11 +86,13 @@ def call(req):
                  f"set MESHY_API to the current endpoint.")
     except urllib.error.URLError as e:
         # Caught separately because it is the failure you will actually hit first, and a
-        # bare traceback about a socket says nothing about what to do. Running this from
-        # inside a Claude Code sandbox always lands here: api.meshy.ai is blocked there.
+        # bare traceback about a socket says nothing about what to do.
         sys.exit(f"\nCould not reach {API}: {e.reason}\n\n"
-                 f"Run it from a machine with open outbound network. A sandbox with an "
-                 f"egress policy will block this host no matter what the key is.")
+                 f"In a Claude Code cloud session this means the host is not reachable from "
+                 f"the environment. Adding Meshy as an environment API credential at "
+                 f"claude.ai/code fixes it - listing a host there grants access to it "
+                 f"whatever the network access level is. Otherwise run this from a machine "
+                 f"with open outbound network.")
 
 
 def wait(task_id, label):
@@ -148,8 +166,8 @@ def check_budget(glb):
 
 def main():
     if not KEY:
-        sys.exit("Set MESHY_API_KEY. This script does nothing without one and cannot "
-                 "get one for you.")
+        print("No MESHY_API_KEY set - assuming an environment API credential supplies it.\n"
+              "  If this 401s, either export the key or add one at claude.ai/code.\n")
 
     if len(sys.argv) != 2:
         sys.exit(f"usage: MESHY_API_KEY=... python3 {sys.argv[0]} <name>")

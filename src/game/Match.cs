@@ -3361,7 +3361,8 @@ public partial class Match : Node3D
     /// A decoy that walks on in the direction its owner was facing.
     ///
     /// Not a pawn: it has no health, takes no damage and cannot shoot. It exists to be shot *at*,
-    /// which is the whole point — every round spent on it is a round not spent on the Muse who is
+    /// which is the whole point — every round spent on it is a round not spent on the Ingenuity
+    /// fighter who is
     /// no longer standing there.
     /// </summary>
     sealed class Decoy
@@ -3389,7 +3390,7 @@ public partial class Match : Node3D
     ///
     /// Four times over, both halves. At 150 in a nine-metre circle the payoff still did not
     /// justify how ignorable the thing is — reading a decoy and stepping away cost one sidestep,
-    /// so the bomb half of the bluff was never a real threat and the Muses were back to owning a
+    /// so the bomb half of the bluff was never a real threat and Ingenuity were back to owning a
     /// lie nobody had to respect. At 600 across thirty-six metres, walking away is a commitment:
     /// the radius is most of a room, so "step aside" becomes "leave", and leaving is exactly the
     /// concession the ability is asking a player to make.
@@ -3464,7 +3465,7 @@ public partial class Match : Node3D
                 // to ignore them, at which point they stopped being a lie at all. One that
                 // detonates like a tank shell means every double has to be treated as either a
                 // trick or a bomb, and you cannot tell which. That it is a *copy of a person*,
-                // made to be spent, is the Muses' whole argument stated as a mechanic.
+                // made to be spent, is Ingenuity's whole argument stated as a mechanic.
                 Vector3 at = d.Node.GlobalPosition + Vector3.Up * 0.9f;
 
                 if (d.Owner is { } owner)
@@ -3472,8 +3473,8 @@ public partial class Match : Node3D
 
                 if (Visuals)
                 {
-                    Impact.Death(this, at, Factions.Muses.Tint);
-                    Impact.DeathRing(this, d.Node.GlobalPosition, Factions.Muses.Tint);
+                    Impact.Death(this, at, Factions.Ingenuity.Tint);
+                    Impact.DeathRing(this, d.Node.GlobalPosition, Factions.Ingenuity.Tint);
                     Sfx.PlayAt(Sound.Death, at);
                 }
 
@@ -3776,7 +3777,7 @@ public partial class Match : Node3D
     /// <summary>
     /// One decoy, thrown off at an angle from the user's heading.
     ///
-    /// The Muses' special leaves a single one walking straight on; the Thousand leaves eight in a
+    /// Ingenuity's special leaves a single one walking straight on; the Thousand leaves eight in a
     /// ring. Same body, same lifetime, same lie — only the direction differs.
     /// </summary>
     void LeaveDecoyAlong(Pawn user, float offset)
@@ -3792,7 +3793,7 @@ public partial class Match : Node3D
         //
         // It was two glowing boxes, on the reasoning that a decoy should be "obviously false close
         // up". That reasoning was wrong and the player said so: a lie that announces itself is not
-        // a lie, and it made the Muses' whole special into a distraction nobody was distracted by.
+        // a lie, and it made Ingenuity's whole special into a distraction nobody was distracted by.
         // A double that looks exactly like you is the entire ability — and now that it detonates,
         // being unable to tell at a glance is the threat as well as the bluff.
         //

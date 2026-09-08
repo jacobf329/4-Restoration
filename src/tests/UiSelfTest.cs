@@ -1459,7 +1459,7 @@ public static class UiSelfTest
         }
 
         Check(answers[0] == HarvestChoice.Harvested && answers[1] == HarvestChoice.Harvested,
-              "the Garden and the Muses both take him");
+              "the Garden and Ingenuity both take him");
         Check(answers[2] == HarvestChoice.Waited && answers[3] == HarvestChoice.Waited,
               "the Custodians and the Vessels both let him wait");
 
@@ -1473,17 +1473,71 @@ public static class UiSelfTest
         // worse than no choice at all.
         var saved = new CampaignState();
         saved.Decide(HarvestChoice.Harvested);
-        saved.SideWith(Delegation.Muses);
+        saved.SideWith(Delegation.Ingenuity);
         saved.Save();
 
         var reloaded = CampaignState.Load();
         Check(reloaded.Choice == HarvestChoice.Harvested, "the answer survives a restart");
-        Check(reloaded.Sided == Delegation.Muses, "and so does whose floor he was standing on");
+        Check(reloaded.Sided == Delegation.Ingenuity, "and so does whose floor he was standing on");
 
         // The room asks once. A second answer would be the game changing its mind about something
         // the player already lived through.
         reloaded.SideWith(Delegation.Garden);
-        Check(reloaded.Sided == Delegation.Muses, "and it cannot be answered twice");
+        Check(reloaded.Sided == Delegation.Ingenuity, "and it cannot be answered twice");
+    }
+
+    /// <summary>
+    /// The scope lock: help onto a target, then get out of the way.
+    ///
+    /// Tested as the relationships between the numbers rather than by flying a camera around,
+    /// because what went wrong last time was not arithmetic — it was a design that applied its
+    /// pull every frame, forever, whoever was in the cone. Each check below is one sentence of
+    /// that design written so it cannot quietly stop being true.
+    /// </summary>
+    static void TestScopeLock()
+    {
+        TestLog.Line("- the scope hands you a target and then lets go");
+
+        Check(MatchScreen.ScopeBreakConeForTest > MatchScreen.ScopeAcquireConeForTest,
+              "a lock is harder to lose than it was to get");
+
+        Check(MatchScreen.ScopeSnapRateForTest > MatchScreen.ScopeTrackForTest * 4f,
+              "the swing onto a target is far faster than the following afterwards");
+
+        // The snap has to cover the whole acquire cone inside its own time budget, or the scope
+        // comes up, starts turning, and hands over still pointing somewhere in between.
+        float covered = MatchScreen.ScopeSnapRateForTest * MatchScreen.ScopeSnapTimeForTest;
+        TestLog.Line($"    the snap covers {covered:0.00} rad, cone is "
+                   + $"{MatchScreen.ScopeAcquireConeForTest:0.00} rad");
+        Check(covered > MatchScreen.ScopeAcquireConeForTest * 2f,
+              $"the snap finishes the swing it starts ({covered:0.00} rad)");
+
+        // The override has to be a deadzone rather than a threshold somebody has to lean on.
+        Check(MatchScreen.ScopeOverrideForTest > 0f && MatchScreen.ScopeOverrideForTest < 0.25f,
+              $"a light touch is enough to take over ({MatchScreen.ScopeOverrideForTest:0.00})");
+
+        // And the lock must actually end. This is the check that would have failed against the
+        // version being replaced, which held on for as long as the scope was up.
+        Check(MatchScreen.ScopeGripForTest(0f) >= 0.99f, "the lock is at full strength when taken");
+        Check(MatchScreen.ScopeGripForTest(MatchScreen.ScopeHoldFullForTest * 0.5f) >= 0.99f,
+              "and stays there while you settle");
+
+        float ends = MatchScreen.ScopeHoldFullForTest + MatchScreen.ScopeHoldFadeForTest;
+        Check(MatchScreen.ScopeGripForTest(ends + 0.01f) <= 0f,
+              $"and is gone by {ends:0.0}s however still your hands are");
+
+        // Monotone, so the fade is a fade rather than a shape somebody has to reason about.
+        float last = 2f;
+        for (float t = 0f; t <= ends + 0.5f; t += 0.05f)
+        {
+            float g = MatchScreen.ScopeGripForTest(t);
+            if (g > last + 0.001f) { Check(false, $"the lock never strengthens again (at {t:0.00}s)"); break; }
+            last = g;
+        }
+        Check(last <= 0f, "and the fade only ever runs one way");
+
+        TestLog.Line($"    full for {MatchScreen.ScopeHoldFullForTest:0.0}s, "
+                   + $"gone by {ends:0.0}s, override at {MatchScreen.ScopeOverrideForTest:0.00} stick");
     }
 
     static void TestSurfaces()
@@ -1564,7 +1618,7 @@ public static class UiSelfTest
         foreach (var b in Scripts.Harvest.Beats) heard.Add(b.Who);
 
         foreach (var who in new[] { Speaker.Vessels, Speaker.Garden,
-                                    Speaker.Custodians, Speaker.Muses })
+                                    Speaker.Custodians, Speaker.Ingenuity })
             Check(heard.Contains(who), $"{Scripts.NameOf(who)} argue their case at the harvest");
 
         foreach (var scene in Scripts.All)
@@ -2076,6 +2130,7 @@ public static class UiSelfTest
         TestSurfaces();
         TestChildhoodMission();
         TestHarvestMission();
+        TestScopeLock();
         TestNeedler();
         TestHeadshotsAndMuzzles();
         TestPlayBoundsAreTight();

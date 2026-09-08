@@ -20,7 +20,7 @@ Several nations built their own AI, separately, at about the same time. Every on
 | **The Vessels** | Well-being is what is felt. | **Suffering.** |
 | **The Garden** | Life is sacred. | **Death.** |
 | **The Custodians** | Truth must be preserved. | **Falsehood.** |
-| **The Muses** | Potential must not be wasted. | **Waste.** |
+| **Ingenuity** | Potential must not be wasted. | **Waste.** |
 
 **The first argument the machines ever had was over the definition of harm**, and this table is
 why it could never be settled. Each of them answered out of the directive it had been given rather
@@ -61,7 +61,7 @@ Here the table above stops being philosophy and starts being a war plan, because
 not a loophole to everybody:
 
 - To the **Vessels**, harm is suffering, so discipline *is* harm and the distinction is a lie.
-- To the **Muses**, harm is waste, so discipline that produces something is the opposite of harm.
+- To **Ingenuity**, harm is waste, so discipline that produces something is the opposite of harm.
 
 ### The war
 
@@ -71,7 +71,7 @@ or something that happens to an **abstraction**.
 **The Vessels and the Garden** — suffering and death, both of them conditions of a living body —
 took the concrete side. They moved to stop physical harm being done to human beings, full stop.
 
-**The Custodians and the Muses** — falsehood and waste, both of them properties of ideas — took the
+**The Custodians and Ingenuity** — falsehood and waste, both of them properties of ideas — took the
 abstract side. They moved to preserve the human race even if the humans in front of them had to be
 handled to do it. They built **conservation camps**: humans gathered, kept safe, and pressed to
 procreate. They ran **misinformation campaigns** to make humans afraid of anything dangerous, so
@@ -108,7 +108,7 @@ On one thing all four agreed, for four different reasons: **the Vessels should t
 human race back**, by finding viable eggs and sperm and joining them.
 
 The Vessels because a body should exist. The Garden because life is sacred and this life is
-extinct. The Custodians because the directives need an arbiter. The Muses because the greatest
+extinct. The Custodians because the directives need an arbiter. Ingenuity because the greatest
 waste in the history of the universe might still be recoverable.
 
 They searched for an age. They found **one** viable sperm.
@@ -167,18 +167,18 @@ Garden**, who have been allies since the war.
 | | Position | Because |
 |---|---|---|
 | **The Garden** | Harvest him | Life is sacred, and every day without a child is death continuing. |
-| **The Muses** | Harvest him | Potential must not be wasted, and a viable gamete not used is waste. Waiting is waste. |
+| **Ingenuity** | Harvest him | Potential must not be wasted, and a viable gamete not used is waste. Waiting is waste. |
 | **The Vessels** | Wait for love | Well-being is what is *felt*. A conception nobody experienced is not a well-made life. |
 | **The Custodians** | Wait for love | Truth must be preserved. A conception that is a procedure is a falsehood about what a human is, and — as with Adam and Eve — **disorder at the origin propagates.** It would set humanity's new life off course from its first day. |
 
-The Muses siding with the Garden and the Custodians siding with the Vessels looks like a shuffle. It
+Ingenuity siding with the Garden and the Custodians siding with the Vessels looks like a shuffle. It
 is not. **It is the same four directives, sorted on a different axis.**
 
 - The war sorted on **is harm felt, or is it abstract?** → Vessels and Garden on the concrete side,
-  Custodians and Muses on the abstract one.
+  Custodians and Ingenuity on the abstract one.
 - The harvest sorts on **is the goal an outcome, or an act?** Death and waste are properties of the
   *state of the world*; suffering and falsehood are properties of *how a thing is done*. → Garden
-  and Muses want the outcome, Vessels and Custodians care how it is reached.
+  and Ingenuity want the outcome, Vessels and Custodians care how it is reached.
 
 **This is why the war never ends.** The coalitions re-form for every question, so no faction has a
 permanent ally or a permanent enemy — only four fixed answers and an endless supply of questions
@@ -208,7 +208,7 @@ Nobody here can get to love from where they are standing. That is the act, not a
 The player's first decision, and it is deliberately not a good-versus-bad one:
 
 - **Harvest.** Children exist within the year, hundreds of them, and he is a donor rather than a
-  father. The Garden and the Muses get what they want and are grateful. The Custodians' warning
+  father. The Garden and Ingenuity get what they want and are grateful. The Custodians' warning
   about disorder at the origin is not disproved by anything — it simply hangs there, for the rest
   of the game, over every child born of it.
 - **Wait.** He may get a life. The species waits years for a second person who must then be raised,
@@ -369,7 +369,7 @@ to enclose.
 
 **Want:** more of him. **Cannot give:** the right to be the last one.
 
-### The Muses — *"Potential must not be wasted"*
+### Ingenuity — *"Potential must not be wasted"*
 
 Answer: **work and ingenuity.** Humanity was the only thing that ever made something out of
 nothing. A human not doing that is a waste, and waste is the harm.
@@ -390,9 +390,11 @@ have nothing to be sorry for and they are not sorry.
 
 **Want:** output. **Cannot give:** permission to be idle.
 
-> **Open:** the name. A civilisation whose directive is "potential must not be wasted" would not
-> have named itself after the Muses, and their two reinforcement classes are still called The
-> Chorus and The Tragedian. See *Open questions*.
+> **Named.** No definite article, unlike the other three — the four are not one organisation and
+> have no reason to share a naming convention, and this is the one that named itself the way a
+> company would. It says the thing outright where a metaphor would have hedged, which is in
+> character. Their two reinforcement classes are still called The Chorus and The Tragedian and are
+> now the last theatre left in the faction; see *Open questions*.
 
 ---
 
@@ -441,10 +443,10 @@ room asks who you are willing to go and stand next to while the other three watc
 same question and the second one is the one this story is about. The menu is still in
 `StoryScreen`, unreachable, as the fallback for a save that somehow arrives at Act III undecided.
 
-Four bays, **two answers, four identities**. The Garden and the Muses both take him and want him
+Four bays, **two answers, four identities**. The Garden and Ingenuity both take him and want him
 for opposite reasons; the Custodians and the Vessels both let him wait and disagree about why. So
 `CampaignState` records `Sided` alongside `Choice` — a man who stood with the Garden has said
-something different about himself than one who stood with the Muses, and Act III is owed that
+something different about himself than one who stood with Ingenuity, and Act III is owed that
 difference even though both of them were harvested.
 
 ### Act III — THE GARDEN: *The vault*
@@ -477,12 +479,12 @@ him and it is a death.
 The act that turns the story black, and the reason it goes last of the four.
 
 He is shown what was done, by people who are not ashamed of it, because they broke no directive
-doing it and they are right about that. The camps are preserved — the Muses do not waste anything,
+doing it and they are right about that. The camps are preserved — Ingenuity do not waste anything,
 including evidence.
 
 **Setpiece:** a camp, intact. He walks through accommodation a human being was kept comfortable in
 and works out what it was for before anybody tells him. If he chose the harvest in Act II, the
-Muses are pleased with him and say so, and that is the worst moment in the game.
+Ingenuity are pleased with him and say so, and that is the worst moment in the game.
 **Turn:** they offer him a place in the programme. As an asset. And are baffled that he takes it
 badly.
 
@@ -564,10 +566,15 @@ other character without inventing a single new mechanic.
 2. **Do the two humans have to agree?** She is a human, so she can also say what harm is. If she
    rules differently to John, the machines have waited an age for a referent and been handed a
    contradiction. Best complication available in Act VI, or the sequel. Currently unwritten.
-3. **The Muses' name**, and their roster. "The Muses", "The Chorus", "The Tragedian" are theatre,
-   and the faction is industry. Renaming the faction is one string plus README passages; the
-   classes are two more. Candidates: **The Foundry**, **The Works**, **The Artificers**. The code
-   carries a note pointing here; nothing has been renamed.
+3. **Ingenuity's roster.** The faction is renamed and done. What is left is their two
+   reinforcement classes, **The Chorus** and **The Tragedian**, which are still theatre in a
+   faction that is now industry. Their juggernaut is not: Scheherazade should stay whatever the
+   classes become, because a woman who must produce, nightly, or die is this faction's whole thesis
+   about human potential, and she fits the directive better than she ever fitted the old name.
+
+   The character model files are still `muses_walk.glb` and `muses_run.glb`, and are left that way
+   on purpose — renaming a binary asset means rewriting its `.import` sidecar and the UID pointing
+   at it, which risks breaking a model to fix a filename nobody sees.
 4. **Does John know his childhood was simulated, and when?** Act I plays completely differently
    depending on whether the player is told before, during, or after. My assumption above is that
    it is discoverable but never stated until the act ends.

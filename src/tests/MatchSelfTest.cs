@@ -744,7 +744,7 @@ public static class MatchSelfTest
         m.StepBloomsForTest(0f);
 
         // ---- Understudy: leaves something behind and takes you off the board ----
-        a.Faction = Factions.Muses;
+        a.Faction = Factions.Ingenuity;
         a.Respawn(m.Arena.SpawnPoints[0]);
 
         int decoysBefore = m.DecoyCount;
@@ -3149,7 +3149,7 @@ public static class MatchSelfTest
 
         var a = m.Pawns[0];   // Vessels  → Achilles
         var b = m.Pawns[1];   // Custodians → Prometheus
-        var c = m.Pawns[3];   // Muses → Scheherazade
+        var c = m.Pawns[3];   // Ingenuity → Scheherazade
 
         foreach (var p in m.Pawns) p.Respawn(m.Arena.SpawnPoints[p.Slot % m.Arena.SpawnPoints.Count]);
         foreach (var p in m.Pawns) p.ClearSpawnProtectionForTest();

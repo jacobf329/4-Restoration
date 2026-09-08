@@ -49,6 +49,27 @@ public sealed class MatchScreen : UiScreen
         public Pawn? AssistTarget;
         public float AssistHeld;
 
+        /// <summary>Whether the scope was up last frame, so scoping in can be seen as an event.</summary>
+        public bool WasScoped;
+
+        /// <summary>Who the scope locked onto when it came up. Null once the lock is gone.</summary>
+        public Pawn? ScopeLock;
+
+        /// <summary>Seconds left of the fast swing onto a freshly acquired target.</summary>
+        public float ScopeSnapping;
+
+        /// <summary>How long the current lock has been held, so it can be let go of on a clock.</summary>
+        public float ScopeHeld;
+
+        /// <summary>
+        /// Set once a lock has been lost, so it cannot silently grab the same target again.
+        ///
+        /// Without this the lock would come straight back the moment the crosshair drifted near
+        /// anybody, which is the behaviour being removed: a lock you cannot get rid of without
+        /// lowering the scope is a lock that is aiming for you.
+        /// </summary>
+        public bool ScopeLockSpent;
+
         public InputDevice? Device => Devices.ById(DeviceId);
     }
 
@@ -261,6 +282,7 @@ public sealed class MatchScreen : UiScreen
                 continue;
             }
 
+            TrackScopeState(v, pawn);
             ApplyAimAssist(v, pawn, d.Look, dt, ref steady);
 
             v.Yaw += d.Look.X * TurnRate * steady * dt;
@@ -366,25 +388,85 @@ public sealed class MatchScreen : UiScreen
     /// <summary>Beyond this a target is too far away to be worth helping with.</summary>
     const float AssistRange = 70f;
 
+    // ---- the scope lock ----
+    //
+    // Raising a scope grabs whoever you were already looking at, once. After that the gun is
+    // yours: the stick always wins, the lock only tracks while your hands are still, and a target
+    // who moves enough gets away.
+    //
+    // The previous version applied its pull every frame, without decaying and without caring
+    // whether the stick was moving, for as long as anybody was inside the cone. That is not an
+    // assist, it is a turret — the report was "I can't even move the crosshairs", and it was
+    // exactly right. Worse, it made the shot the weapon exists for impossible: you cannot climb
+    // from the chest to the head if something is pulling you back to the chest.
+    //
+    // A scope still needs help that hip-fire does not. At a 14-degree field of view every stick
+    // twitch is six times the angle it would be at the hip, so the initial swing onto a distant
+    // body is below what a thumbstick can comfortably resolve. That is what the snap is for, and
+    // it is the whole of what it is for. Nothing here fires the gun or bends a bullet.
+
+    /// <summary>Half-angle you must already be looking within for the scope to grab somebody.</summary>
+    const float ScopeAcquireCone = 0.16f;    // radians, about 9 degrees
+
     /// <summary>
-    /// Radians per second the view is pulled onto a target while looking through a scope.
+    /// Half-angle beyond which a lock is lost and does not come back.
     ///
-    /// Nearly seven times the hip-fire magnetism, and unlike it this one does not decay and does
-    /// not wait for the stick to move: inside the cone it closes the gap in about a fifth of a
-    /// second and then holds. That is a snap rather than a nudge, and it is deliberate here and
-    /// nowhere else.
-    ///
-    /// A scope is the one place the general-purpose assist cannot help. At a 14-degree field of
-    /// view every stick twitch is six times the angle it would be at the hip, so the last degree
-    /// onto a head — the shot the whole weapon exists for — is below what a thumbstick can
-    /// resolve at all. The scoped rifles were the one thing on the map a pad genuinely could not
-    /// use, and no amount of steadying the look rate fixes a resolution problem.
-    ///
-    /// Still cone-gated and still line-of-sight, so it never takes the aim off someone who is
-    /// deliberately looking elsewhere, and it never fires the gun. What it does not do is aim for
-    /// you at range: past <see cref="AssistRange"/> there is no target and the scope is yours.
+    /// Wider than the acquire cone, so a target has to genuinely get away — or you have to
+    /// genuinely aim off them — rather than being dropped by a step sideways.
     /// </summary>
-    const float ScopeSnap = 4.5f;
+    const float ScopeBreakCone = 0.30f;      // radians, about 17 degrees
+
+    /// <summary>Radians per second of the swing onto a freshly acquired target.</summary>
+    ///
+    /// Fast enough to read as instant and slow enough to see happen, which matters: a view that
+    /// teleports leaves you unable to tell whether it moved or the world did.
+    const float ScopeSnapRate = 16f;
+
+    /// <summary>How long that swing may last before it gives up and hands over.</summary>
+    const float ScopeSnapTime = 0.16f;
+
+    /// <summary>
+    /// Radians per second the lock follows its target while the stick is untouched.
+    ///
+    /// Deliberately beatable. It holds somebody walking across your scope so that lining up a
+    /// shot does not mean fighting their pace, and loses somebody who breaks into a sprint or
+    /// changes direction — which is what makes it a lock a target can escape rather than a
+    /// sentence they cannot.
+    /// </summary>
+    const float ScopeTrack = 1.2f;
+
+    /// <summary>Seconds the lock follows at full rate before it starts letting go.</summary>
+    ///
+    /// The geometry alone will not lose anybody. At forty metres a target sprinting flat out
+    /// across your view subtends about a fifth of a radian per second, so any tracking rate worth
+    /// having holds them forever — "they can outrun it" is true at five metres and a fiction at
+    /// forty. A lock that never lets go is the turret again, just a politer one.
+    ///
+    /// So it lets go on a clock instead. Full help while you settle, then a fade to nothing, and
+    /// after that the shot is entirely yours however still you kept your hands. That matches what
+    /// was actually asked for: scoping in locks on, and staying scoped does not keep it.
+    const float ScopeHoldFull = 1.1f;
+
+    /// <summary>Seconds after that over which the lock fades from full to nothing.</summary>
+    const float ScopeHoldFade = 1.4f;
+
+    /// <summary>Stick deflection past which the player is steering and the lock does nothing.</summary>
+    const float ScopeOverride = 0.12f;
+
+    // ---- harness ----
+    //
+    // The scope lock's numbers, exposed so the suite can assert the design rather than the
+    // arithmetic. Nothing here is used by the game.
+
+    public static float ScopeAcquireConeForTest => ScopeAcquireCone;
+    public static float ScopeBreakConeForTest => ScopeBreakCone;
+    public static float ScopeSnapRateForTest => ScopeSnapRate;
+    public static float ScopeSnapTimeForTest => ScopeSnapTime;
+    public static float ScopeTrackForTest => ScopeTrack;
+    public static float ScopeOverrideForTest => ScopeOverride;
+    public static float ScopeHoldFullForTest => ScopeHoldFull;
+    public static float ScopeHoldFadeForTest => ScopeHoldFade;
+    public static float ScopeGripForTest(float held) => ScopeGrip(held);
 
     void ApplyAimAssist(View v, Pawn self, Vector2 look, float dt, ref float steady)
     {
@@ -400,6 +482,15 @@ public sealed class MatchScreen : UiScreen
         // control actually matters.
         if (self.Ads) strength *= 1.3f;
 
+        // Down a scope the lock replaces the magnetism below outright rather than stacking with
+        // it. Two pulls on the same axis, one of them decaying and one of them not, is a fight
+        // between them that shows up as the crosshair easing off a target it just arrived on.
+        if (self.Ads && self.Weapon.HasScope)
+        {
+            StepScopeLock(v, self, look, dt);
+            return;
+        }
+
         var (target, offYaw, offPitch, angle) = BestAssistTarget(v, self);
         if (target == null) return;
 
@@ -410,24 +501,6 @@ public sealed class MatchScreen : UiScreen
         // This half stays on the whole time — it is fine control, not assistance, and it never
         // moves your aim anywhere you did not push it.
         steady *= 1f - AssistFriction * strength * closeness * closeness;
-
-        // Down a scope the snap replaces the magnetism below outright rather than stacking with
-        // it. Two pulls on the same axis, one of them decaying and one of them not, is a fight
-        // between them that shows up as the crosshair easing off a target it just arrived on.
-        if (self.Ads && self.Weapon.HasScope)
-        {
-            if (target != v.AssistTarget)
-            {
-                v.AssistTarget = target;
-                v.AssistHeld = 0f;
-            }
-
-            float snap = ScopeSnap * strength * closeness * dt;
-            v.Yaw = MathU.MoveAngleToward(v.Yaw, v.Yaw + offYaw, snap);
-            v.Pitch = MathU.Clamp(v.Pitch + MathU.Clamp(offPitch, -snap, snap),
-                                  -Pawn.MaxPitch, Pawn.MaxPitch);
-            return;
-        }
 
         // Magnetism: scaled by stick deflection, so it never moves the aim on its own.
         float effort = MathU.Clamp01(look.Length());
@@ -451,6 +524,171 @@ public sealed class MatchScreen : UiScreen
         v.Yaw = MathU.MoveAngleToward(v.Yaw, v.Yaw + offYaw, pull);
         v.Pitch = MathU.Clamp(v.Pitch + MathU.Clamp(offPitch, -pull, pull),
                               -Pawn.MaxPitch, Pawn.MaxPitch);
+    }
+
+    /// <summary>
+    /// One lock, acquired when the scope comes up, released the moment you disagree with it.
+    ///
+    /// The three rules, in order of precedence, because the order is the design:
+    ///
+    ///   1. The stick wins. Any real deflection and the lock does nothing at all this frame —
+    ///      it does not fight, halve, or resist. Climbing from the chest to the head has to be
+    ///      exactly as easy as it would be with no assist switched on, or the assist has taken
+    ///      away the shot the rifle exists for.
+    ///   2. Hands off, it follows — slowly enough that a target who breaks pace gets away.
+    ///   3. Lost is lost. Once the target is outside the break cone, dead, or behind something,
+    ///      the lock is spent until the scope comes down and goes up again.
+    /// </summary>
+    void StepScopeLock(View v, Pawn self, Vector2 look, float dt)
+    {
+        var locked = v.ScopeLock;
+
+        // Still a legal thing to be locked to?
+        if (locked != null && (!locked.Alive || locked == self)) locked = null;
+
+        // Where the lock is, relative to where the player is looking.
+        float offYaw = 0f, offPitch = 0f, angle = 0f;
+        if (locked != null && !OffsetTo(v, self, locked, out offYaw, out offPitch, out angle))
+            locked = null;
+
+        // Broken by distance, by them moving, or by the player deliberately aiming elsewhere.
+        // All three are the same test, which is the point: the game does not need to know which
+        // of you moved, only that the crosshair and the target are no longer together.
+        if (locked != null && angle > ScopeBreakCone) locked = null;
+
+        if (locked == null && v.ScopeLock != null)
+        {
+            v.ScopeLock = null;
+            v.ScopeSnapping = 0f;
+            v.ScopeHeld = 0f;
+            v.ScopeLockSpent = true;
+        }
+
+        // Acquire, once, on the frame the scope comes up. Not continuously: a lock that
+        // re-acquires whenever the crosshair drifts near somebody is the turret this replaced.
+        if (v.ScopeLock == null && !v.ScopeLockSpent)
+        {
+            var found = BestScopeTarget(v, self);
+            if (found != null)
+            {
+                v.ScopeLock = found;
+                v.ScopeSnapping = ScopeSnapTime;
+                v.ScopeHeld = 0f;
+            }
+            else
+            {
+                // Nobody in the cone when the scope came up. The scope is yours for this look;
+                // wait for it to come down rather than watching for somebody to wander in.
+                v.ScopeLockSpent = true;
+            }
+
+            return;
+        }
+
+        if (v.ScopeLock == null) return;
+
+        // Rule 1. Steering cancels the swing outright rather than pausing it — a snap that
+        // resumes after you stop pushing would drag you back off the head you just climbed to.
+        if (look.Length() >= ScopeOverride)
+        {
+            v.ScopeSnapping = 0f;
+            return;
+        }
+
+        v.ScopeHeld += dt;
+
+        float rate;
+        if (v.ScopeSnapping > 0f)
+        {
+            v.ScopeSnapping -= dt;
+            rate = ScopeSnapRate;
+        }
+        else rate = ScopeTrack * ScopeGrip(v.ScopeHeld);
+
+        if (rate <= 0f) return;
+
+        float step = rate * dt;
+        v.Yaw = MathU.MoveAngleToward(v.Yaw, v.Yaw + offYaw, step);
+        v.Pitch = MathU.Clamp(v.Pitch + MathU.Clamp(offPitch, -step, step),
+                              -Pawn.MaxPitch, Pawn.MaxPitch);
+    }
+
+    /// <summary>
+    /// How much of the tracking rate is left after holding a lock for this long: 1 then 0.
+    /// </summary>
+    static float ScopeGrip(float held)
+        => held <= ScopeHoldFull ? 1f
+         : 1f - MathU.Clamp01((held - ScopeHoldFull) / ScopeHoldFade);
+
+    /// <summary>
+    /// Reset the lock when the scope comes down, so raising it again is a fresh acquisition.
+    ///
+    /// Called every frame from the view update rather than hooked to a key, because the scope can
+    /// also drop for reasons the player did not ask for — dying, being knocked out of it, swapping
+    /// weapons — and every one of those should hand the next look back clean.
+    /// </summary>
+    static void TrackScopeState(View v, Pawn self)
+    {
+        bool scoped = self.Alive && self.Ads && self.Weapon.HasScope;
+
+        if (!scoped && v.WasScoped)
+        {
+            v.ScopeLock = null;
+            v.ScopeSnapping = 0f;
+            v.ScopeHeld = 0f;
+            v.ScopeLockSpent = false;
+        }
+
+        v.WasScoped = scoped;
+    }
+
+    /// <summary>
+    /// Where a specific pawn sits relative to the crosshair. False when it cannot be shot at.
+    /// </summary>
+    bool OffsetTo(View v, Pawn self, Pawn other, out float offYaw, out float offPitch,
+                  out float angle)
+    {
+        offYaw = offPitch = angle = 0f;
+
+        // The chest, matching BestAssistTarget, so the lock holds where a shot would land rather
+        // than at the feet. The climb to the head is then the player's, which is the whole point.
+        Vector3 at = other.GlobalPosition + Vector3.Up * (other.CurrentHeight * 0.55f);
+        Vector3 to = at - self.Eye;
+
+        float dist = to.Length();
+        if (dist < 0.5f || dist > AssistRange) return false;
+        if (!match.HasLineOfSight(self, other)) return false;
+
+        float aimPitch = MathU.Clamp(v.Pitch + v.Recoil, -Pawn.MaxPitch, Pawn.MaxPitch);
+        float cp = MathF.Cos(aimPitch);
+        var forward = new Vector3(MathF.Cos(v.Yaw) * cp, MathF.Sin(aimPitch), MathF.Sin(v.Yaw) * cp);
+
+        to /= dist;
+        angle = MathF.Acos(MathU.Clamp(forward.Dot(to), -1f, 1f));
+
+        offYaw = MathU.AngleDiff(MathF.Atan2(to.Z, to.X), v.Yaw);
+        offPitch = MathF.Asin(MathU.Clamp(to.Y, -1f, 1f)) - aimPitch;
+        return true;
+    }
+
+    /// <summary>Whoever the scope should grab as it comes up, or null for nobody near enough.</summary>
+    Pawn? BestScopeTarget(View v, Pawn self)
+    {
+        Pawn? best = null;
+        float bestAngle = ScopeAcquireCone;
+
+        foreach (var other in match.Pawns)
+        {
+            if (other == self || !other.Alive) continue;
+            if (settings.Def.Teams && Match.SameTeam(self, other)) continue;
+            if (!OffsetTo(v, self, other, out _, out _, out float angle)) continue;
+            if (angle >= bestAngle) continue;
+
+            bestAngle = angle;
+            best = other;
+        }
+
+        return best;
     }
 
     /// <summary>
@@ -955,6 +1193,7 @@ public sealed class MatchScreen : UiScreen
         p.RectOutline(r.Position.X, r.Position.Y, r.Size.X, r.Size.Y, tint * new Color(1, 1, 1, 0.5f), 3f);
 
         DrawMinimap(p, v, pawn, r);
+        DrawBattlePoints(p, pawn, r);
 
         float x = r.Position.X + 22f;
 
@@ -1830,6 +2069,45 @@ public sealed class MatchScreen : UiScreen
             _ => 0f,
         };
 
+
+    /// <summary>
+    /// What you have to spend, top left, always.
+    ///
+    /// Battle points used to appear only on the reinforcement screen, which is the one moment you
+    /// cannot act on them: by then you are already choosing, and what you wanted to know was
+    /// whether to keep pushing for one more kill before you died. A currency you can only see at
+    /// the till is a currency nobody plans around.
+    ///
+    /// Top left because that corner was the only empty one. Health and the gauges run up from the
+    /// bottom left, the minimap owns the bottom right, and the scoreboard is centre top.
+    /// </summary>
+    void DrawBattlePoints(UiPainter p, Pawn pawn, Rect2 r)
+    {
+        float x = r.Position.X + 22f;
+        float y = r.Position.Y + 20f;
+
+        string points = pawn.BattlePoints.ToString();
+        var size = p.Measure(points, 30);
+
+        // Lit once the cheapest thing on the roster is affordable, and again in the faction's own
+        // colour at hero money. Two thresholds rather than a bar, because the roster is a list of
+        // prices rather than a track you fill up.
+        var tint = pawn.BattlePoints >= Reinforcements.HeroCost ? pawn.Tint
+                 : pawn.BattlePoints >= Reinforcements.CheapestUpgrade ? Pal.Ready
+                 : Pal.TextDim;
+
+        p.Rect(x - 8f, y - 4f, size.X + 92f, size.Y + 20f, new Color(0.04f, 0.05f, 0.07f, 0.55f));
+        p.Rect(x - 8f, y - 4f, 3f, size.Y + 20f, tint);
+
+        p.Text(points, x + 4f, y, 30, tint);
+        p.Text("BP", x + size.X + 12f, y + 10f, 15, Pal.TextDim);
+
+        // Only while it means something. A permanent "SPAWN TO USE" caption is nagging; a caption
+        // that appears the moment you can afford something is information.
+        if (pawn.BattlePoints >= Reinforcements.CheapestUpgrade)
+            p.Text(pawn.BattlePoints >= Reinforcements.HeroCost ? "HERO READY" : "UPGRADE READY",
+                   x + 4f, y + size.Y + 6f, 13, tint * new Color(1f, 1f, 1f, 0.85f));
+    }
 
     // ---- minimap ----
 

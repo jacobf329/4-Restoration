@@ -142,9 +142,26 @@ public static class WeaponModels
     /// <summary>
     /// Which end of its own long axis a generated gun puts the muzzle at.
     ///
-    /// One number for the whole batch, because one prompt shape generated the whole batch. If the
-    /// guns come out pointing backwards, this is the single thing to invert — and inverting it is
-    /// the entire fix, rather than twenty-four separate corrections.
+    /// One number for the whole batch, because one prompt shape generated the whole batch.
+    ///
+    /// MEASURED, not guessed. This was guessed once and that was not good enough, so all
+    /// twenty-four models were parsed straight out of their .glb buffers and their vertices
+    /// rasterised to orthographic side-on silhouettes, which a gun is extremely legible in — you
+    /// can see the pistol grip and the stock. Every one of them puts the muzzle at NEGATIVE X:
+    /// the assault rifle hangs its grip and magazine right of centre with the handguard reaching
+    /// left, the portal gun the same, the minigun's barrel bundle is the left half. Two geometric
+    /// heuristics tried first (grip mass low and aft, barrel taper) disagreed with each other on
+    /// the assault rifle, which is why looking at them won over measuring proxies for them.
+    ///
+    /// Worth knowing what this rules out: with one shared constant a *partial* failure is not
+    /// possible. If some guns point the right way and others do not, the build is old — it is
+    /// still running the per-model bounds heuristic this replaced, which scored 13/11 with margins
+    /// inside the noise floor and so got roughly half of them wrong. The title screen's build
+    /// stamp settles which is which.
+    ///
+    /// The sign is fixed by Pawn's rotation, and the two must be read together. Godot's view model
+    /// looks down -Z; a +90 degree turn about Y sends model +X to -Z, so a muzzle at -X needs the
+    /// extra half turn, so facing must be negative, so this is -1.
     /// </summary>
     const float MuzzleConvention = -1f;
 

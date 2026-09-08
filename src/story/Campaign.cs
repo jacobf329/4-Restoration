@@ -21,7 +21,7 @@ public enum Act
     /// <summary>The Custodians' library, and what they finally tell him he is for.</summary>
     Library,
 
-    /// <summary>The Muses' camps, preserved, by people who are not ashamed of them.</summary>
+    /// <summary>Ingenuity's camps, preserved, by people who are not ashamed of them.</summary>
     Camps,
 
     /// <summary>The ruling. What harm is, said out loud by the only thing that can say it.</summary>
@@ -39,7 +39,7 @@ public enum HarvestChoice
 {
     Undecided,
 
-    /// <summary>He allowed it. The Garden and the Muses got what they wanted.</summary>
+    /// <summary>He allowed it. The Garden and Ingenuity got what they wanted.</summary>
     Harvested,
 
     /// <summary>He refused, and waited for the Vessels to find him someone.</summary>
@@ -51,7 +51,7 @@ public enum HarvestChoice
 ///
 /// Separate from <see cref="HarvestChoice"/> because two delegations share each answer, and which
 /// of the two he walked over to is not the same fact as what he decided. The Garden wants his body
-/// because life is sacred and the Muses want it because an idle asset is a waste; a man who stood
+/// because life is sacred and Ingenuity want it because an idle asset is a waste; a man who stood
 /// with one of them has said something different about himself than a man who stood with the
 /// other, and Act III is owed that difference even though both of them harvested him.
 /// </summary>
@@ -61,7 +61,7 @@ public enum Delegation
     None,
 
     Garden,
-    Muses,
+    Ingenuity,
     Custodians,
     Vessels,
 }
@@ -260,7 +260,7 @@ public static class Acts
         new() { Act = Act.Library, Host = Factions.Custodians, Name = "The Library",
                 Blurb = "The first people to answer your questions, and what they want for it." },
 
-        new() { Act = Act.Camps, Host = Factions.Muses, Name = "The Camps",
+        new() { Act = Act.Camps, Host = Factions.Ingenuity, Name = "The Camps",
                 Blurb = "Preserved, like everything else they made. They are not sorry." },
 
         new() { Act = Act.Arbiter, Host = null, Name = "The Arbiter",

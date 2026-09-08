@@ -79,6 +79,19 @@ public sealed class TitleScreen : UiScreen
 
         p.TextCentered(padLine, cx, p.Size.Y - 108f, 18, padColour);
 
+        // The build, bottom left, always.
+        //
+        // Small, dim, and never worth reading until the one moment it is worth everything:
+        // "did my update actually take?" was unanswerable from inside the game for several
+        // rounds across two machines, and the honest answer each time was that nobody could
+        // tell. A commit and a date settle it in a glance, and an asterisk says the folder has
+        // edits in it that no update will overwrite.
+        string build = BuildInfo.LocalEdits
+            ? $"build {BuildInfo.Commit}* — {BuildInfo.Date}"
+            : $"build {BuildInfo.Commit} — {BuildInfo.Date}";
+
+        p.Text(build, 22f, p.Size.Y - 74f, 15, Pal.TextDim);
+
         var d = menu.LastDevice;
         p.HintBar(
             (Glyphs.For(Prompt.NavVert, d), "Navigate"),

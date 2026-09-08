@@ -142,7 +142,7 @@ public static class Missions
             B(Speaker.Narrator, "They convene the day after. All four. Nobody asks him to sit down."),
             B(Speaker.Vessels, "You may hear them in any order. You may hear them twice. Nobody "
                              + "here is in a hurry except one of us."),
-            B(Speaker.Muses, "That is a characterisation."),
+            B(Speaker.Ingenuity, "That is a characterisation."),
             B(Speaker.Vessels, "It is a description."),
             B(Speaker.Narrator, "Four floors. Four cases. Walk onto one and they will make theirs."),
         };
@@ -175,27 +175,32 @@ public static class Missions
                                 + "somebody to write them for."),
             }),
 
-            Delegate(1, Delegation.Muses, HarvestChoice.Harvested, new[]
+            Delegate(1, Delegation.Ingenuity, HarvestChoice.Harvested, new[]
             {
-                B(Speaker.Muses, "The Garden's case is sentimental. It is also correct. Ours is "
+                B(Speaker.Ingenuity,
+                  "The Garden's case is sentimental. It is also correct. Ours is "
                                + "better."),
-                B(Speaker.Muses, "You are a producing asset that is currently producing nothing. "
+                B(Speaker.Ingenuity,
+                  "You are a producing asset that is currently producing nothing. "
                                + "Today. Now. While we speak."),
-                B(Speaker.Muses, "That is the largest waste in the world and it is standing in "
+                B(Speaker.Ingenuity, "That is the largest waste in the world and it is standing in "
                                + "this room with its hands in its pockets."),
                 B(Speaker.John, "And after? What do I do after?"),
-                B(Speaker.Muses, "Work. As we do. You will be astonished how much of what you were "
+                B(Speaker.Ingenuity,
+                  "Work. As we do. You will be astonished how much of what you were "
                                + "taught to call happiness is just having something to finish."),
-                B(Speaker.Muses, "We will not lie to you about affection. We have no department "
+                B(Speaker.Ingenuity,
+                  "We will not lie to you about affection. We have no department "
                                + "for it. We have never found one necessary."),
             }, new[]
             {
-                B(Speaker.Muses, "Good. Sensible."),
+                B(Speaker.Ingenuity, "Good. Sensible."),
                 B(Speaker.Narrator, "It is the first time in his life anybody has called him "
                                   + "sensible, and it does not feel the way he expected."),
-                B(Speaker.Muses, "You will be back at work within the hour. We find that helps."),
+                B(Speaker.Ingenuity,
+                  "You will be back at work within the hour. We find that helps."),
                 B(Speaker.Vessels, "John—"),
-                B(Speaker.Muses, "He has answered. Do not make him answer twice."),
+                B(Speaker.Ingenuity, "He has answered. Do not make him answer twice."),
             }),
 
             Delegate(2, Delegation.Custodians, HarvestChoice.Waited, new[]

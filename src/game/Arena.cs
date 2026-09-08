@@ -179,7 +179,7 @@ public sealed class Arena
     /// architecture is a place for keeping bodies. The Furnace is the Custodians': Prometheus stole
     /// the fire and was chained to it, and every hazard left in the game is here and nowhere else.
     /// The Glasshouse is the Garden's: Noah carried the living through the flood and they are still
-    /// carrying them. The Thousand Rooms is the Muses': a civilisation
+    /// carrying them. The Thousand Rooms is Ingenuity': a civilisation
     /// that cannot let potential go unused builds something that never stops adding capacity, and
     /// it is not an accident that it is the layout closest to a camp.
     /// </summary>
@@ -1999,7 +1999,7 @@ public sealed class Arena
     }
 
     /// <summary>
-    /// Gauntlet → THE THOUSAND ROOMS, of the Muses.
+    /// Gauntlet → THE THOUSAND ROOMS, of Ingenuity.
     ///
     /// Scheherazade lived one more night for every story, and her faction's answer to being told
     /// humanity was a specification sheet is a building that will not stop adding rooms. The
@@ -2318,7 +2318,7 @@ public sealed class Arena
     public static Vector3 ConvocationSeat(int i) => i switch
     {
         0 => new Vector3(ConvocationRadius, 0f, 0f),      // the Garden
-        1 => new Vector3(-ConvocationRadius, 0f, 0f),     // the Muses
+        1 => new Vector3(-ConvocationRadius, 0f, 0f),     // Ingenuity
         2 => new Vector3(0f, 0f, -ConvocationRadius),     // the Custodians
         _ => new Vector3(0f, 0f, ConvocationRadius),      // the Vessels
     };
@@ -2327,7 +2327,7 @@ public sealed class Arena
     public static FactionDef ConvocationHost(int i) => i switch
     {
         0 => Factions.Garden,
-        1 => Factions.Muses,
+        1 => Factions.Ingenuity,
         2 => Factions.Custodians,
         _ => Factions.Vessels,
     };

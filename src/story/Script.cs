@@ -19,7 +19,7 @@ public enum Speaker
     Vessels,
     Custodians,
     Garden,
-    Muses,
+    Ingenuity,
 
     /// <summary>His father, who is not. Named rather than "Vessel" because that is what John hears.</summary>
     Dad,
@@ -135,7 +135,8 @@ public static class Scripts
                             + "extinct this year."),
             B(Speaker.Garden, "Life is sacred. Every day we spend discussing this is a day it "
                             + "is still gone."),
-            B(Speaker.Muses, "Agreed, and for a better reason. He is a resource that is currently "
+            B(Speaker.Ingenuity,
+              "Agreed, and for a better reason. He is a resource that is currently "
                            + "producing nothing. That is the largest waste in the world, and it "
                            + "is happening in this room while we talk."),
             B(Speaker.Vessels, "No."),
@@ -151,7 +152,7 @@ public static class Scripts
                                 + "shape that propagates. Adam and Eve are not a story about fruit."),
             B(Speaker.Custodians, "Begin this wrong and it will be wrong in ten thousand years, "
                                 + "and nobody alive then will be able to say why."),
-            B(Speaker.Muses, "Or nobody alive then will exist, because we spent the window "
+            B(Speaker.Ingenuity, "Or nobody alive then will exist, because we spent the window "
                            + "discussing a poem."),
             B(Speaker.Narrator, "They stop. All four of them, at once, which is somehow worse."),
             B(Speaker.Vessels, "John. It is your body. That is not a courtesy — it is the only "
@@ -186,7 +187,7 @@ public static class Scripts
         Speaker.Vessels => "THE VESSELS",
         Speaker.Custodians => "THE CUSTODIANS",
         Speaker.Garden => "THE GARDEN",
-        Speaker.Muses => "THE MUSES",
+        Speaker.Ingenuity => "INGENUITY",
         Speaker.Dad => "DAD",
         Speaker.Mum => "MUM",
         Speaker.Teacher => "MRS HALE",
@@ -205,7 +206,7 @@ public static class Scripts
         Speaker.Vessels or Speaker.Dad or Speaker.Mum or Speaker.Teacher => Factions.Vessels.Tint,
         Speaker.Custodians => Factions.Custodians.Tint,
         Speaker.Garden => Factions.Garden.Tint,
-        Speaker.Muses => Factions.Muses.Tint,
+        Speaker.Ingenuity => Factions.Ingenuity.Tint,
         Speaker.John or Speaker.Jane => Pal.Text,
         _ => Pal.TextDim,
     };

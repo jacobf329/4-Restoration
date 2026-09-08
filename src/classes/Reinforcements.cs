@@ -229,7 +229,7 @@ public static class Reinforcements
         Model = "orchard",
     };
 
-    // ---- The Muses: the performance ----
+    // ---- Ingenuity: the performance ----
 
     public static readonly ReinforcementDef Chorus = new()
     {
@@ -238,7 +238,7 @@ public static class Reinforcements
         Blurb = "Fastest thing on the map, and you are never sure how many of it there are.",
         Tier = ReinforcementTier.Line,
         Cost = 500,
-        Faction = Factions.Muses,
+        Faction = Factions.Ingenuity,
         Class = SpecialClasses.Chorus,
         Model = "chorus",
     };
@@ -250,7 +250,7 @@ public static class Reinforcements
         Blurb = "A blade, and eight seconds in which it cannot be killed and hits ever harder.",
         Tier = ReinforcementTier.Elite,
         Cost = 1100,
-        Faction = Factions.Muses,
+        Faction = Factions.Ingenuity,
         Class = SpecialClasses.Tragedian,
         Model = "tragedian",
     };
@@ -262,6 +262,24 @@ public static class Reinforcements
     /// without one; dearer and nobody ever sees the thing the whole setting is built around.
     /// </summary>
     public const int HeroCost = 2600;
+
+    /// <summary>
+    /// The least a fighter can spend on anything above the free four.
+    ///
+    /// Derived rather than written down, so the HUD's "you can afford something now" threshold
+    /// cannot drift away from the roster's actual prices when one of them is retuned. The basics
+    /// cost nothing and are always available, so they are not what this is asking about.
+    /// </summary>
+    public static int CheapestUpgrade
+    {
+        get
+        {
+            int least = HeroCost;
+            foreach (var r in All)
+                if (r.Cost > 0 && r.Cost < least) least = r.Cost;
+            return least;
+        }
+    }
 
     public static readonly ReinforcementDef[] All =
     {

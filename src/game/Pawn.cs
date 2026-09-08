@@ -192,7 +192,7 @@ public partial class Pawn : CharacterBody3D
     public bool Overdriven => ClassBuffTime > 0f && Class.Special == SpecialKind.Overdrive;
     public bool Focused => ClassBuffTime > 0f && Class.Special == SpecialKind.Focus;
 
-    /// <summary>Muses: hidden from targeting while the decoy walks on without you.</summary>
+    /// <summary>Ingenuity: hidden from targeting while the decoy walks on without you.</summary>
     public bool Understudying => BuffTime > 0f && Faction.Special == SpecialKind.Understudy;
 
     /// <summary>
@@ -683,7 +683,7 @@ public partial class Pawn : CharacterBody3D
     public bool Flying => CrownPowerActive && Crown?.Kind == JuggernautKind.Prometheus;
 
     /// <summary>
-    /// True while something is making this pawn a poor target — the Muses' decoy, or Scheherazade
+    /// True while something is making this pawn a poor target — Ingenuity's decoy, or Scheherazade
     /// hiding inside a crowd of herself. Bots skip it, and the aim assist will not stick to it.
     /// </summary>
     public bool HardToFind

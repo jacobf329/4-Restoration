@@ -932,7 +932,8 @@ public sealed class BotBrain
 
             float d = self.GlobalPosition.DistanceTo(p.GlobalPosition);
 
-            // A Muse who has just left a decoy is not a target until it expires — the bluff has to
+            // An Ingenuity fighter who has just left a decoy is not a target until it expires —
+            // the bluff has to
             // work on a bot or it only ever works on a person, which would make the whole ability
             // an anti-human weapon rather than an ability.
             if (p.HardToFind && d > 6f) continue;

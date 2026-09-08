@@ -193,7 +193,7 @@ public sealed class Arena
     /// </summary>
     public static readonly string[] Names =
         { "Reliquary", "Furnace", "Glasshouse", "Thousand Rooms",
-          "Fairview", "Antechamber", "Orrery" };
+          "Fairview", "Convocation", "Antechamber", "Orrery" };
 
     public readonly int Layout;
     public string Name => Names[Layout];
@@ -315,7 +315,8 @@ public sealed class Arena
         // otherwise louder than any amount of dialogue.
         if (Story)
         {
-            BuildFairview();
+            if (Layout == ConvocationLayout) BuildConvocation();
+            else BuildFairview();
             return;
         }
 
@@ -2074,7 +2075,13 @@ public sealed class Arena
     /// Ordered combat, story, puzzle so that <see cref="IsPuzzle"/> stays "the last few" and did
     /// not have to change when Fairview arrived.
     /// </summary>
-    public const int StoryLayouts = 1;
+    public const int StoryLayouts = 2;
+
+    /// <summary>Fairview, the town of Act I.</summary>
+    public static int FairviewLayout => CombatLayouts;
+
+    /// <summary>The chamber the four convene in for Act II.</summary>
+    public static int ConvocationLayout => CombatLayouts + 1;
 
     /// <summary>How many layouts are combat arenas — the only ones a versus match may pick.</summary>
     ///
@@ -2279,6 +2286,127 @@ public sealed class Arena
         foreach (int end in new[] { -1, 1 })
             Deck(new Vector3(end * StreetEnd, 2.0f, 0f),
                  new Vector3(1.0f, 2.0f, Row + 12f), civic.Darkened(0.35f), SurfaceKind.Concrete);
+    }
+
+    // ---- the Convocation ----
+    //
+    // Act II's set, and the opposite of Fairview in every way that matters. Fairview is a place
+    // somebody lives, built to be liked; this is a room four civilisations built to be *right* in.
+    // Nothing in it is comfortable, there is no way out of it, and the only thing on the floor is
+    // the man they are arguing about.
+    //
+    // The four bays are the argument made out of geometry. Each faction has an identical footprint
+    // at an identical distance — nobody is nearer, nobody is higher, nobody has the floor — and
+    // the player decides the whole story by walking into one of them. That is the entire design,
+    // and everything below is in service of making the walk read as a decision.
+
+    /// <summary>How far the four delegations stand from the middle of the floor.</summary>
+    public const float ConvocationRadius = 34f;
+
+    /// <summary>How much floor each delegation has, measured out from its bay's mouth.</summary>
+    public const float ConvocationBay = 9f;
+
+    /// <summary>
+    /// The four bays, in a fixed order, so the level and the script cannot disagree about which
+    /// corner belongs to whom.
+    ///
+    /// East, west, north, south, and the assignment is not arbitrary: the Garden is put in the
+    /// player's path along the street of the room, the Vessels are behind him where everything he
+    /// came from is, and the Custodians face him because they are the ones who ask him a question
+    /// rather than making him an offer.
+    /// </summary>
+    public static Vector3 ConvocationSeat(int i) => i switch
+    {
+        0 => new Vector3(ConvocationRadius, 0f, 0f),      // the Garden
+        1 => new Vector3(-ConvocationRadius, 0f, 0f),     // the Muses
+        2 => new Vector3(0f, 0f, -ConvocationRadius),     // the Custodians
+        _ => new Vector3(0f, 0f, ConvocationRadius),      // the Vessels
+    };
+
+    /// <summary>The faction standing in each bay, in the same order as <see cref="ConvocationSeat"/>.</summary>
+    public static FactionDef ConvocationHost(int i) => i switch
+    {
+        0 => Factions.Garden,
+        1 => Factions.Muses,
+        2 => Factions.Custodians,
+        _ => Factions.Vessels,
+    };
+
+    void BuildConvocation()
+    {
+        var stone = new Color(0.30f, 0.30f, 0.33f);
+        var floor = new Color(0.24f, 0.24f, 0.27f);
+
+        // He starts a little short of the middle, so the first thing the act asks him to do is
+        // walk into the centre of a room that is already looking at him.
+        SpawnPoints.Add(new Vector3(0f, 1.4f, 14f));
+        SpawnPoints.Add(new Vector3(2.5f, 1.4f, 14f));
+
+        // The floor he is called onto. Raised barely enough to feel like a stage underfoot, which
+        // is what it is.
+        Deck(new Vector3(0f, 0.12f, 0f), new Vector3(11f, 0.12f, 11f), floor, SurfaceKind.Concrete);
+
+        const float Wall = 48f;
+        const float Height = 9f;
+
+        // A sealed square. No gate, no gap, no corridor out — the act ends when he answers, and a
+        // room with a visible exit invites a player to spend Act II looking for it.
+        foreach (int side in new[] { -1, 1 })
+        {
+            Deck(new Vector3(side * Wall, Height, 0f),
+                 new Vector3(1.2f, Height, Wall), stone, SurfaceKind.Concrete);
+            Deck(new Vector3(0f, Height, side * Wall),
+                 new Vector3(Wall, Height, 1.2f), stone, SurfaceKind.Concrete);
+        }
+
+        for (int i = 0; i < 4; i++)
+        {
+            var seat = ConvocationSeat(i);
+            var host = ConvocationHost(i);
+
+            // Which way this bay faces. One of the two components is zero, so this is the axis it
+            // stands on and the sign is the direction it stands in.
+            bool alongX = MathF.Abs(seat.X) > MathF.Abs(seat.Z);
+            float sign = alongX ? MathF.Sign(seat.X) : MathF.Sign(seat.Z);
+
+            // Depth runs away from the centre, width across it. Swapping the two for the east and
+            // west bays is the whole of what makes four identical bays face four ways.
+            Vector3 Extent(float across, float deep, float y)
+                => alongX ? new Vector3(deep, y, across) : new Vector3(across, y, deep);
+
+            Vector3 Out(float d) => alongX
+                ? new Vector3(seat.X + sign * d, 0f, 0f)
+                : new Vector3(0f, 0f, seat.Z + sign * d);
+
+            // The back of the bay, in the faction's own colour, darkened. It is the only large
+            // block of colour in the room and it is what the player is walking towards.
+            Deck(Out(ConvocationBay) + Vector3.Up * 5f, Extent(ConvocationBay + 2f, 1.0f, 5f),
+                 host.Tint.Darkened(0.55f), SurfaceKind.Concrete);
+
+            // Two side walls, low enough to see over from the floor and high enough that standing
+            // between them is standing somewhere rather than near something.
+            foreach (int s in new[] { -1, 1 })
+            {
+                var across = alongX
+                    ? new Vector3(0f, 0f, s * (ConvocationBay + 1.5f))
+                    : new Vector3(s * (ConvocationBay + 1.5f), 0f, 0f);
+
+                Deck(Out(ConvocationBay * 0.5f) + across + Vector3.Up * 2.6f,
+                     Extent(1.0f, ConvocationBay * 0.5f, 2.6f), stone, SurfaceKind.Concrete);
+            }
+
+            // The floor of the bay, tinted. This is the patch the mission measures against, so it
+            // is exactly as wide as the zone the player has to stand in — what he can see and what
+            // the game is testing are the same rectangle, which is the only honest way to ask
+            // somebody to commit by standing somewhere.
+            Deck(Out(0f) + Vector3.Up * 0.1f, Extent(ConvocationBay, ConvocationBay, 0.1f),
+                 host.Tint.Darkened(0.25f), SurfaceKind.Concrete);
+
+            // A standard at the back, so a bay is legible from the middle of the room at a glance
+            // and the player never has to walk somewhere to find out whose it is.
+            Deck(Out(ConvocationBay - 0.5f) + Vector3.Up * 7f,
+                 Extent(0.5f, 0.5f, 7f), host.Tint, SurfaceKind.Panel);
+        }
     }
 
     void BuildAntechamber()

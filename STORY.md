@@ -429,6 +429,24 @@ works only because Act I made him care what these voices are.
 citing directives written before humanity died.
 **Turn:** the choice. **It branches, and the branch persists** — see *Open questions*.
 
+*Built.* The Convocation is a sealed square with four identical bays at four identical distances —
+nobody nearer, nobody higher, nobody with the floor — and the act is a `ChamberMission` rather than
+a walk, because a walk is a sequence somebody is led along and being led is exactly what this act
+must not be. The four cases are heard in whatever order the player goes looking for them. Then the
+floor opens and **the question is answered by walking over and standing next to somebody**, held
+for three seconds with the meter visible, and giving the hold back slowly if he steps away.
+
+That last part is the design, not an implementation detail. A menu asks which option you prefer; a
+room asks who you are willing to go and stand next to while the other three watch. They are not the
+same question and the second one is the one this story is about. The menu is still in
+`StoryScreen`, unreachable, as the fallback for a save that somehow arrives at Act III undecided.
+
+Four bays, **two answers, four identities**. The Garden and the Muses both take him and want him
+for opposite reasons; the Custodians and the Vessels both let him wait and disagree about why. So
+`CampaignState` records `Sided` alongside `Choice` — a man who stood with the Garden has said
+something different about himself than one who stood with the Muses, and Act III is owed that
+difference even though both of them were harvested.
+
 ### Act III — THE GARDEN: *The vault*
 
 Warm, and the warmth is real. If he was harvested, this is where his children are; if he waited,
@@ -511,7 +529,13 @@ the last thing that happens.
    and quietly plays the neutral version of every scene from there on. Deliberately not a
    `GameMode`: a campaign has no score limit or bot skill, and putting it in `Modes.All` would mean
    inventing a limit for something that counts nothing and burying a story in the list people cycle
-   through looking for Deathmatch. Missions, objectives and dialogue are not built.
+   through looking for Deathmatch.
+
+   Two mission shapes exist. `WalkMission` is reach-a-place-hear-some-lines and is the whole of Act
+   I; `ChamberMission` is hear-everyone-then-go-and-stand-with-one and is the whole of Act II. Both
+   run inside a live `Match` that `MatchScreen` ticks and draws, rather than as a second screen
+   reimplementing two thousand lines of it, and both are steppable without a scene tree so the
+   harness can walk a whole act in a loop. Acts III–VI have chapter cards and no scenes.
 4. **Her, as a companion**: a pawn with a bot brain, an affinity value, and behaviour that reads
    off it. Cheaper than it sounds — the bot brain, the ally pathing and the faction models all
    exist — and it is the second pillar of the mode, so it should not be the thing that gets cut.

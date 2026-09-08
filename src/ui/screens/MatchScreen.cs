@@ -885,6 +885,21 @@ public sealed class MatchScreen : UiScreen
             p.TextCentered(mission.Objective.ToUpperInvariant(), p.Size.X * 0.5f,
                            p.Size.Y * 0.11f, 22, Pal.TextDim);
 
+        // The commit meter, under the objective. Above the dialogue panel rather than beside it,
+        // because the two are never fighting for the same attention: the room stops talking before
+        // it asks him to choose.
+        if (mission.Gauge is { } gauge)
+        {
+            float gw = 320f;
+            float gx = p.Size.X * 0.5f - gw * 0.5f;
+            float gy = p.Size.Y * 0.11f + 34f;
+
+            p.TextCentered(gauge.Label.ToUpperInvariant(), p.Size.X * 0.5f, gy, 17, gauge.Tint);
+
+            p.Rect(gx, gy + 26f, gw, 8f, Pal.Panel);
+            p.Rect(gx, gy + 26f, gw * gauge.Progress, 8f, gauge.Tint);
+        }
+
         if (mission.Speaking is not { } beat) return;
 
         float w = MathF.Min(940f, p.Size.X - 140f);

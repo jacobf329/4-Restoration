@@ -1333,6 +1333,159 @@ public static class UiSelfTest
 
 
 
+    /// <summary>
+    /// Act II: the four cases, in any order, and a decision made by standing somewhere.
+    ///
+    /// The thing worth testing here is not the dialogue, it is the claim the act makes about
+    /// itself — that all four delegations can be heard in whichever order the player finds them,
+    /// that the floor does not open until they have been, and that walking onto one of them is
+    /// what answers the question. Every one of those is a way for the only choice in the game to
+    /// become unreachable, and an unreachable choice is a campaign that cannot be finished.
+    /// </summary>
+    static void TestHarvestMission()
+    {
+        TestLog.Line("- Act II is answered by walking, not by a menu");
+
+        var settings = Missions.SettingsFor(Act.Harvest);
+        Check(settings.IsStoryMission, "the hearing is a scene");
+        Check(settings.BotCount == 0, "and nobody else is in the room");
+        Check(Match.ChooseArenaForTest(settings) == Arena.ConvocationLayout,
+              "and it lands in the Convocation rather than the town");
+        Check(Arena.ConvocationLayout != Arena.FairviewLayout,
+              "which is a different set from Act I's");
+
+        var arena = new Arena(Arena.ConvocationLayout);
+
+        // Each bay has to be somewhere a person can actually stand, and far enough from the next
+        // one that standing in one is not standing in two. That second check is the one that
+        // matters: overlapping bays would let a player answer the question by accident, from the
+        // middle of the room, without ever choosing anybody.
+        for (int i = 0; i < 4; i++)
+        {
+            var seat = Arena.ConvocationSeat(i);
+            Check(arena.InPlay(seat with { Y = 2f }),
+                  $"the {Arena.ConvocationHost(i).Name} bay is inside the room");
+
+            for (int j = i + 1; j < 4; j++)
+                Check(seat.DistanceTo(Arena.ConvocationSeat(j)) > Arena.ConvocationBay * 2f,
+                      $"bay {i} and bay {j} do not overlap");
+        }
+
+        // Hear them in an order nobody would design for, to prove the act does not secretly want
+        // one. The Vessels last is the interesting case - they are the ones who raised him, and a
+        // scene written as a sequence would have put them first.
+        var state = new CampaignState();
+        var mission = Missions.Harvest(state);
+
+        Check(!mission.OpenForTest, "the floor is shut before anybody has been heard");
+
+        int[] order = { 2, 0, 3, 1 };
+        var middle = new Vector3(0f, 0f, 0f);
+
+        for (int n = 0; n < order.Length; n++)
+        {
+            // Walk in, then let the case run out. Stepped by more than the longest a line can
+            // hold, so one call is one beat.
+            for (int guard = 0; guard < 60 && mission.HeardForTest <= n; guard++)
+                mission.StepForTest(8f, Arena.ConvocationSeat(order[n]));
+
+            Check(mission.HeardForTest == n + 1,
+                  $"{Arena.ConvocationHost(order[n]).Name} made their case ({mission.HeardForTest} heard)");
+
+            // Back to the middle, or the next step would be measured against the bay he is still
+            // standing in.
+            if (n < order.Length - 1) mission.StepForTest(0.01f, middle);
+        }
+
+        // The closing run has to play itself out before the floor opens.
+        for (int guard = 0; guard < 40 && !mission.OpenForTest; guard++)
+            mission.StepForTest(8f, middle);
+
+        Check(mission.OpenForTest, "and the floor opens once all four have spoken");
+        Check(state.Choice == HarvestChoice.Undecided, "with nothing decided yet");
+
+        // Standing in the middle decides nothing, however long he stands there. This is the check
+        // that a scene which merely waits long enough cannot answer for him.
+        for (int i = 0; i < 20; i++) mission.StepForTest(1f, middle);
+        Check(state.Choice == HarvestChoice.Undecided,
+              "waiting in the middle of the room is not an answer");
+
+        // Step onto a floor, but not for long enough, and then step off.
+        mission.StepForTest(ChamberMission.CommitSeconds * 0.5f, Arena.ConvocationSeat(3));
+        Check(mission.DwellForTest > 0.3f, "standing with somebody starts to count");
+        Check(state.Choice == HarvestChoice.Undecided, "but half a hold is not a decision");
+
+        mission.StepForTest(0.5f, middle);
+        Check(mission.DwellForTest < 1f, "and stepping away gives it back");
+
+        // Then commit properly. The Vessels, so the answer is Waited and the delegation is theirs
+        // rather than the Custodians' - the two share an answer and must not share an identity.
+        for (int guard = 0; guard < 40 && state.Choice == HarvestChoice.Undecided; guard++)
+            mission.StepForTest(1f, Arena.ConvocationSeat(3));
+
+        Check(state.Choice == HarvestChoice.Waited, "standing with the Vessels is an answer");
+        Check(state.Sided == Delegation.Vessels, "and the room remembers whose floor he stood on");
+
+        for (int guard = 0; guard < 40 && !mission.Complete; guard++)
+            mission.StepForTest(8f, Arena.ConvocationSeat(3));
+        Check(mission.Complete, "and the act ends after they have answered him back");
+
+        // The campaign was blocked on this and now is not. Act II being unfinishable was the
+        // state the game was actually in before this scene existed.
+        Check(state.Advance(), "the campaign can leave Act II once the question is answered");
+
+        // Every bay is reachable and the two answers are both reachable. Run each in its own
+        // campaign, because the question is asked once and a state that has answered it cannot
+        // answer it again - which is itself the thing being checked.
+        var answers = new HarvestChoice[4];
+        var sides = new Delegation[4];
+
+        for (int bay = 0; bay < 4; bay++)
+        {
+            var run = new CampaignState();
+            var m = Missions.Harvest(run);
+
+            for (int guard = 0; guard < 400 && !m.Complete; guard++)
+                m.StepForTest(m.OpenForTest ? 1f : 8f,
+                              m.HeardForTest >= 4 ? Arena.ConvocationSeat(bay)
+                                                  : Arena.ConvocationSeat(m.HeardForTest));
+
+            answers[bay] = run.Choice;
+            sides[bay] = run.Sided;
+
+            Check(run.Choice != HarvestChoice.Undecided,
+                  $"siding with {Arena.ConvocationHost(bay).Name} answers the question");
+            TestLog.Line($"    {Arena.ConvocationHost(bay).Name}: {run.Choice}, sided {run.Sided}");
+        }
+
+        Check(answers[0] == HarvestChoice.Harvested && answers[1] == HarvestChoice.Harvested,
+              "the Garden and the Muses both take him");
+        Check(answers[2] == HarvestChoice.Waited && answers[3] == HarvestChoice.Waited,
+              "the Custodians and the Vessels both let him wait");
+
+        // Four bays, four identities. Two of them agree about the harvest and none of them are
+        // each other, which is the whole reason Sided is a separate fact from Choice.
+        for (int i = 0; i < 4; i++)
+        for (int j = i + 1; j < 4; j++)
+            Check(sides[i] != sides[j], $"bay {i} and bay {j} are told apart");
+
+        // And it survives the game closing. A choice this size that a restart forgets would be
+        // worse than no choice at all.
+        var saved = new CampaignState();
+        saved.Decide(HarvestChoice.Harvested);
+        saved.SideWith(Delegation.Muses);
+        saved.Save();
+
+        var reloaded = CampaignState.Load();
+        Check(reloaded.Choice == HarvestChoice.Harvested, "the answer survives a restart");
+        Check(reloaded.Sided == Delegation.Muses, "and so does whose floor he was standing on");
+
+        // The room asks once. A second answer would be the game changing its mind about something
+        // the player already lived through.
+        reloaded.SideWith(Delegation.Garden);
+        Check(reloaded.Sided == Delegation.Muses, "and it cannot be answered twice");
+    }
+
     static void TestSurfaces()
     {
         TestLog.Line("- surfaces fall back to plating when there is no art");
@@ -1922,6 +2075,7 @@ public static class UiSelfTest
         TestStoryScript();
         TestSurfaces();
         TestChildhoodMission();
+        TestHarvestMission();
         TestNeedler();
         TestHeadshotsAndMuzzles();
         TestPlayBoundsAreTight();

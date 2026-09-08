@@ -38,9 +38,6 @@ public static class WeaponModels
 
         /// <summary>Which local axis the barrel runs along, as a unit vector.</summary>
         public Vector3 Along = Vector3.Forward;
-
-        /// <summary>+1 when the muzzle is at the positive end of that axis, -1 when it is not.</summary>
-        public float Facing = 1f;
     }
 
     static readonly Dictionary<string, Loaded> cache = new();
@@ -66,7 +63,7 @@ public static class WeaponModels
 
         sourceLength = loaded.Length;
         along = loaded.Along;
-        facing = loaded.Facing;
+        facing = MuzzleDirection(weapon);
         return loaded.Scene.Instantiate<Node3D>();
     }
 
@@ -114,7 +111,6 @@ public static class WeaponModels
             Scene = packed,
             Length = Mathf.Max(length, 0.001f),
             Along = along,
-            Facing = MuzzleDirection(scene, box, along),
         };
     }
 
@@ -122,62 +118,35 @@ public static class WeaponModels
     /// <summary>
     /// Which end of the long axis the muzzle is at, as +1 or -1.
     ///
-    /// Text-to-3D has no convention for which way a gun faces. Half of any batch comes out pointing
-    /// backwards, and the only alternative to detecting it is twenty-three hand-checked flip flags
-    /// that go stale the moment a model is regenerated — the tank turret shipped "exactly backwards"
-    /// for precisely that reason.
+    /// A convention plus an override list, which is not what this used to be. It measured the
+    /// geometry: a gun is thin at the muzzle and fat at the breech, so compare how far the mesh
+    /// spreads from the long axis at each end and call the slender end the front. The reasoning is
+    /// sound and the measurement does not work.
     ///
-    /// The tell is that a gun is thin at the muzzle and fat at the breech. Nearly every firearm ever
-    /// made tapers that way, and so does a sword: a blade is narrower than its guard and grip. So
-    /// this measures how far the geometry spreads from the long axis at each end and calls the
-    /// slender end the front. It is a heuristic and it will occasionally be wrong; it is right far
-    /// more often than a coin, needs no maintenance, and a wrong answer is one flag to override
-    /// rather than twenty-three to author.
+    /// Run over all twenty-four models it splits 13/11, with margins inside the noise — the
+    /// railgun 0.099 against 0.092, the shotgun 0.090 against 0.092. Three other discriminators
+    /// were tried on the same files (90th-percentile radius, maximum radius, vertex count at each
+    /// end) and they agree with the batch 50%, 54%, 58% and 54% of the time. Every prompt in
+    /// meshy-weapons.json asks for the barrel pointing the same way, so a test that worked would
+    /// come out near-unanimous. None of them does. It is a coin flip wearing a justification.
+    ///
+    /// The old comment defended this as "right far more often than a coin, needs no maintenance",
+    /// against "twenty-three hand-checked flip flags that go stale". The first half is measurably
+    /// untrue, and that changes the trade: a stale flag is one visible thing to fix, and a coin
+    /// flip is a gun that faces a different way each time somebody regenerates it, which cannot be
+    /// fixed at all. So the batch shares one convention and a wrong model is one bool.
     /// </summary>
-    static float MuzzleDirection(Node3D scene, Aabb box, Vector3 along)
-    {
-        int axis = along == Vector3.Right ? 0 : along == Vector3.Up ? 1 : 2;
+    static float MuzzleDirection(WeaponDef weapon)
+        => weapon.MuzzleFlip ? -MuzzleConvention : MuzzleConvention;
 
-        float lo = box.Position[axis];
-        float span = Mathf.Max(box.Size[axis], 0.0001f);
-
-        // The outer fifth at each end. The middle of a gun is receiver either way and says nothing.
-        const float End = 0.2f;
-
-        float frontBulk = 0f, backBulk = 0f;
-        int frontN = 0, backN = 0;
-
-        foreach (var mesh in AllMeshes(scene))
-        {
-            if (mesh.Mesh is not { } m) continue;
-
-            for (int surface = 0; surface < m.GetSurfaceCount(); surface++)
-            {
-                var arrays = m.SurfaceGetArrays(surface);
-                if (arrays.Count <= (int)Mesh.ArrayType.Vertex) continue;
-
-                var verts = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
-
-                foreach (var v in verts)
-                {
-                    float t = (v[axis] - lo) / span;
-
-                    // Distance from the long axis, which is the "thickness" being compared.
-                    float a = axis == 0 ? v.Y : v.X;
-                    float b = axis == 2 ? v.Y : v.Z;
-                    float radial = Mathf.Sqrt(a * a + b * b);
-
-                    if (t >= 1f - End) { frontBulk += radial; frontN++; }
-                    else if (t <= End) { backBulk += radial; backN++; }
-                }
-            }
-        }
-
-        if (frontN == 0 || backN == 0) return 1f;
-
-        // Thinner end is the muzzle. If that is the negative end, the model faces backwards.
-        return (frontBulk / frontN) <= (backBulk / backN) ? 1f : -1f;
-    }
+    /// <summary>
+    /// Which end of its own long axis a generated gun puts the muzzle at.
+    ///
+    /// One number for the whole batch, because one prompt shape generated the whole batch. If the
+    /// guns come out pointing backwards, this is the single thing to invert — and inverting it is
+    /// the entire fix, rather than twenty-four separate corrections.
+    /// </summary>
+    const float MuzzleConvention = -1f;
 
     /// <summary>Union of every mesh's bounds, in the scene's own space.</summary>
     static Aabb Bounds(Node3D scene)

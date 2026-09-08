@@ -32,6 +32,17 @@ public sealed class StoryScreen : UiScreen
     /// <summary>Set while the harvest question is on screen and the answer is outstanding.</summary>
     Menu? choice;
 
+    /// <summary>
+    /// The device that last pressed confirm here, and therefore the one that is playing.
+    ///
+    /// Remembered because a scene has to be handed to a specific device and there is no lobby in
+    /// story mode to claim one. Picking the first registered device instead is what broke this:
+    /// the keyboard is registered before any gamepad, so the scene bound itself to the keyboard
+    /// while the player was holding a pad, and a pawn whose view belongs to another device gets
+    /// no input at all.
+    /// </summary>
+    InputDevice? driver;
+
     public StoryScreen(Main app)
     {
         this.app = app;
@@ -68,6 +79,7 @@ public sealed class StoryScreen : UiScreen
             if (!d.Connected) continue;
             if (!d.ConfirmPressed && !d.StartPressed) continue;
 
+            driver = d;
             Sfx.Play(Sound.MenuMove, -6f);
             Advance();
             return;
@@ -122,8 +134,15 @@ public sealed class StoryScreen : UiScreen
     {
         var settings = Missions.SettingsFor(state.Act);
 
-        // One player, no bots. A slot counts as claimed by having a device on it, so the first
-        // connected one gets it - which in story mode is whoever is holding the pad.
+        // One player, no bots. A slot counts as claimed by having a device on it, and the device
+        // is whoever pressed the button to get here rather than whichever happens to be first in
+        // the registry.
+        //
+        // Deliberately not filtered through Devices.CanClaimSlot. That rule keeps keyboards out of
+        // the lobby unless the player opts in, and the reason is real - a pad being translated into
+        // keypresses by Steam Input would otherwise claim a second slot and act twice. Story mode
+        // has exactly one slot, so there is no second claim to make, and refusing to let somebody
+        // play the story on the keyboard they just navigated the menu with would be its own bug.
         var slots = new LobbySlot[LobbyScreen.MaxPlayers];
         for (int i = 0; i < slots.Length; i++) slots[i] = new LobbySlot();
 
@@ -131,7 +150,7 @@ public sealed class StoryScreen : UiScreen
         // faction axis has no "human" on it yet - see STORY.md, where his kit is the open
         // question. Wearing the colours of the people who raised him is the least wrong answer
         // available today and is not meant to survive contact with a decision about it.
-        slots[0].DeviceId = Devices.All.Count > 0 ? Devices.All[0].Id : null;
+        slots[0].DeviceId = (driver ?? FirstUsable())?.Id;
         slots[0].FactionIndex = 0;
         slots[0].ClassIndex = 0;
 
@@ -139,6 +158,20 @@ public sealed class StoryScreen : UiScreen
         screen.OnMissionDone = SceneFinished;
 
         Stack.Push(screen);
+    }
+
+    /// <summary>
+    /// Something to play with when we have not seen a button pressed yet.
+    ///
+    /// A connected gamepad first, because this is a controller-first game and somebody with a pad
+    /// plugged in meant to use it. Any connected device otherwise, so the scene is playable rather
+    /// than inert.
+    /// </summary>
+    static InputDevice? FirstUsable()
+    {
+        foreach (var d in Devices.All) if (d.Connected && d.IsGamepad) return d;
+        foreach (var d in Devices.All) if (d.Connected) return d;
+        return null;
     }
 
     /// <summary>The scene is over. Move the campaign on, exactly as reading to the end would.</summary>

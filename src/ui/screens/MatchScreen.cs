@@ -1843,47 +1843,71 @@ public sealed class MatchScreen : UiScreen
     ///   stroke, and it would make the reveal abilities worthless by giving their effect away for
     ///   free. Revealed enemies appear here because being revealed is exactly what that means.
     /// </summary>
+    /// <summary>How much of the world the minimap shows, as a radius in metres.</summary>
+    const float MinimapRange = 55f;
+
     void DrawMinimap(UiPainter p, View v, Pawn self, Rect2 r)
     {
         // Skip it on a slice too small to read one. Four-way splitscreen on a 1080p window gives
         // each player a 960x540 quarter, which still clears this comfortably.
         if (r.Size.X < 420f || r.Size.Y < 320f) return;
 
-        float w = Mathf.Clamp(r.Size.X * 0.22f, 120f, 190f);
-        float h = w * (Arena.HalfDepth / Arena.HalfWidth);
+        float size = Mathf.Clamp(r.Size.X * 0.20f, 120f, 180f);
+        float half = size * 0.5f;
 
         // Bottom right. The health, gauges and tips column runs up the bottom *left* of every
         // slice, so this is the one corner with nothing already in it.
-        float x = r.Position.X + r.Size.X - w - 22f;
-        float y = r.Position.Y + r.Size.Y - h - 22f;
+        float cx = r.Position.X + r.Size.X - half - 22f;
+        float cy = r.Position.Y + r.Size.Y - half - 22f;
 
-        p.Panel(x, y, w, h, new Color(0.05f, 0.06f, 0.08f, 0.62f),
+        p.Panel(cx - half, cy - half, size, size, new Color(0.05f, 0.06f, 0.08f, 0.62f),
                 self.Tint * new Color(1f, 1f, 1f, 0.45f));
 
-        // World XZ onto the panel. +Z is south and screen Y grows downward, so the two agree and
-        // no axis is flipped — which is also why the heading wedge below can use the yaw directly.
-        Vector2 Plot(Vector3 at) => new(
-            x + (at.X + Arena.HalfWidth) / (Arena.HalfWidth * 2f) * w,
-            y + (at.Z + Arena.HalfDepth) / (Arena.HalfDepth * 2f) * h);
+        // Heading-up and centred on the player, like every satnav ever made, and square because a
+        // circular mask is not something the painter can cut.
+        //
+        // The earlier version was north-up and drew the whole arena. That is the better map for
+        // learning a place and the worse one for being in it: at a fixed north the thing you
+        // actually want — is the next turn left or right — is a mental rotation you have to do
+        // yourself, every time, while somebody is shooting at you. Turning the world instead means
+        // left on the map is left in your hands.
+        //
+        // What it costs is the overview, which is why the range is bounded rather than the whole
+        // floor squeezed into 180 pixels where nothing is legible anyway.
+        float scale = half / MinimapRange;
 
-        // Anything outside the arena bounds is dropped rather than clamped to the edge. A hull
-        // shoved through the perimeter would otherwise sit on the border pretending to be a
-        // position, and a wrong dot is worse than a missing one.
-        bool Inside(Vector2 at)
-            => at.X >= x && at.X <= x + w && at.Y >= y && at.Y <= y + h;
+        // Screen up is the direction the player is facing. Yaw runs from +X toward +Z, so the
+        // forward vector is (cos, sin) in world XZ, and the right vector is its perpendicular.
+        float c = MathF.Cos(v.Yaw), sn = MathF.Sin(v.Yaw);
 
-        void Dot(Vector2 at, float size, Color c)
+        Vector2? Plot(Vector3 at)
         {
-            if (!Inside(at)) return;
-            p.Rect(at.X - size * 0.5f, at.Y - size * 0.5f, size, size, c);
+            float dx = at.X - self.GlobalPosition.X;
+            float dz = at.Z - self.GlobalPosition.Z;
+
+            // Into the player's frame: along their heading, and across it.
+            float ahead = dx * c + dz * sn;
+            float across = -dx * sn + dz * c;
+
+            // Ahead is up the screen, so it subtracts from Y.
+            var at2 = new Vector2(cx + across * scale, cy - ahead * scale);
+
+            bool inside = MathF.Abs(across) <= MinimapRange && MathF.Abs(ahead) <= MinimapRange;
+            return inside ? at2 : null;
+        }
+
+        void Dot(Vector3 world, float d, Color col)
+        {
+            if (Plot(world) is not { } at) return;
+            p.Rect(at.X - d * 0.5f, at.Y - d * 0.5f, d, d, col);
         }
 
         foreach (var (at, _, pickTint) in match.AvailablePickups())
-            Dot(Plot(at), 5f, pickTint);
+            Dot(at, 5f, pickTint);
 
         foreach (var rig in match.VehicleList)
             if (rig.Alive)
-                Dot(Plot(rig.GlobalPosition), 7f, rig.Def.Tint);
+                Dot(rig.GlobalPosition, 7f, rig.Def.Tint);
 
         foreach (var other in match.Pawns)
         {
@@ -1892,22 +1916,21 @@ public sealed class MatchScreen : UiScreen
             bool friend = settings.Def.Teams && Match.SameTeam(self, other);
             if (!friend && other.RevealedFor <= 0f) continue;
 
-            Dot(Plot(other.GlobalPosition), 6f, other.Tint);
+            Dot(other.GlobalPosition, 6f, other.Tint);
         }
 
-        // You, and which way you are looking. The wedge is three dots stepping out along the yaw
-        // rather than a triangle, because the painter draws rectangles and text and nothing else —
-        // and at this size a stepped nose and a drawn one are the same three pixels.
-        var me = Plot(self.GlobalPosition);
-        var heading = new Vector2(MathF.Cos(v.Yaw), MathF.Sin(v.Yaw));
-
+        // You, dead centre and always pointing up, because the map turns and you do not. Three
+        // stepped pips make the nose; the painter draws rectangles and text and nothing else.
         for (int i = 1; i <= 3; i++)
-            Dot(me + heading * (i * 4f), 4f - i * 0.5f, self.Tint * new Color(1f, 1f, 1f, 0.85f));
+        {
+            float d = 4f - i * 0.5f;
+            p.Rect(cx - d * 0.5f, cy - i * 4f - d * 0.5f, d, d,
+                   self.Tint * new Color(1f, 1f, 1f, 0.85f));
+        }
 
-        Dot(me, 8f, Colors.White);
-        Dot(me, 5f, self.Tint);
+        p.Rect(cx - 4f, cy - 4f, 8f, 8f, Colors.White);
+        p.Rect(cx - 2.5f, cy - 2.5f, 5f, 5f, self.Tint);
     }
-
 
     void DrawScoreboard(UiPainter p)
     {

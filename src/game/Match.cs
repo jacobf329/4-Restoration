@@ -119,6 +119,15 @@ public partial class Match : Node3D
         /// <summary>True when this round sticks in whoever it hits and counts toward a supercombine.</summary>
         public bool Needles;
 
+        /// <summary>
+        /// True when the weapon that fired this has a scope, which is what a full headshot needs.
+        ///
+        /// Carried on the round rather than read from the owner's hands when it lands, because by
+        /// then they may have swapped: a round in flight was fired by the gun that fired it, and a
+        /// railgun shot should not stop being a railgun shot because somebody pulled out a sword.
+        /// </summary>
+        public bool Scoped;
+
         /// <summary>Stops a round ping-ponging between two gates on consecutive frames.</summary>
         public float PortalLock;
 
@@ -186,6 +195,25 @@ public partial class Match : Node3D
     /// is the reason the number is a constant rather than being folded into the sniper damage.
     /// </summary>
     public const float HeadshotMultiplier = 6.6f;
+
+    /// <summary>
+    /// What a headshot is worth without a scope.
+    ///
+    /// Half. The 6.6 above was set for the shot a scoped rifle exists to take — a still target, a
+    /// held breath, one round — and applying it to everything made every other weapon reward the
+    /// same thing by accident. A minigun burst held on somebody's head was killing in a fifth of a
+    /// second for no decision anybody made.
+    ///
+    /// Scoped is the test rather than a per-weapon list, because it is the property that actually
+    /// distinguishes the shot: a scope is a commitment. You give up your field of view, most of
+    /// your pace and any chance of reacting to what is beside you, and the head is what you are
+    /// buying with that. Nothing else on the map pays a price for aiming high.
+    /// </summary>
+    public const float UnscopedHeadshotMultiplier = 3.3f;
+
+    /// <summary>What this shot's headshot is worth, given what fired it.</summary>
+    static float HeadshotScale(Shot s)
+        => s.Scoped ? HeadshotMultiplier : UnscopedHeadshotMultiplier;
 
     public const float HeadshotBannerTime = 1.15f;
 
@@ -1925,6 +1953,7 @@ public partial class Match : Node3D
                 SeekCone = Mathf.DegToRad(gun.SeekConeDeg),
                 TriggerRadius = gun.TriggerRadius,
                 Needles = gun.Needles,
+                Scoped = gun.HasScope,
             };
 
             if (Visuals)
@@ -2515,8 +2544,8 @@ public partial class Match : Node3D
     /// </summary>
     bool BuildPickupModel(Node3D holder, WeaponDef weapon)
     {
-        if (WeaponModels.Instance(weapon, out float sourceLength, out Vector3 along, out _)
-                is not { } model)
+        if (WeaponModels.Instance(weapon, out float sourceLength, out Vector3 along,
+                                  out float facing) is not { } model)
             return false;
 
         // Bigger than in the hands. A held gun is half a metre from the camera and a dropped one is
@@ -2540,9 +2569,16 @@ public partial class Match : Node3D
         // Laid across the spin rather than pointed down it. A gun rotating about its own long axis
         // is a rolling stick; across, the shape swings through the view and reads as what it is.
         // Tilted a little nose-up so it looks placed rather than dropped.
-        if (along == Vector3.Right) model.RotationDegrees = new Vector3(0f, 0f, 14f);
-        else if (along == Vector3.Up) model.RotationDegrees = new Vector3(0f, 0f, 90f - 14f);
-        else model.RotationDegrees = new Vector3(0f, 90f, 14f);
+        //
+        // Turned end for end with the same facing the held model uses, rather than ignoring it as
+        // this did. A pickup lying muzzle-backwards is less obviously wrong than a held one and it
+        // is still wrong, and having the two disagree about which end is the front would be worse
+        // than either.
+        float turn = facing > 0f ? 0f : 180f;
+
+        if (along == Vector3.Right) model.RotationDegrees = new Vector3(0f, turn, 14f);
+        else if (along == Vector3.Up) model.RotationDegrees = new Vector3(0f, turn, 90f - 14f);
+        else model.RotationDegrees = new Vector3(0f, 90f + turn, 14f);
 
         holder.AddChild(model);
 
@@ -5092,7 +5128,7 @@ public partial class Match : Node3D
                     float local = impact.Y - target.GlobalPosition.Y;
                     bool headshot = local >= target.CurrentHeight * Pawn.HeadFraction;
 
-                    float damage = headshot ? s.Damage * HeadshotMultiplier : s.Damage;
+                    float damage = headshot ? s.Damage * HeadshotScale(s) : s.Damage;
 
                     // Achilles' heel, and the shooter's own crown if they are wearing one. The heel
                     // deliberately inverts the instinct every other target in this game trains: aim

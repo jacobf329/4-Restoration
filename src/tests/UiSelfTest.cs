@@ -1162,6 +1162,59 @@ public static class UiSelfTest
     /// interesting decision - keep pouring into one target while everything says switch - only
     /// exists while a single needle is beneath notice.
     /// </summary>
+
+    /// <summary>
+    /// Two rules that used to be one number each, and a convention that used to be a measurement.
+    ///
+    /// The headshot half is about what a scope buys. The muzzle half is about a heuristic that was
+    /// wrong on purpose - see WeaponModels.MuzzleDirection - and the check that matters now is
+    /// that a weapon cannot get a facing without somebody having decided on one.
+    /// </summary>
+    static void TestHeadshotsAndMuzzles()
+    {
+        TestLog.Line("- a scope is what a full headshot costs");
+
+        Check(Match.UnscopedHeadshotMultiplier < Match.HeadshotMultiplier,
+              $"a headshot is worth less without a scope "
+              + $"({Match.UnscopedHeadshotMultiplier:0.#}x against {Match.HeadshotMultiplier:0.#}x)");
+
+        Check(Match.UnscopedHeadshotMultiplier > 1f,
+              "and still worth more than a body shot, or nobody would aim high at all");
+
+        // The shot a scope exists for still has to be the one that ends somebody, or the trade -
+        // your field of view, your pace, your awareness of what is beside you - buys nothing.
+        float toughest = 0f;
+        foreach (var c in Classes.All) toughest = MathF.Max(toughest, c.Health);
+
+        foreach (var w in Weapons.Pickups)
+        {
+            if (!w.HasScope) continue;
+            float head = w.Damage * Match.HeadshotMultiplier;
+            TestLog.Line($"    {w.Name}: {head:0} to the head, toughest class has {toughest:0}");
+            Check(head >= toughest, $"a {w.Name} headshot drops anybody in the game");
+        }
+
+        // And the unscoped rate is exactly half, which is the whole of the rule. An earlier
+        // version of this check asserted that six unscoped minigun headshots should not drop the
+        // toughest class; they do, by nine points, and that was an opinion invented here rather
+        // than a rule anybody set. Six headshots in a row is a third of a second of sustained fire
+        // held on a head, and a kill is a fair price for it.
+        Check(MathF.Abs(Match.UnscopedHeadshotMultiplier - Match.HeadshotMultiplier * 0.5f) < 0.01f,
+              "an unscoped headshot is worth exactly half a scoped one");
+
+        // Every pickup that carries a model has a decided facing rather than a measured one.
+        // MuzzleFlip defaulting false is the shared convention; this is only here so that adding a
+        // weapon which needs the override cannot silently skip it by never being looked at.
+        int flipped = 0;
+        foreach (var w in Weapons.Pickups) if (w.MuzzleFlip) flipped++;
+
+        TestLog.Line($"    {flipped} of {Weapons.Pickups.Length} pickup entries override the "
+                 + $"muzzle convention");
+        Check(flipped < Weapons.Pickups.Length,
+              "the muzzle convention is a convention, not a list of exceptions");
+    }
+
+
     static void TestNeedler()
     {
         TestLog.Line("- the needler is worth nothing until it is worth everything");
@@ -1870,6 +1923,7 @@ public static class UiSelfTest
         TestSurfaces();
         TestChildhoodMission();
         TestNeedler();
+        TestHeadshotsAndMuzzles();
         TestPlayBoundsAreTight();
 
         // Every wall and platform on the map comes down, and the two things that must not are the

@@ -17,6 +17,16 @@ public abstract class UiScreen
     /// <summary>Shown in the corner so it is always obvious where you are in the menus.</summary>
     public abstract string Title { get; }
 
+    /// <summary>
+    /// The label of the row the cursor is on, or null for a screen that is not a menu.
+    ///
+    /// Exists for the harness. Menu tests used to navigate by counting — "down twice, confirm, and
+    /// that is Options" — which is a test of the running order rather than of the thing it claims
+    /// to check, and every one of them broke the day a row was added above. Asking for a row by
+    /// name is the same test without the brittleness.
+    /// </summary>
+    public virtual string? SelectedLabel => null;
+
     public virtual void OnEnter() { }
     public virtual void OnExit() { }
 

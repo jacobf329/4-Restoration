@@ -79,6 +79,15 @@ public partial class Match : Node3D
         public float BlastDamage;
         public float BlastRadius;
 
+        /// <summary>
+        /// What this round's blast is worth against structure, as a multiple of its blast damage.
+        ///
+        /// Carried on the round rather than decided at the point of detonation, because by the
+        /// time a shell goes off the only thing left of where it came from is its owner — and the
+        /// owner of a tank shell is a pawn, indistinguishable from one holding a rocket launcher.
+        /// </summary>
+        public float StructureScale = 1f;
+
         /// <summary>True when the round plants a gate where it lands rather than doing damage.</summary>
         public bool PlantsPortal;
 
@@ -96,6 +105,19 @@ public partial class Match : Node3D
 
         /// <summary>Gravity on this round, as a fraction of a pawn's.</summary>
         public float Weight;
+
+        /// <summary>Radians per second this round turns toward what it is chasing. Zero flies straight.</summary>
+        public float SeekTurnRate;
+
+        /// <summary>How far this round looks for a target, and the cone it will accept one in.</summary>
+        public float SeekRange;
+        public float SeekCone;
+
+        /// <summary>Metres at which anything but the shooter sets this round off in flight.</summary>
+        public float TriggerRadius;
+
+        /// <summary>True when this round sticks in whoever it hits and counts toward a supercombine.</summary>
+        public bool Needles;
 
         /// <summary>Stops a round ping-ponging between two gates on consecutive frames.</summary>
         public float PortalLock;
@@ -145,8 +167,25 @@ public partial class Match : Node3D
     /// <summary>Headshots landed so far, so the harness can prove the head region is reachable.</summary>
     public int Headshots { get; private set; }
 
+    /// <summary>Supercombines set off so far. The needler is worth nothing without them.</summary>
+    public int Supercombines { get; private set; }
+
     /// <summary>Rewards precision without making body shots pointless.</summary>
-    public const float HeadshotMultiplier = 2.2f;
+    /// <summary>
+    /// What a hit above the head line is worth.
+    ///
+    /// Three times what it was. At 2.2 a headshot was a bonus you noticed on the damage numbers
+    /// and nowhere else; the shot that deserves the most from the player should be worth the most
+    /// to them. At 6.6 the scoped rifles do what a sniper rifle is supposed to do — a railgun
+    /// headshot is 693 and a Longshot headshot is 290, against a health pool that tops out well
+    /// under either, so a clean shot to the head is a kill and not a negotiation.
+    ///
+    /// Worth knowing what else this touches, because it is not only the snipers: the minigun's
+    /// 6.5 a round becomes 43, so a burst held on someone's head is lethal in about a fifth of a
+    /// second. That is the intended shape of the change — every weapon rewards the head — but it
+    /// is the reason the number is a constant rather than being folded into the sniper damage.
+    /// </summary>
+    public const float HeadshotMultiplier = 6.6f;
 
     public const float HeadshotBannerTime = 1.15f;
 
@@ -289,7 +328,7 @@ public partial class Match : Node3D
 
             // A press boards a vehicle; a hold takes a weapon. The two never fight because a press
             // only counts when a hull is actually in reach.
-            if (input.Use && NearestBoardable(pawn) != null) ToggleVehicle(pawn);
+            if (input.Use && !pawn.Slipping && NearestBoardable(pawn) != null) ToggleVehicle(pawn);
             if (input.SwapWeapon) pawn.SwapWeapon();
 
             pawn.TrackPickupHold(dt, input.UseHeld);
@@ -316,6 +355,7 @@ public partial class Match : Node3D
         StepVehicles(dt);
         StepBreakables(dt);
         StepBlooms(dt);
+        StepButter(dt);
         StepDecoys(dt);
         StepPortals(dt);
         StepGrappleLines();
@@ -583,18 +623,36 @@ public partial class Match : Node3D
 
     static int ChooseArena(MatchSettings settings)
     {
-        int combat = Arena.Names.Length - Arena.PuzzleLayouts;
+        // Story mode says where it is going and is not negotiated with. Checked first so the
+        // versus rules below - which exist to keep a match off a story set - cannot refuse it.
+        if (settings.IsStoryMission && Arena.IsStory(settings.StoryLayout))
+            return settings.StoryLayout;
+
+        int combat = Arena.CombatLayouts;
 
         if (settings.ArenaIndex >= 0)
         {
-            // An explicit choice is honoured unless it is the wrong kind entirely, which can only
-            // happen if the mode was changed after the map was picked.
-            bool wantPuzzle = settings.IsPuzzle;
-            if (Arena.IsPuzzle(settings.ArenaIndex) == wantPuzzle) return settings.ArenaIndex;
+            // An explicit choice is honoured unless it is the wrong kind entirely, which can
+            // happen if the mode was changed after the map was picked — or if the index came from
+            // somewhere that has no business choosing a map at all.
+            //
+            // Asked as "is it the right kind", not "is it not the other kind". Those were the same
+            // question while there were two kinds of layout: `IsPuzzle(index) == wantPuzzle` let
+            // any non-puzzle through, and the moment a third kind existed that included Fairview,
+            // so a versus match explicitly pointed at the town got the town — a deathmatch in the
+            // house John Smith grew up in, with no weapons on the floor and two spawn points.
+            bool ok = settings.IsPuzzle
+                ? Arena.IsPuzzle(settings.ArenaIndex)
+                : Arena.IsArena(settings.ArenaIndex);
+
+            if (ok) return settings.ArenaIndex;
         }
 
+        // Counted from where the puzzles actually start, not up from the end of the arenas. Those
+        // were the same index until a story set was put between them, and the difference is a
+        // Portal match rolling the town.
         return settings.IsPuzzle
-            ? combat + (int)(GD.Randi() % (uint)Arena.PuzzleLayouts)
+            ? Arena.FirstPuzzleLayout + (int)(GD.Randi() % (uint)Arena.PuzzleLayouts)
             : (int)(GD.Randi() % (uint)combat);
     }
 
@@ -1862,6 +1920,11 @@ public partial class Match : Node3D
                 Fuse = gun.FuseTime,
                 Bounces = gun.Bounces,
                 Weight = gun.Weight,
+                SeekTurnRate = gun.SeekTurnRate,
+                SeekRange = gun.SeekRange,
+                SeekCone = Mathf.DegToRad(gun.SeekConeDeg),
+                TriggerRadius = gun.TriggerRadius,
+                Needles = gun.Needles,
             };
 
             if (Visuals)
@@ -2241,6 +2304,7 @@ public partial class Match : Node3D
                 Damage = gun.Damage,
                 BlastDamage = gun.BlastDamage,
                 BlastRadius = gun.BlastRadius,
+                StructureScale = VehicleStructureMultiplier,
             };
 
             if (Visuals)
@@ -2415,25 +2479,84 @@ public partial class Match : Node3D
             AddChild(holder);
             holder.GlobalPosition = p.At + Vector3.Up * 0.9f;
 
-            // A jetpack crate is taller and thinner than a weapon crate, so the two are
-            // distinguishable by silhouette and not only by colour.
-            var size = kind switch
+            // A weapon on the floor is the weapon, not a box with its colour on. Gear keeps its
+            // crate: there is no model of a jetpack or a med kit, and a crate is what they are.
+            if (kind != PickupKind.Weapon || !BuildPickupModel(holder, weapon!))
             {
-                PickupKind.Jetpack => new Vector3(0.7f, 1.2f, 0.55f),
-                PickupKind.Health => new Vector3(1.0f, 0.45f, 0.7f),   // flat and wide: a case
-                _ => new Vector3(0.9f, 0.9f, 0.9f),
-            };
+                // A jetpack crate is taller and thinner than a weapon crate, so the two are
+                // distinguishable by silhouette and not only by colour.
+                var size = kind switch
+                {
+                    PickupKind.Jetpack => new Vector3(0.7f, 1.2f, 0.55f),
+                    PickupKind.Health => new Vector3(1.0f, 0.45f, 0.7f),   // flat and wide: a case
+                    _ => new Vector3(0.9f, 0.9f, 0.9f),
+                };
 
-            holder.AddChild(new MeshInstance3D
-            {
-                Mesh = new BoxMesh { Size = size },
-                MaterialOverride = Graphics.Hot(p.Tint, 1.5f),
-            });
+                holder.AddChild(new MeshInstance3D
+                {
+                    Mesh = new BoxMesh { Size = size },
+                    MaterialOverride = Graphics.Hot(p.Tint, 1.5f),
+                });
+            }
 
             p.Node = holder;
         }
 
         pickups.Add(p);
+    }
+
+    /// <summary>
+    /// Put the actual gun on the floor, or report that there is not a model of it.
+    ///
+    /// Scaled by the measurement rather than trusted, exactly as the view model does it: a
+    /// generated mesh has no idea how long a rifle is, and a pickup that arrives twice the size of
+    /// the one beside it reads as a bug rather than as a bigger gun. The silhouette's own length
+    /// is the target so a railgun on the floor is longer than a sidearm, which is information.
+    /// </summary>
+    bool BuildPickupModel(Node3D holder, WeaponDef weapon)
+    {
+        if (WeaponModels.Instance(weapon, out float sourceLength, out Vector3 along, out _)
+                is not { } model)
+            return false;
+
+        // Bigger than in the hands. A held gun is half a metre from the camera and a dropped one is
+        // across a courtyard, and the thing that has to survive that distance is the silhouette.
+        const float Longest = 1.5f;
+
+        float want = weapon.Silhouette switch
+        {
+            WeaponSilhouette.Blade => Longest,
+            WeaponSilhouette.Sniper => Longest,
+            WeaponSilhouette.Launcher => Longest * 0.85f,
+            WeaponSilhouette.Minigun => Longest * 0.8f,
+            WeaponSilhouette.Smg => Longest * 0.55f,
+            WeaponSilhouette.Portal => Longest * 0.6f,
+            WeaponSilhouette.Grapple => Longest * 0.55f,
+            _ => Longest * 0.7f,
+        };
+
+        model.Scale = Vector3.One * (want / sourceLength);
+
+        // Laid across the spin rather than pointed down it. A gun rotating about its own long axis
+        // is a rolling stick; across, the shape swings through the view and reads as what it is.
+        // Tilted a little nose-up so it looks placed rather than dropped.
+        if (along == Vector3.Right) model.RotationDegrees = new Vector3(0f, 0f, 14f);
+        else if (along == Vector3.Up) model.RotationDegrees = new Vector3(0f, 0f, 90f - 14f);
+        else model.RotationDegrees = new Vector3(0f, 90f, 14f);
+
+        holder.AddChild(model);
+
+        // And the colour underneath it, because colour is how you tell one pickup from another
+        // across an arena and the model is the weapon's own texture rather than its tint. The
+        // crate carried both jobs; the gun only does the first, so the second gets its own ring.
+        holder.AddChild(new MeshInstance3D
+        {
+            Mesh = new TorusMesh { InnerRadius = 0.52f, OuterRadius = 0.62f, RingSegments = 6 },
+            MaterialOverride = Graphics.Hot(Weapons.TintFor(weapon), 2.2f),
+            Position = new Vector3(0f, -0.55f, 0f),
+        });
+
+        return true;
     }
 
     void StepPickups(float dt)
@@ -2933,10 +3056,16 @@ public partial class Match : Node3D
     ///
     /// Four times what it was. At five and a half metres it was a patch you had to be standing
     /// exactly on, which meant it healed whoever planted it and nobody else — a team ability that
-    /// only ever affected one person. At twenty-two it is a piece of *ground*: a doorway, a command
-    /// post, the middle of a room. That is the difference between a buff and a place.
+    /// only ever affected one person. At twenty-two it was a piece of *ground*: a doorway, a
+    /// command post, the middle of a room. That is the difference between a buff and a place.
+    ///
+    /// Then 60% off, to 8.8. Twenty-two metres was not a doorway, it was a district — the circle
+    /// was wider than most rooms on any layout, so there was no standing *outside* one without
+    /// leaving the fight, and no skill in placing something that covered everywhere you might have
+    /// wanted it. At 8.8 it is a room or a doorway again, and where you put it is a decision.
+    /// Reach only: the heal rate and the slow are unchanged.
     /// </summary>
-    public const float BloomRadius = 22f;
+    public const float BloomRadius = 8.8f;
     public const float BloomDuration = 9f;
 
     /// <summary>Health per second inside the patch, and the fraction of pace it costs an enemy.</summary>
@@ -2944,12 +3073,25 @@ public partial class Match : Node3D
     /// Healing a second inside one. Enough to out-heal sustained fire, on purpose.
     ///
     /// Twenty-two a second lost to any two people shooting at you, so standing in it was never a
-    /// decision anybody had to respect. At ninety it beats most single weapons in the game, which
-    /// means clearing somebody out of their own Bloom is a thing you have to actually commit to.
+    /// decision anybody had to respect. Ninety was the overcorrection: it out-healed most of the
+    /// armoury, so the counter to a planted Bloom was to leave rather than to fight. Thirty is a
+    /// third of that — it wins a duel you were already winning and loses one you were not, which
+    /// is the amount of help an ability should be.
     /// </summary>
-    public const float BloomHealPerSecond = 90f;
-    /// <summary>What an enemy caught in one is reduced to. A great deal more than a nuisance.</summary>
-    public const float BloomSlow = 0.22f;
+    public const float BloomHealPerSecond = 30f;
+
+    /// <summary>
+    /// What an enemy caught in one is reduced to.
+    ///
+    /// A third of the slow it was, which is not a third of this number: at 0.22 the patch took
+    /// away 78% of your pace, and a third of that is 26%, so what is left is 0.74. Stated as the
+    /// leftover fraction because that is what the movement code multiplies by, but it is the
+    /// *taken* part that was tuned.
+    ///
+    /// Being cut to a fifth of walking pace inside a twenty-two metre circle was not a slow, it
+    /// was a hold — crossing one meant being shot at for several seconds with no say in it.
+    /// </summary>
+    public const float BloomSlow = 0.74f;
 
     /// <summary>How slowed this pawn is right now, 1 meaning unaffected. Read by the pawn's move.</summary>
     public float BloomSlowFor(Pawn p)
@@ -3031,6 +3173,152 @@ public partial class Match : Node3D
         blooms.Add(patch);
     }
 
+    // ---- butter trail ----
+    //
+    // The car greases the floor behind it. Anyone on foot who crosses the slick goes over
+    // backwards and spends a second looking at the sky.
+    //
+    // It is the one thing the car has. The tank has a cannon and the plane has wing guns; the car
+    // had a top speed and a bumper, which made it transport rather than a weapon. A trail turns
+    // driving *through* a fight into a play — you are not trying to hit anybody, you are trying to
+    // be somewhere they are about to run.
+
+    sealed class ButterPatch
+    {
+        public Vector3 At;
+        public float Left;
+        public Node3D? Node;
+    }
+
+    readonly List<ButterPatch> butter = new();
+
+    /// <summary>How wide one dollop of the trail is.</summary>
+    public const float ButterRadius = 2.4f;
+
+    /// <summary>Seconds a patch stays slick before it wears off.</summary>
+    public const float ButterLife = 11f;
+
+    /// <summary>
+    /// Seconds between dollops while a car is moving.
+    ///
+    /// Distance would be the obvious measure and is the wrong one: at 34 m/s a car covers four
+    /// metres in this interval and lays a trail with gaps you can run between, which is exactly
+    /// the reward a fast driver should get for driving fast. Metering by time means the trail
+    /// thins as you speed up rather than costing more to lay.
+    /// </summary>
+    public const float ButterDropInterval = 0.11f;
+
+    /// <summary>Below this the car is parked or crawling, and a stationary car should not puddle.</summary>
+    public const float ButterMinSpeed = 7f;
+
+    /// <summary>
+    /// Ceiling on live patches, shared across every car on the map.
+    ///
+    /// Without it a four-car match laying nine dollops a second each has the whole floor greased
+    /// inside a minute, and a hazard that is everywhere is not a hazard — it is the ground rules.
+    /// The oldest goes when the cap is reached, so the trail behind you is always the newest.
+    /// </summary>
+    public const int ButterMaxPatches = 150;
+
+    /// <summary>Live butter patches. Read by the harness.</summary>
+    public int ButterCount => butter.Count;
+
+    /// <summary>Advance the butter trail once, for the harness.</summary>
+    public void StepButterForTest(float dt) => StepButter(dt);
+
+    /// <summary>Lay one patch where the harness asks, without needing a car to drive over it.</summary>
+    public void DropButterForTest(Vector3 at) => DropButter(at);
+
+    void StepButter(float dt)
+    {
+        foreach (var v in VehicleList)
+        {
+            if (!v.Alive || v.Def.Kind != VehicleKind.Car) continue;
+
+            // Driven or not. A wreck rolling to a stop should not keep buttering, and neither
+            // should an empty car shoved along by a blast.
+            if (v.Driver == null || v.HorizontalSpeed < ButterMinSpeed)
+            {
+                v.ButterTimer = 0f;
+                continue;
+            }
+
+            v.ButterTimer -= dt;
+            if (v.ButterTimer > 0f) continue;
+
+            v.ButterTimer = ButterDropInterval;
+            DropButter(v.GlobalPosition);
+        }
+
+        for (int i = butter.Count - 1; i >= 0; i--)
+        {
+            var b = butter[i];
+            b.Left -= dt;
+
+            if (b.Left <= 0f)
+            {
+                b.Node?.QueueFree();
+                butter.RemoveAt(i);
+                continue;
+            }
+
+            foreach (var p in Pawns)
+            {
+                if (!p.Alive || p.InVehicle || p.Slipping) continue;
+
+                // Feet, not centre of mass. Measured flat and then gated on height, so the
+                // skybridge over a slick is not slippery and neither is a jetpack four metres up.
+                var d = p.GlobalPosition - b.At;
+                if (MathF.Abs(d.Y) > 1.6f) continue;
+                if (new Vector2(d.X, d.Z).Length() > ButterRadius) continue;
+
+                // Everyone, the driver included. A hazard you are immune to is a weapon, and the
+                // car is not supposed to have one — what makes the trail fair is that getting out
+                // of your own car in the middle of it is exactly as bad an idea as it looks.
+                p.Slip();
+            }
+        }
+    }
+
+    void DropButter(Vector3 at)
+    {
+        if (butter.Count >= ButterMaxPatches)
+        {
+            butter[0].Node?.QueueFree();
+            butter.RemoveAt(0);
+        }
+
+        var patch = new ButterPatch { At = at, Left = ButterLife };
+
+        if (Visuals)
+        {
+            var node = new Node3D();
+            AddChild(node);
+
+            // Just off the floor, like the Bloom disc. Any lower and it z-fights the slab it is
+            // lying on, which reads as the trail flickering rather than as a decal.
+            node.GlobalPosition = at + Vector3.Up * 0.05f;
+
+            node.AddChild(new MeshInstance3D
+            {
+                Mesh = new CylinderMesh
+                {
+                    TopRadius = ButterRadius,
+                    BottomRadius = ButterRadius,
+                    Height = 0.08f,
+                },
+                // The trail is painted in the colour of the thing that laid it, read from the
+                // car itself rather than restated here, so a reskin cannot leave a butter car
+                // dropping puddles of the colour it used to be.
+                MaterialOverride = Graphics.Hot(Vehicles.Car.Tint, 0.55f),
+            });
+
+            patch.Node = node;
+        }
+
+        butter.Add(patch);
+    }
+
     // ---- Understudy ----
 
     /// <summary>
@@ -3062,8 +3350,15 @@ public partial class Match : Node3D
     /// it walks in a straight line at a fixed speed for five seconds, in plain sight, and anyone who
     /// reads it simply steps away. The payoff has to justify being ignorable.
     /// </summary>
-    public const float DecoyBlastDamage = 150f;
-    public const float DecoyBlastRadius = 9f;
+    ///
+    /// Four times over, both halves. At 150 in a nine-metre circle the payoff still did not
+    /// justify how ignorable the thing is — reading a decoy and stepping away cost one sidestep,
+    /// so the bomb half of the bluff was never a real threat and the Muses were back to owning a
+    /// lie nobody had to respect. At 600 across thirty-six metres, walking away is a commitment:
+    /// the radius is most of a room, so "step aside" becomes "leave", and leaving is exactly the
+    /// concession the ability is asking a player to make.
+    public const float DecoyBlastDamage = 600f;
+    public const float DecoyBlastRadius = 36f;
 
     /// <summary>Rounds that passed through a phasing Custodian. Reported by the harness.</summary>
     public int PhasedShots;
@@ -3132,7 +3427,8 @@ public partial class Match : Node3D
                 // A decoy that simply expired was a five-second lie with no teeth: people learned
                 // to ignore them, at which point they stopped being a lie at all. One that
                 // detonates like a tank shell means every double has to be treated as either a
-                // trick or a bomb, and you cannot tell which — which is the Muses' whole argument.
+                // trick or a bomb, and you cannot tell which. That it is a *copy of a person*,
+                // made to be spent, is the Muses' whole argument stated as a mechanic.
                 Vector3 at = d.Node.GlobalPosition + Vector3.Up * 0.9f;
 
                 if (d.Owner is { } owner)
@@ -3387,6 +3683,26 @@ public partial class Match : Node3D
     /// <summary>Put a round in the air at a known place and heading, for the harness.</summary>
     public void InjectShotForTest(Pawn owner, Vector3 at, Vector3 vel, float range = 200f)
         => shots.Add(new Shot { Pos = at, Vel = vel, RangeLeft = range, Owner = owner, Damage = 1f });
+
+    /// <summary>
+    /// The same, but carrying a weapon's seeking behaviour, so the harness can watch one turn.
+    ///
+    /// Deliberately does not set BlastDamage. What is under test is the steering, and a round that
+    /// detonates the moment it arrives takes itself out of the air before the check can read where
+    /// it was going.
+    /// </summary>
+    public void InjectSeekerForTest(Pawn owner, Vector3 at, Vector3 vel, WeaponDef gun)
+        => shots.Add(new Shot
+        {
+            Pos = at,
+            Vel = vel,
+            RangeLeft = gun.Range,
+            Owner = owner,
+            Damage = gun.Damage,
+            SeekTurnRate = gun.SeekTurnRate,
+            SeekRange = gun.SeekRange,
+            SeekCone = Mathf.DegToRad(gun.SeekConeDeg),
+        });
 
     /// <summary>Where the nth round in flight is. Throws if there is no nth round.</summary>
     public Vector3 ShotPositionForTest(int i) => shots[i].Pos;
@@ -3998,15 +4314,51 @@ public partial class Match : Node3D
         }
     }
 
+    /// <summary>
+    /// What a vehicle's own gun is worth against walls and walkways, over what it does to people.
+    ///
+    /// A tank shell was already the single best thing in the game for opening a building up, and
+    /// it still took three or four to get through a machine-hall wall — long enough that nobody
+    /// did it on purpose, because standing still and reloading twice in the open is how a tank
+    /// dies. At three times, one shell takes a wall and a citadel tier is four rather than
+    /// thirteen: demolition becomes a thing you drive a tank somewhere to do.
+    ///
+    /// Applied to structure only. What the shell does to people is untouched — this is about
+    /// making the cannon the answer to the *map*, not making it a better anti-personnel weapon.
+    ///
+    /// Bounded by the invariant the arena depends on: at this multiple the cannon's 135 comes to
+    /// 405, still well under <see cref="StructureHealthCap"/>, so nothing in the game drops heavy
+    /// structure in a single hit. Raising it past that would flatten the biggest pieces on every
+    /// map and there would be nothing left to fight over.
+    /// </summary>
+    public const float VehicleStructureMultiplier = 3f;
+
+    /// <summary>
+    /// Needles that have to be in one person at once before they go off together.
+    ///
+    /// Seven, as in Halo, and the number is the weapon. Low enough that a committed magazine gets
+    /// there against someone who stands still, high enough that it never happens by accident to
+    /// whoever you last glanced at.
+    /// </summary>
+    public const int SupercombineNeedles = 7;
+
+    /// <summary>How long a needle stays in before it works loose. Refreshed by each new one.</summary>
+    public const float SupercombineWindow = 3.2f;
+
+    /// <summary>What the seven go off for, and how far it reaches.</summary>
+    public const float SupercombineDamage = 190f;
+    public const float SupercombineRadius = 4.5f;
+
     public const float VehicleWreckDamage = 90f;
     public const float VehicleWreckRadius = 9f;
 
     /// <summary>Seconds before a wreck is cleared and a fresh hull is parked back on its spawn.</summary>
     public const float VehicleRespawnTime = 22f;
 
-    void Blast(Pawn owner, Vector3 centre, float damage, float radius, bool hurtSelf)
+    void Blast(Pawn owner, Vector3 centre, float damage, float radius, bool hurtSelf,
+               float structureScale = 1f)
     {
-        DamageBreakables(centre, damage, radius);
+        DamageBreakables(centre, damage * structureScale, radius);
 
         // Vehicles catch the blast too. Without this a shell landing against a hull did nothing to
         // it unless the ray happened to strike the hull directly, so splash weapons were the one
@@ -4349,7 +4701,7 @@ public partial class Match : Node3D
 
         if (s.BlastDamage <= 0f) return;
 
-        Blast(s.Owner, s.Pos, s.BlastDamage, s.BlastRadius, hurtSelf: true);
+        Blast(s.Owner, s.Pos, s.BlastDamage, s.BlastRadius, hurtSelf: true, s.StructureScale);
         if (Visuals) Impact.Death(this, s.Pos, s.Owner.Tint);
     }
 
@@ -4398,6 +4750,138 @@ public partial class Match : Node3D
         return true;
     }
 
+    /// <summary>
+    /// Turn a seeking round toward the best thing in front of it.
+    ///
+    /// Re-targeted every tick rather than locked on at launch. A lock is worse in both directions:
+    /// it wastes the round when its target dies or ducks into cover, and it makes the weapon feel
+    /// like it belongs to the shooter rather than to the arena. Re-targeting means a seeker that
+    /// loses its mark will take whatever else wanders into the cone, which is both more dangerous
+    /// and more honest about what the thing is.
+    /// </summary>
+    void SteerSeeker(Shot s, float dt)
+    {
+        if (SeekerTarget(s) is not { } target) return;
+
+        var cur = s.Vel.Normalized();
+        var want = (target - s.Pos);
+        if (want.LengthSquared() < 0.0001f) return;
+        want = want.Normalized();
+
+        float angle = cur.AngleTo(want);
+        if (angle < 0.0001f) return;
+
+        // Rate-limited, which is the entire balance of the weapon: it can correct for a target
+        // that moves and it cannot correct for one that moves enough. Lerped and renormalised
+        // rather than slerped, because a target directly behind makes the rotation axis undefined
+        // and a seeker that stops dead on a divide-by-zero is worse than one that turns wide.
+        float t = MathU.Clamp01(s.SeekTurnRate * dt / angle);
+        var blended = cur.Lerp(want, t);
+        if (blended.LengthSquared() < 0.000001f) return;
+
+        s.Vel = blended.Normalized() * s.Vel.Length();
+
+        if (s.Mesh != null) PointAlong(s.Mesh, s.Pos, s.Vel);
+    }
+
+    /// <summary>
+    /// What a seeking round should chase, or null when nothing qualifies.
+    ///
+    /// Vehicles count, and are the reason the weapon reads as heat-seeking rather than as a
+    /// magic bullet: a tank is the largest, hottest, slowest thing on any map and the one target
+    /// a rocket that steers should obviously be good against.
+    ///
+    /// The cone is measured from where the round is *going*, not from where it was fired, so a
+    /// seeker that has committed to a turn keeps chasing rather than losing its mark to its own
+    /// manoeuvre.
+    /// </summary>
+    Vector3? SeekerTarget(Shot s)
+    {
+        var dir = s.Vel.Normalized();
+        float cosCone = MathF.Cos(s.SeekCone);
+
+        Vector3? best = null;
+        float bestDist = s.SeekRange;
+
+        void Consider(Vector3 at)
+        {
+            var to = at - s.Pos;
+            float d = to.Length();
+            if (d > bestDist || d < 0.01f) return;
+            if (dir.Dot(to / d) < cosCone) return;
+
+            best = at;
+            bestDist = d;
+        }
+
+        foreach (var p in Pawns)
+        {
+            if (p == s.Owner || !p.Alive || p.InVehicle) continue;
+            if (Settings.Def.Teams && SameTeam(p, s.Owner)) continue;
+
+            Consider(p.GlobalPosition + Vector3.Up * (p.CurrentHeight * 0.55f));
+        }
+
+        foreach (var rig in VehicleList)
+        {
+            if (!rig.Alive || rig == s.Owner.Riding) continue;
+            if (rig.Driver is { } crew && Settings.Def.Teams && SameTeam(crew, s.Owner)) continue;
+
+            Consider(rig.GlobalPosition + Vector3.Up * rig.Def.HalfExtents.Y);
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// Whether anything but the shooter is close enough to set this round off where it is.
+    ///
+    /// The shooter is exempt and has to be: a round spawns at the muzzle, well inside its own
+    /// trigger radius, so counting them would detonate every seeker in the shooter's face on the
+    /// frame it was fired. They are not exempt from the *blast* — standing next to your own
+    /// rocket when somebody else sets it off is the ordinary way to be hurt by one.
+    ///
+    /// Teammates are not exempt either. A seeker crossing a room is a thing nobody can walk
+    /// through, and one of your own running into yours is your shot to have wasted.
+    /// </summary>
+    bool TouchingSomething(Shot s)
+    {
+        float r2 = s.TriggerRadius * s.TriggerRadius;
+
+        foreach (var p in Pawns)
+        {
+            if (p == s.Owner || !p.Alive || p.InVehicle) continue;
+
+            // Measured to the middle of the pawn rather than their feet, or a round at head height
+            // would sail over somebody it is visibly touching.
+            var mid = p.GlobalPosition + Vector3.Up * (p.CurrentHeight * 0.5f);
+            if (mid.DistanceSquaredTo(s.Pos) <= r2) return true;
+        }
+
+        foreach (var rig in VehicleList)
+        {
+            if (!rig.Alive || rig == s.Owner.Riding) continue;
+
+            var half = rig.Def.HalfExtents;
+            var mid = rig.GlobalPosition + Vector3.Up * half.Y;
+
+            // The hull's *smallest* half-extent is added, not its diagonal. This check is a
+            // backstop rather than the way a seeker normally kills a tank: a round approaching
+            // from outside crosses the hull's face and the sweep resolves it as a direct hit,
+            // which is worth the impact damage on top of the blast. What the sweep cannot do is
+            // notice a hull that has driven *onto* a round already in the air — a ray that begins
+            // inside a collider reports nothing — and that is the case this catches.
+            //
+            // Sized off the diagonal instead, a tank's 4.8m would put the trigger three metres
+            // clear of the nose and every seeker would airburst short of the one target the
+            // weapon is meant to be best against.
+            float reach = s.TriggerRadius + MathF.Min(half.X, MathF.Min(half.Y, half.Z));
+            if (mid.DistanceSquaredTo(s.Pos) <= reach * reach) return true;
+        }
+
+        return false;
+    }
+
     void StepShots(float dt)
     {
         var space = GetWorld3D().DirectSpaceState;
@@ -4409,6 +4893,20 @@ public partial class Match : Node3D
             // A heavy round arcs. Applied before the sweep so the ray follows the path the round
             // actually takes this frame rather than the flat one it would have taken.
             if (s.Weight > 0f) s.Vel += Vector3.Down * (Pawn.Gravity * s.Weight * dt);
+
+            // And a seeker turns, for the same reason and in the same place: the sweep below has
+            // to follow the path the round actually takes, not the one it was pointed down when it
+            // left the tube.
+            if (s.SeekTurnRate > 0f) SteerSeeker(s, dt);
+
+            // Anything that walks into it. Checked before the sweep because it is not a sweep
+            // question — see WeaponDef.TriggerRadius.
+            if (s.TriggerRadius > 0f && TouchingSomething(s))
+            {
+                Detonate(s);
+                shots.RemoveAt(i);
+                continue;
+            }
 
             if (s.PortalLock > 0f) s.PortalLock -= dt;
 
@@ -4610,6 +5108,28 @@ public partial class Match : Node3D
                     float dealt = before - target.Health;
                     DamageDealt += dealt;
 
+                    // The needle sticks. Counted only when it actually did something, so needles
+                    // that glanced off a dashing player's invulnerability do not quietly build a
+                    // supercombine out of shots that missed.
+                    if (s.Needles && dealt > 0f && !killed
+                        && target.AddNeedle(SupercombineNeedles, SupercombineWindow))
+                    {
+                        Supercombines++;
+
+                        // Centred on them rather than on the impact, because it is the needles
+                        // going off and the needles are in them.
+                        var at = target.GlobalPosition + Vector3.Up * (target.CurrentHeight * 0.5f);
+                        Blast(s.Owner, at, SupercombineDamage, SupercombineRadius, hurtSelf: false);
+
+                        if (Visuals)
+                        {
+                            Impact.Death(this, at, Weapons.TintFor(Weapons.Needler));
+                            Sfx.PlayAt(Sound.Death, at, -2f, 1.4f);
+                        }
+
+                        killed = !target.Alive;
+                    }
+
                     // Only a shot that actually did something confirms. Hitting someone who is
                     // dashing through their invulnerability frames should read as a miss, because
                     // that is exactly what it was.
@@ -4649,7 +5169,8 @@ public partial class Match : Node3D
                 // hull, or the floor under someone's feet.
                 if (s.BlastDamage > 0f)
                 {
-                    Blast(s.Owner, where, s.BlastDamage, s.BlastRadius, hurtSelf: true);
+                    Blast(s.Owner, where, s.BlastDamage, s.BlastRadius, hurtSelf: true,
+                          s.StructureScale);
                     if (Visuals) Impact.Death(this, where, s.Owner.Tint);
                 }
 
@@ -4920,6 +5441,11 @@ public partial class Match : Node3D
 
     void CheckWin()
     {
+        // A scene ends when its script does. Every condition below is a way of winning, and there
+        // is nothing to win in a town - left in, a story mission would quietly declare somebody
+        // the victor of his own childhood the moment the clock ran out.
+        if (Settings.IsStoryMission) return;
+
         // Time runs out for every mode, and whoever is ahead takes it. A draw leaves no winner
         // rather than picking one arbitrarily.
         if (TimeRemaining is <= 0f)

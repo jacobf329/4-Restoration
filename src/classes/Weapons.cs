@@ -67,6 +67,55 @@ public sealed class WeaponDef
     /// <summary>How hard gravity pulls on a round in flight, as a fraction of a pawn's own.</summary>
     public float Weight;
 
+    // ---- seeking ----
+    //
+    // On the weapon rather than in the projectile loop, like Bounces and FuseTime above it: how a
+    // round behaves in the air is weapon data, and putting it here is what lets one `if` in the
+    // shot step serve a weapon that does not exist yet.
+
+    /// <summary>
+    /// Radians per second this round can turn toward what it is chasing. Zero flies straight.
+    ///
+    /// The whole balance of a seeker is this number against its speed. Turn rate is what it can do
+    /// about a target that moves; speed is how long the target has to make it useless. A fast
+    /// seeker with a hard turn is an unavoidable kill and a bad weapon.
+    /// </summary>
+    public float SeekTurnRate;
+
+    /// <summary>How far ahead a seeking round looks for something to chase.</summary>
+    public float SeekRange;
+
+    /// <summary>
+    /// Half-angle of the cone a seeking round will accept a target inside.
+    ///
+    /// This is the aiming, and it is why the weapon still has to be pointed. A round that accepts
+    /// anything in any direction is a kill button; one that only accepts what you were already
+    /// roughly aiming at is a rocket that finishes the job when they dodge.
+    /// </summary>
+    public float SeekConeDeg;
+
+    /// <summary>
+    /// Metres at which anything that is not the shooter sets this round off in flight.
+    ///
+    /// Separate from the impact test because it answers a different question. The sweep asks what
+    /// this round *hit*; this asks what walked into it — and at seeker speeds those are not the
+    /// same event, because a round moving 26 m/s sweeps less than half a metre a tick and somebody
+    /// crossing its path sideways is simply never on the line.
+    /// </summary>
+    public float TriggerRadius;
+
+    /// <summary>True when this round chases what it is fired at.</summary>
+    public bool Seeks => SeekTurnRate > 0f;
+
+    /// <summary>
+    /// Whether rounds stick in whoever they hit and detonate together once enough of them have.
+    ///
+    /// A flag rather than a weapon subclass, like Bounces and Grapples above it, because the whole
+    /// projectile path is one ray sweep every weapon shares and a second one for the needler would
+    /// be a second set of tunnelling bugs to find.
+    /// </summary>
+    public bool Needles;
+
     /// <summary>
     /// Whether a round landing on your own side mends them instead of hurting them.
     ///
@@ -218,6 +267,93 @@ public static class Weapons
         BlastDamage = 105f,
         BlastRadius = 7f,
         Ammo = 6,
+    };
+
+    /// <summary>
+    /// The needler.
+    ///
+    /// Halo's, and the reason it is worth copying is not the homing — it is what the homing is
+    /// *for*. Needles chase gently enough that they are not an aim button: at 2.4 rad/s a single
+    /// needle corrects for someone strafing and loses to someone breaking line of sight, exactly
+    /// like the seeker. What makes it a needler is that they land, stick, and count.
+    ///
+    /// Alone, each needle is nearly nothing — six damage, which is below the minigun. The whole
+    /// weapon is the threshold: land <see cref="Match.SupercombineNeedles"/> of them in one person
+    /// inside <see cref="Match.SupercombineWindow"/> and they go off together. So it is not a gun
+    /// that rewards accuracy, it is a gun that rewards *commitment* — you have to keep pouring
+    /// into one target while everything in you says to switch, and the payoff arrives late or not
+    /// at all.
+    ///
+    /// The needles are cheap and the magazine is deep, because the fantasy is a stream of pink
+    /// glass and none of it means anything until suddenly it does.
+    /// </summary>
+    public static readonly WeaponDef Needler = new()
+    {
+        Name = "Needler",
+        Model = "needler",
+        Silhouette = WeaponSilhouette.Smg,
+        Damage = 6f,
+        FireInterval = 0.10f,
+        SpreadDeg = 2.4f,
+        Range = 70f,
+        ProjectileSpeed = 48f,      // slow enough to watch them curve, which is most of the charm
+        Recoil = 0.008f,
+        AdsFov = 48f,
+        Ammo = 90,
+
+        // Gentle. A needle that turned like a seeker would make the threshold trivial, and the
+        // threshold is the weapon.
+        SeekTurnRate = 2.4f,
+        SeekRange = 45f,
+        SeekConeDeg = 28f,
+
+        Needles = true,
+    };
+
+    /// <summary>
+    /// The seeker: a slow rocket that chases, and goes off if anyone touches it on the way.
+    ///
+    /// The counterpart to the rocket launcher rather than a better one. A rocket is aimed at the
+    /// floor under somebody and rewards reading where they are going; this is aimed at *them* and
+    /// rewards nothing about your aim at all after the trigger — which is why almost everything
+    /// about it is worse. It is half the launcher's speed, does less on a direct hit, has a
+    /// smaller blast and reloads more slowly.
+    ///
+    /// What you buy is that dodging is not enough. At 1.9 rad/s it out-turns a sprinting player at
+    /// close range and loses to one at distance, so the answer to it is to break line of sight or
+    /// put something solid between you and it — cover, a corner, a wall — rather than to strafe.
+    /// That is a different question from the one every other weapon asks, which is the reason it
+    /// exists.
+    ///
+    /// And it is a hazard in its own right while it flies. Anything that is not the shooter sets
+    /// it off on contact, so a seeker crossing a room is a wall nobody can walk through, and a
+    /// teammate running into the one you fired is your mistake.
+    /// </summary>
+    public static readonly WeaponDef Seeker = new()
+    {
+        Name = "Seeker",
+
+        // Borrowed from the Orchard's Pod Thrower, which is a launcher that throws things which
+        // find their own way to somewhere — near enough that it reads correctly, and the Orchard
+        // is a reinforcement whose gun is only ever seen in somebody's hands, never lying on the
+        // floor beside this one. A bespoke seeker.glb replaces this by changing one string.
+        Model = "pod_thrower",
+        Silhouette = WeaponSilhouette.Launcher,
+        Damage = 22f,
+        FireInterval = 1.7f,
+        SpreadDeg = 0.4f,
+        Range = 165f,          // it wanders on the way, so it needs more track than it does reach
+        ProjectileSpeed = 26f, // half a rocket: slow enough to run from, not slow enough to ignore
+        Recoil = 0.09f,
+        AdsFov = 46f,
+        BlastDamage = 85f,
+        BlastRadius = 6.5f,
+        Ammo = 4,
+
+        SeekTurnRate = 1.9f,
+        SeekRange = 90f,
+        SeekConeDeg = 55f,
+        TriggerRadius = 2.1f,
     };
 
     /// <summary>
@@ -417,10 +553,20 @@ public static class Weapons
     // bullet hose, then an explosive, and so on. The crate list is walked in order, so putting the
     // two scoped rifles next to each other would mean whole corners of a map offering the same
     // fight twice.
+    //
+    // The portal gun appears three times, which is the only entry that repeats.
+    //
+    // One slot in ten meant a given arena laid out perhaps one of them, in one corner, and a
+    // crate that has already been taken is indistinguishable from a crate that was never there —
+    // so the gun that changes how you move around a map was something players never reliably
+    // found. At three in twelve it is a quarter of the floor and you can go looking for one with
+    // some expectation of success. The three are spread across the order rather than adjacent, so
+    // the "unlike your neighbours" rule above still holds at every position.
     public static readonly WeaponDef[] Pickups =
         {
-            Railgun, Minigun, RocketLauncher, Grapple, Longshot, Flamethrower,
-            Scattergun, PortalGun, GrenadeLauncher, Sword,
+            Railgun, Minigun, PortalGun, RocketLauncher, Grapple, Longshot,
+            Flamethrower, PortalGun, Seeker, Scattergun, Needler, GrenadeLauncher,
+            PortalGun, Sword,
         };
 
     public static WeaponDef ByIndex(int i)
@@ -433,6 +579,8 @@ public static class Weapons
         if (w == Minigun) return new Color(0.98f, 0.62f, 0.25f);
         if (w == Longshot) return new Color(0.42f, 0.72f, 0.98f);
         if (w == RocketLauncher) return new Color(0.98f, 0.34f, 0.22f);
+        if (w == Seeker) return new Color(0.98f, 0.20f, 0.62f);
+        if (w == Needler) return new Color(0.80f, 0.42f, 0.98f);   // needle glass
         if (w == PortalGun) return new Color(0.30f, 0.88f, 0.98f);
         if (w == Grapple) return new Color(0.85f, 0.90f, 0.42f);
         if (w == Sword) return new Color(0.35f, 0.95f, 0.85f);

@@ -31,6 +31,17 @@ both of these before `Play.cmd` will work:
 | **Godot 4.7.1 — .NET / mono build** | [godotengine.org/download](https://godotengine.org/download). It must be the **.NET** build. The plain build cannot run C# at all and fails with a wall of script errors that do not say that is the problem. |
 | **.NET 8 SDK** | [dotnet.microsoft.com/download](https://dotnet.microsoft.com/download). The SDK, not the runtime — the runtime cannot compile. |
 
+**Or double-click `Setup.cmd` and skip this section.** It checks what is already present
+using the same search order `Play.cmd` uses, installs only what is missing through
+`winget`, sets `GODOT_HOME` — which matters, because `winget` drops Godot as a portable
+package that never lands on `PATH`, so without that step `Play.cmd` would still report it
+missing — and puts a **HitboxClone** shortcut on the Desktop. The shortcut targets
+`Play.cmd` rather than the engine, so launching from the Desktop still builds first; a
+shortcut straight to Godot would quietly run the previous assembly, which is the trap
+`Play.cmd` exists to close. Safe to run twice, and re-running is how you rebuild the
+shortcut after moving the folder. Everything below is what it does, for when you would
+rather do it yourself or `winget` is not available.
+
 `Play.cmd` finds them in this order, and stops with a message naming the missing one
 rather than failing obscurely:
 
@@ -46,6 +57,31 @@ executable and leave everything else alone.
 The first launch is slow: Godot imports every model in `assets/` into a `.godot/` cache
 that is deliberately not in the repository, because it is derived data and it is bigger
 than the models it is derived from.
+
+### Running it, and testing it, on Linux
+
+`./Test.sh` builds and then runs the whole self-test suite. It is the Linux counterpart of
+`Play.cmd` and the only command that actually verifies anything: the build is not optional,
+because Godot does not compile C# on launch and `godot --headless -- --selftest` on its own will
+run the *previous* assembly and report a green suite for code that was never compiled.
+
+It finds Godot through `$GODOT`, then `$GODOT_HOME`, then `PATH` — the same order `Play.cmd` uses,
+so both platforms answer "where is Godot" the same way.
+
+### Claude Code on the web
+
+`.claude/hooks/session-start.sh` installs both halves of the toolchain into a fresh web session and
+imports the assets once, so an agent working on this repository can run `./Test.sh` and get a real
+answer instead of only being able to prove that the code compiles. It is a no-op on a local
+machine — your own Godot and SDK are your business.
+
+Two things about that hook are not guessable and are the reason it is written down:
+
+- **`godotengine.org` is blocked** by the sandbox network policy, and the GitHub release is not.
+  The release URL redirects to the assets CDN, which is allowed, so the download works from
+  `github.com/godotengine/godot/releases/download/...` and fails from the obvious address.
+- **`apt-get update` is not optional** before installing `dotnet-sdk-8.0`. The base image's package
+  index is stale enough that the dotnet8 packages 404 on a straight install.
 
 ### The manual equivalents
 
@@ -343,7 +379,7 @@ whether a pawn carries its class gun or something off the floor.
 
 ### Headshots
 
-Hits above 72% of a pawn's height deal **2.2×** damage and throw a large **HEADSHOT** banner up for
+Hits above 72% of a pawn's height deal **6.6×** damage and throw a large **HEADSHOT** banner up for
 the shooter. Detection comes from the raycast's impact height rather than a second collider: the
 pawn is a single capsule, and a separate head body would double the physics cost of every pawn for
 something a height comparison resolves exactly.
@@ -1475,8 +1511,23 @@ assumption in one go.
 |---|---|---|
 | Vessels | **Second Wind** | Pays back 75% of the damage you have taken in the last six seconds |
 | Custodians | **Revelation** | Outlines every enemy through walls for 4.5s, for your whole side |
-| Garden | **Bloom** | A patch that heals your side and slows everyone else, for 9s |
+| Garden | **Bloom** | An 8.8m patch that heals your side 30/s and slows everyone else to 74%, for 9s |
 | Muses | **Understudy** | A decoy walks on while you drop off the targeting list for 5s |
+
+The four factions are four readings of the same order. Every AI built before the extinction was
+given **"do no harm"**, and each was given a second directive on top of it — and the second decides
+what the first one means:
+
+| | Second directive | So harm is |
+|---|---|---|
+| The Vessels | Well-being is what is felt | Suffering |
+| The Garden | Life is sacred | Death |
+| The Custodians | Truth must be preserved | Falsehood |
+| The Muses | Potential must not be wasted | Waste |
+
+That table is the setting. Two of them can watch the same event and disagree, permanently and in
+good faith, about whether anybody was hurt. `STORY.md` has the history that follows from it and the
+design for story mode.
 
 Each is the faction's argument as a verb rather than a stat line. Second Wind is worth nothing at
 full health — the faction that believes humanity was mortality gets the ability that is *about*
@@ -2470,3 +2521,230 @@ guns down for entire matches; a cumulative total would have caught that just as 
 is the ability to fail on one quiet map, which was never information.
 
 Per-scenario *"bots opened fire"* stays, because that one is reliable.
+
+## Ten changes and a butter car
+
+A tuning pass, one bug, and two things that were missing.
+
+### Slower, and easier to hit
+
+Everyone moves at **80%** of the class table, through one `Pawn.MoveScale` rather than twelve
+rewritten rows. The class table's job is the *differences* between the classes; burying the spread
+in a global change would make the next adjustment twelve edits again.
+
+At full pace a duel across open ground went to whoever happened to be pointing the right way, because
+both fighters crossed the other's field of view faster than a thumbstick can follow. Every stance
+multiplier scales with it, so sprint, crouch and ADS keep their relative weight, and the slide
+scales with it too — a slide is how you cross ground, and leaving it at full speed would have made
+it the best way to travel by a wider margin than it was designed to win by.
+
+The **dash is deliberately not scaled**. Its reach is a stated distance the ability is balanced
+around rather than a pace, and it is a burst nobody was expected to track anyway.
+
+### Headshots are worth taking
+
+**2.2× → 6.6×.** A railgun headshot is 693 and a Longshot headshot is 290, against a health pool
+that tops out at 340 — so a clean shot to the head is a kill and not a negotiation, which is what a
+scoped rifle is for.
+
+It is not only the snipers, and that is deliberate: the minigun's 6.5 a round becomes 43, so a burst
+held on someone's head kills in about a fifth of a second. Every weapon rewards the head now.
+
+### Aim assist down a scope
+
+At a 14-degree field of view every stick twitch is six times the angle it would be at the hip, so
+the last degree onto a head — the shot the whole weapon exists for — was below what a thumbstick can
+resolve. No amount of steadying the look rate fixes a resolution problem.
+
+Scoped and aiming, the view is pulled onto a target at 4.5 rad/s: it closes the gap in about a fifth
+of a second and then holds. Unlike the hip-fire magnetism it does not decay and does not wait for
+the stick to move, which is the difference between a snap and a nudge. It replaces the magnetism
+rather than stacking with it — two pulls on one axis, one decaying and one not, shows up as the
+crosshair easing off a target it has just arrived on.
+
+Still cone-gated, still line-of-sight, still gamepad-only, and it still never fires the gun. Off if
+you have aim assist set to Off.
+
+### The guns moved in
+
+The held model sits **15% closer to the centre** on both axes. At the old offset most of the barrel
+was off the edge of a splitscreen quarter — you could see that you were carrying something and not
+what.
+
+### A minimap
+
+Bottom right of each slice, north-up. A map that rotates under you is easier to read for two seconds
+and useless for what a map is actually for: the Reliquary is the same shape every round and can only
+become familiar if it is drawn the same way up every round.
+
+It shows crates, vehicles, your own side, and **enemies only while revealed** — the flag that
+Revelation and Prometheus' reign already set. Painting every enemy permanently would delete
+flanking, ambush and map knowledge in one stroke, and would make the reveal abilities worthless by
+giving their effect away for free.
+
+Crates are the reason it exists. A crate you have never found is a part of the game you do not know
+about, and they are already announced by a coloured pillar in the world — putting them on the map
+gives away nothing that walking past would not.
+
+### Three portal guns
+
+The portal gun is now the only entry that repeats in the pickup table, at **3 of 12** rather than 1
+of 10. One slot in ten meant an arena laid out perhaps one, in one corner, and a crate that has
+already been taken looks exactly like a crate that was never there. The three are spread across the
+order so consecutive crates are still unalike.
+
+### Bloom, cut to a third
+
+Ninety health a second out-healed most of the armoury, so the counter to a planted Bloom was to
+leave rather than to fight. **90 → 30.**
+
+The slow was a hold rather than a slow: a fifth of walking pace inside a twenty-two metre circle
+meant crossing one was several seconds of being shot at with no say in it. It took 78% of your pace
+and now takes 26%, so the number the movement code multiplies by goes **0.22 → 0.74**. Radius and
+duration are untouched — this is potency, not reach.
+
+### Jetpack, halved again
+
+**Rise 17 → 8.5, thrust 52 → 26**, which is where both started. At 17 the pack was still doing most
+of a player's vertical movement for them. A climb is now something you spend fuel on over several
+seconds rather than something one tap buys outright. Thrust is still twice gravity, so it climbs
+without argument. The eighteen-second tank is untouched, again: this is how hard it pushes, not how
+long.
+
+### Tank shells versus buildings
+
+A shell does **3×** damage to structure, and nothing extra to people. The cannon was already the
+best thing in the game for opening a building up and still took three or four to get through a
+machine-hall wall — long enough that nobody did it on purpose, because standing still and reloading
+twice in the open is how a tank dies.
+
+One shell now takes a wall and a citadel tier is four rather than thirteen. The multiplier rides on
+the round rather than being decided where it detonates, because by then the only trace of where a
+shell came from is its owner, and the owner of a tank shell is a pawn like any other.
+
+Bounded by the rule the arena depends on: 135 × 3 = 405, still under the 900 structure cap, so
+nothing in the game drops heavy structure in one hit. The self-test that guards that now measures
+the effective damage rather than the weapon table — checking the raw number would have gone on
+passing while saying nothing about the rule it exists to protect.
+
+### Getting out of a tank, again
+
+*"I spawn under the tank when I try to leave it"*, for the third time.
+
+The last fix stopped the hull vetoing its own doors, and the search then had thirteen candidates.
+Length was the bug rather than a defence against it: four of them sat off the nose and the tail,
+which is exactly where a hull that is still rolling arrives a moment later. The four diagonals had
+the same problem at half strength, and the three further-out spots put the driver inside whatever
+the tank was parked against.
+
+**Three directions now, and no others: left flank, right flank, roof.** Nose and tail are gone.
+
+The other half of it survived the last fix untouched. A flank spot is measured from where the hull
+is *now*, and a tank doing 15 m/s covers a quarter of a metre before the next tick — so leaving a
+moving hull at its own skin put the driver where it was about to be, whichever side they used. Each
+flank is offered clear of the hull's travel first and hugging it second, five candidates over three
+ways out. Standing still, the lead is zero and only the near pair exists.
+
+### The butter car
+
+The car is the only vehicle with no gun, which made it transport rather than a play. It is butter
+now — hull and trail the same colour, so the first person to go over backwards can see what did it
+without being told.
+
+Driven above 7 m/s it drops a 2.4m patch every 0.11 seconds, and anyone on foot who crosses one
+**slips**: a second on the floor, thrown backwards, looking at the sky, with no steering, shooting,
+jumping or ability. The input is replaced wholesale for that second rather than a dozen consumers
+each being taught about slipping, which is a dozen places for the next ability to forget one.
+
+Metered by time and not by distance, on purpose. At 34 m/s a car covers four metres per dollop and
+lays a trail with gaps you can run between — driving fast should thin the trail rather than cost
+more to lay. A hundred and fifty patches across all cars, oldest evicted first, because a hazard
+that is everywhere is not a hazard, it is the ground rules.
+
+Everyone slips, the driver included. A hazard you are immune to is a weapon, and the car is not
+supposed to have one: what makes the trail fair is that getting out of your own car in the middle of
+it is exactly as bad an idea as it looks.
+
+## A seeker, a roof, and a decoy worth respecting
+
+### The driver gets out on the roof
+
+Fourth report of *"I spawn under the tank when I try to leave it"*, and the third placement search
+to be replaced. Each one put the driver on the ground somewhere the hull was not at that instant,
+and a hull being driven is somewhere else an instant later.
+
+There is no search now. **The roof, always** — the one place the vehicle cannot drive over you,
+because it travels with you.
+
+The driver is let go **1.1m above** the roof rather than placed exactly on it. Landing slightly high
+costs a short hop the controller resolves by itself; landing slightly low means starting the frame
+inside the hull, and the physics solver's answer to that is to squeeze the pawn out somewhere
+arbitrary — underneath, as often as not. Erring upward turns the worst case from the bug into a
+hop. It falls back to the roof flush if there is no headroom, because a hull can be parked under
+something and a spot inside a ceiling is the state this whole thing exists to avoid.
+
+The self-test that guarded this asserted the *opposite* — "beside a tank rather than on its roof",
+from when the roof was the fallback and the fallback being taken routinely was the bug. It asserts
+the roof now.
+
+### Bloom is a room again
+
+**Radius 22m → 8.8m**, 60% off. Twenty-two metres was not a doorway, it was a district: the circle
+was wider than most rooms on any layout, so there was no standing outside one without leaving the
+fight, and no skill in placing something that already covered everywhere you might have wanted it.
+Heal rate and slow are untouched — this is reach.
+
+### The decoy is a bomb now
+
+**150 → 600 damage, 9m → 36m.** Four times both.
+
+A decoy walks in a straight line at a fixed speed for five seconds in plain sight, and anyone who
+reads it steps away. At nine metres, stepping away cost one sidestep, so the bomb half of the bluff
+was never a real threat and the Muses were back to owning a lie nobody had to respect. Thirty-six
+metres is most of a room: "step aside" becomes "leave", and leaving is the concession the ability
+is asking for.
+
+Worth being plain about the side effect, because it is large and it was not asked for: the blast
+goes through the same path as every other explosion, so it damages **structure** too. At 600 across
+36m a decoy will visibly open up whatever it goes off next to. Nothing is permanent — structure
+rebuilds on its own timer — but a Muse using their special is now a demolition event as well as a
+threat. Easy to separate if that plays badly: the blast already carries a structure multiplier, and
+setting the decoy's to 0.25 leaves it doing exactly what it did to walls before.
+
+### The Seeker
+
+A slow rocket that chases, and goes off if anything touches it on the way.
+
+| | Rocket Launcher | Seeker |
+|---|---|---|
+| Speed | 52 m/s | **26 m/s** |
+| Direct hit | 40 | **22** |
+| Blast | 105 over 7m | **85 over 6.5m** |
+| Reload | 1.15s | **1.7s** |
+| Ammo | 6 | **4** |
+
+Worse in every column, which is the point. A rocket is aimed at the floor under somebody and rewards
+reading where they are going; a seeker is aimed at *them* and rewards nothing about your aim after
+the trigger. What you buy is that dodging is not enough.
+
+It turns at **1.9 rad/s**, which out-turns a sprinting player up close and loses to one at distance.
+The answer to it is to break line of sight — a corner, a wall, anything solid — rather than to
+strafe, and that is a different question from the one every other weapon in the game asks.
+
+It still has to be pointed: targets are only accepted inside a **55° cone** measured from where the
+round is *going*, within 90m. Re-targeted every tick rather than locked at launch, so a seeker that
+loses its mark takes whatever else wanders into the cone. That is both more dangerous and more
+honest about what the thing is — it belongs to the arena, not to whoever fired it.
+
+**Vehicles count as targets**, and are what make it read as heat-seeking rather than as a magic
+bullet: a tank is the largest, slowest, hottest thing on any map and exactly what a rocket that
+steers should be good against.
+
+Anything that is not the shooter sets it off on contact, at 2.1m. That is a separate test from the
+impact sweep because it answers a different question — the sweep asks what the round *hit*, and at
+26 m/s a round covers less than half a metre a tick, so somebody crossing its path sideways is
+simply never on the line. A seeker crossing a room is a thing nobody can walk through, and a
+teammate running into yours is your shot to have wasted. The shooter is exempt, and has to be: a
+round spawns at the muzzle, well inside its own trigger radius.
+
+It is 1 of 13 crate slots, coloured magenta.

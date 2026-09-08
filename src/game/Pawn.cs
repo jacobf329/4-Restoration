@@ -348,7 +348,7 @@ public partial class Pawn : CharacterBody3D
     {
         get
         {
-            float s = Class.Speed * (Overdriven ? 1.45f : 1f) * (Crown?.SpeedScale ?? 1f);
+            float s = Class.Speed * MoveScale * (Overdriven ? 1.45f : 1f) * (Crown?.SpeedScale ?? 1f);
 
             // Twice as fast, flat. This is the whole point of the rebuilt Second Wind and it is
             // meant to be unmistakable from across the arena.
@@ -417,11 +417,31 @@ public partial class Pawn : CharacterBody3D
     /// </summary>
     public const float JetFuelMax = 18f;
 
+    /// <summary>
+    /// Everyone's pace, as a fraction of what the class table says.
+    ///
+    /// One number rather than twelve edits, because the class table's job is the *differences*
+    /// between the classes — a Flanker being fast and a Juggernaut being slow — and rewriting
+    /// every row to change the overall pace would bury that spread in noise and make the next
+    /// adjustment twelve edits again.
+    ///
+    /// A fifth off. At full pace a duel across open ground was decided by who happened to be
+    /// pointing the right way, because both fighters crossed the other's field of view faster
+    /// than a stick can follow; the shooting is more interesting when there is time to aim.
+    /// Every stance multiplier — sprint, crouch, aim, slide — scales with it, so their relative
+    /// weight is unchanged.
+    /// </summary>
+    public const float MoveScale = 0.8f;
+
     /// <summary>Top sprinting speed of the fastest class, for balance assertions.</summary>
-    public static float Speed15() => Classes.Flanker.Speed * 1.5f;
+    public static float Speed15() => Classes.Flanker.Speed * MoveScale * 1.5f;
 
     /// <summary>Upward acceleration while thrusting. Beats gravity comfortably, not violently.</summary>
-    const float JetThrust = 52f;
+    ///
+    /// Halved, with <see cref="JetRise"/>. At twice gravity it still climbs without argument, but
+    /// it takes most of a second to reach the rise speed instead of being there instantly, so the
+    /// pack reads as lift rather than as a launch.
+    const float JetThrust = 26f;
 
     /// <summary>
     /// Terminal upward speed under thrust.
@@ -432,10 +452,13 @@ public partial class Pawn : CharacterBody3D
     /// through the top of the play boundary, and out of bounds is fatal with no exceptions.
     ///
     /// At 17 the same release coasts about eleven metres, which the ceiling has room to absorb.
-    /// Still twice the original 8.5, and the tank of fuel is untouched — this is a change to how
-    /// hard it pushes, not to how long it pushes for.
+    ///
+    /// Halved again to 8.5, which is where it started. The pack at 17 was still doing most of a
+    /// player's vertical movement for them; at this speed a climb is something you spend fuel on
+    /// over several seconds rather than something one tap of the button buys outright. The tank of
+    /// fuel is deliberately untouched — this is a change to how hard it pushes, not how long.
     /// </summary>
-    public const float JetRise = 17f;
+    public const float JetRise = 8.5f;
 
     /// <summary>
     /// The altitude a jetpack will not thrust past, in metres.
@@ -921,6 +944,75 @@ public partial class Pawn : CharacterBody3D
         Knockback += impulse;
     }
 
+    // ---- slipping ----
+
+    /// <summary>How long a slip takes your feet out from under you.</summary>
+    public const float SlipDuration = 1f;
+
+    /// <summary>Seconds left on a slip. Zero means upright.</summary>
+    public float SlipTime { get; private set; }
+
+    // ---- needles ----
+
+    /// <summary>How many needles are stuck in this pawn right now.</summary>
+    public int Needles { get; private set; }
+
+    /// <summary>Seconds until the stuck needles fall out. Reset by each new one.</summary>
+    float needleTime;
+
+    /// <summary>
+    /// Stick one more needle in, and say whether that was the one that sets them off.
+    ///
+    /// The window is refreshed rather than accumulated, so the count measures *sustained* fire
+    /// rather than total fire: eight needles landed over twenty seconds is not the same play as
+    /// eight in two, and only one of them should be rewarded.
+    /// </summary>
+    public bool AddNeedle(int threshold, float window)
+    {
+        needleTime = window;
+        Needles++;
+
+        if (Needles < threshold) return false;
+
+        Needles = 0;
+        needleTime = 0f;
+        return true;
+    }
+
+    /// <summary>Drop every needle, on death or respawn. A corpse cannot supercombine.</summary>
+    public void ClearNeedles() { Needles = 0; needleTime = 0f; }
+
+    /// <summary>True while off your feet on a butter trail: no steering, no shooting, no jump.</summary>
+    public bool Slipping => SlipTime > 0f;
+
+    /// <summary>
+    /// Take this pawn's feet out from under them.
+    ///
+    /// Like <see cref="Launch"/> and unlike knockback, this ignores invulnerability. Butter is
+    /// terrain, not an attack — a dashing player skidding straight through a slick with no effect
+    /// would read as the trail being broken rather than as the dash working.
+    ///
+    /// Backwards, away from where they were facing, so the fall reads as feet-shooting-forwards
+    /// rather than as a shove. The upward part is small on purpose: this is a pratfall, not a
+    /// launch pad, and being thrown into the air would make it a way of reaching things.
+    ///
+    /// Already-slipping pawns are ignored rather than re-slipped, so lying in a wide patch is one
+    /// second on the floor and not an indefinite hold.
+    /// </summary>
+    public void Slip()
+    {
+        if (!Alive || InVehicle || Slipping) return;
+
+        SlipTime = SlipDuration;
+        SlideTime = 0f;
+        dashTime = 0f;
+
+        var back = new Vector3(-MathF.Cos(Facing), 0f, -MathF.Sin(Facing));
+        Knockback += back * 6.5f + Vector3.Up * 3.2f;
+
+        if (body != null) Sfx.PlayAt(Sound.Dash, GlobalPosition, -4f, 0.6f);
+    }
+
     /// <summary>
     /// Flung upward by a launch pad. Unlike knockback this ignores invulnerability — a pad is
     /// level machinery, not an attack, and having it silently fail for a player who just dashed
@@ -1105,6 +1197,14 @@ public partial class Pawn : CharacterBody3D
         if (ClassBuffTime > 0f) ClassBuffTime -= dt;
         if (RevealedFor > 0f) RevealedFor -= dt;
 
+        // Needles work loose. Ticked here rather than in the match so it happens to bots, corpses
+        // and anybody the match forgot about, which is the whole reason pawns own their own timers.
+        if (needleTime > 0f)
+        {
+            needleTime -= dt;
+            if (needleTime <= 0f) Needles = 0;
+        }
+
         // The bank bleeds away, so Second Wind pays for a fight you are in rather than one you
         // walked away from a minute ago.
         if (DamageBanked > 0f)
@@ -1129,6 +1229,26 @@ public partial class Pawn : CharacterBody3D
             Velocity = Vector3.Zero;
             Thrusting = false;
             return;
+        }
+
+        // On the floor after a slip. Everything the player was asking for is dropped for the
+        // second it lasts — no steering, no shooting, no jump, no ability, no stance — and what is
+        // left is gravity and the knockback that put them there.
+        //
+        // The input is replaced rather than each consumer being taught about slipping. PawnInput
+        // is a struct, so this is a local copy and the caller's own is untouched; a dozen separate
+        // `&& !Slipping` guards is a dozen places for the next ability to forget one.
+        if (SlipTime > 0f)
+        {
+            SlipTime = MathF.Max(0f, SlipTime - dt);
+            input = default;
+            move = Vector2.Zero;
+            aim = Vector2.Zero;
+
+            // Looking at the sky. Eased rather than snapped, so it reads as going over backwards.
+            // Human views are driven from the screen as well, which owns the camera; this is what
+            // makes a slipped bot look up too, and what the pawn's own head follows.
+            Pitch = Mathf.Lerp(Pitch, MaxPitch, 1f - MathF.Exp(-11f * dt));
         }
 
         if (aim.LengthSquared() > 0.01f) Facing = MathU.Angle(aim);
@@ -1207,7 +1327,13 @@ public partial class Pawn : CharacterBody3D
             // A slide keeps its launch direction and bleeds speed, so it commits you: you cannot
             // steer out of it, which is what makes it a decision rather than a free speed boost.
             float t = SlideTime / SlideDuration;
-            horizontal = slideDir * (SlideSpeed * Mathf.Lerp(0.35f, 1f, t));
+
+            // Scaled with everything else. A slide is locomotion rather than an ability — it is
+            // how you cross ground — so leaving it at full speed while walking dropped a fifth
+            // would have made it the best way to travel by a wider margin than it was designed to
+            // win by. The dash is deliberately *not* scaled: its reach is a stated distance the
+            // ability is balanced around, not a pace.
+            horizontal = slideDir * (SlideSpeed * MoveScale * Mathf.Lerp(0.35f, 1f, t));
         }
         else
         {
@@ -1856,7 +1982,13 @@ public partial class Pawn : CharacterBody3D
         // anything within half a metre is enormous on screen, which is what made the first
         // attempt's grip swallow the barrel.
         const float NearZ = -0.72f;
-        var hold = new Vector3(0.32f, -0.27f, 0f);
+
+        // Both offsets pulled 15% toward the middle of the screen. Held this far out the gun was
+        // mostly off the edge of a splitscreen quarter — you could see that you were carrying
+        // something and not what. Scaled rather than retyped so the low-and-right relationship
+        // between the two axes survives the next adjustment.
+        const float HoldInset = 0.85f;
+        var hold = new Vector3(0.32f * HoldInset, -0.27f * HoldInset, 0f);
 
         // A real model if there is one, boxes if there is not.
         //
@@ -2232,6 +2364,8 @@ public partial class Pawn : CharacterBody3D
         // could respawn with no dash for a second and a half through no fault of your own — and
         // it made a test that dashes twice in a row silently measure a pawn simply falling.
         dashCooldown = 0f;
+        SlipTime = 0f;
+        ClearNeedles();
         fireCooldown = 0f;
         meleeCooldown = 0f;
         MeleeSwing = 0f;

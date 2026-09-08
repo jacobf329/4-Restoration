@@ -108,6 +108,31 @@ public static class UiSelfTest
         public void Nav(int dx, int dy, int device = 0) => Tap(d => { d.HoldNavX = dx; d.HoldNavY = dy; }, device);
 
         public string TopName => Stack.Top.GetType().Name;
+
+        /// <summary>
+        /// Walk the cursor to a row by name and stop on it. False if there is no such row.
+        ///
+        /// Bounded by a generous frame budget rather than by the item count, because the harness
+        /// cannot see the list — it can only see where the cursor is now, which is the same
+        /// information a player has.
+        /// </summary>
+        public bool NavTo(string label, int device = 0)
+        {
+            for (int i = 0; i < 24; i++)
+            {
+                if (Stack.Top.SelectedLabel == label) return true;
+                Nav(0, 1, device);
+            }
+            return Stack.Top.SelectedLabel == label;
+        }
+
+        /// <summary>Navigate to a row by name and confirm it.</summary>
+        public bool Open(string label, int device = 0)
+        {
+            if (!NavTo(label, device)) return false;
+            TapConfirm(device);
+            return true;
+        }
     }
 
     static void Check(bool ok, string what)
@@ -134,15 +159,15 @@ public static class UiSelfTest
         h.TapBack();
         Check(h.TopName == nameof(TitleScreen), "back returns to title");
 
-        // Second row is the controls reference.
-        h.Nav(0, 1);
-        h.TapConfirm();
-        Check(h.TopName == nameof(ControlsScreen), "nav down then confirm reaches the controls screen");
+        // By name rather than by row. The comment above used to say the menu was
+        // "Play / Controls / Quit", which had been untrue for a long time and nothing noticed
+        // because the test counted rows and the count still happened to work.
+        Check(h.Open("Controls"), "the controls screen is reachable by name");
+        Check(h.TopName == nameof(ControlsScreen), "and confirming on it opens the controls screen");
         h.TapBack();
 
         // Fourth row is the device diagnostic.
-        h.Nav(0, 1); h.Nav(0, 1);
-        h.TapConfirm();
+        Check(h.Open("Devices"), "the device row is reachable");
         Check(h.TopName == nameof(DeviceTestScreen), "the device screen is still reachable");
         h.TapBack();
         h.Nav(0, -1); h.Nav(0, -1); h.Nav(0, -1);
@@ -387,8 +412,7 @@ public static class UiSelfTest
 
         // Reachable: title -> Options is two nav steps and a confirm, no mouse involved.
         var h = new Harness();
-        h.Nav(0, 1); h.Nav(0, 1);
-        h.TapConfirm();
+        Check(h.Open("Options"), "the options row is reachable with a pad alone");
         Check(h.TopName == nameof(OptionsScreen), "options is reachable with a pad alone");
 
         bool before = UserSettings.KeyboardAndMouse;
@@ -553,9 +577,9 @@ public static class UiSelfTest
 
         for (int layout = 0; layout < Arena.Names.Length; layout++)
         {
-            // Puzzle chambers are not arenas and are checked in CheckPortalMode instead. Every
-            // invariant below is about a map that has a fight on it.
-            if (Arena.IsPuzzle(layout)) continue;
+            // Only combat arenas. Puzzle chambers are checked in CheckPortalMode and story sets
+            // have no fight on them at all; every invariant below is about a map that does.
+            if (!Arena.IsArena(layout)) continue;
 
             var arena = new Arena(layout);
             Check(arena.SpawnPoints.Count >= LobbyScreen.MaxPlayers,
@@ -892,7 +916,12 @@ public static class UiSelfTest
 
         // Every pickup weapon must be usable and distinctly coloured, since colour is how you tell
         // one crate from another across the arena.
-        var tints = new HashSet<string>();
+        // Keyed by colour and *checked against the weapon that claimed it*, rather than a set that
+        // rejects any repeat. The table deliberately lists the portal gun three times, and a plain
+        // uniqueness check reads that as the portal gun clashing with itself — which is not a
+        // thing that can confuse anybody looking at two crates. What matters is that two different
+        // weapons never share a colour.
+        var tints = new Dictionary<string, string>();
         foreach (var w in Weapons.Pickups)
         {
             Check(w.Ammo > 0, $"{w.Name} has ammo");
@@ -903,7 +932,17 @@ public static class UiSelfTest
             Check(w.Damage > 0f || w.BlastDamage > 0f || w.PlantsPortal || w.Grapples,
                   $"{w.Name} does something when fired");
             Check(w.Range > 0f, $"{w.Name} has reach");
-            Check(tints.Add(Weapons.TintFor(w).ToHtml()), $"{w.Name} has its own colour");
+
+            // Pickups lie on the floor as the gun itself now, so a weapon with no model named is
+            // the one crate in the arena still shaped like a box. That is a content gap rather
+            // than a crash, and it is invisible from anywhere except standing next to it - which
+            // is exactly the kind of thing that reaches release.
+            Check(w.Model.Length > 0, $"{w.Name} names a model to lie on the floor as");
+            string tint = Weapons.TintFor(w).ToHtml();
+            if (tints.TryGetValue(tint, out string? claimed))
+                Check(claimed == w.Name, $"{w.Name} has its own colour, not {claimed}'s");
+            else
+                tints[tint] = w.Name;
         }
 
         // A dash has to hurt enough to matter without being a one-shot.
@@ -979,9 +1018,9 @@ public static class UiSelfTest
 
         for (int layout = 0; layout < Arena.Names.Length; layout++)
         {
-            // Puzzle chambers are not arenas and are checked in CheckPortalMode instead. Every
-            // invariant below is about a map that has a fight on it.
-            if (Arena.IsPuzzle(layout)) continue;
+            // Only combat arenas. Puzzle chambers are checked in CheckPortalMode and story sets
+            // have no fight on them at all; every invariant below is about a map that does.
+            if (!Arena.IsArena(layout)) continue;
 
             var arena = new Arena(layout);
             var nav = new NavGraph(arena);
@@ -1068,6 +1107,445 @@ public static class UiSelfTest
     /// contest it. Elimination counts rounds, where a step of five is a jump from a short match to
     /// an interminable one.
     /// </summary>
+
+    /// <summary>
+    /// The campaign's state machine: act order, the one choice, and her.
+    ///
+    /// Worth testing before a single mission exists, because every one of them will be written
+    /// against these rules and a mission cannot notice that the rule it relied on was never
+    /// enforced. The sequencing bug this is really guarding is silent by nature: an Undecided
+    /// harvest leaking into the later acts crashes nothing and simply plays the neutral version of
+    /// every scene from there on, which is the kind of thing that gets shipped.
+    /// </summary>
+
+    /// <summary>
+    /// Fairview: a town, and specifically *not* an arena.
+    ///
+    /// The checks that matter here are the absences. Every other map in the game is scored on what
+    /// it has on it; this one is only right if it has none of that, and an absence is exactly the
+    /// kind of property that quietly stops holding when somebody adds a pass to the constructor
+    /// and does not think about the third kind of map.
+    /// </summary>
+
+    /// <summary>
+    /// The script, and the shape of the acts it is written into.
+    ///
+    /// Content checks rather than prose criticism: that every act has a scene, that the branch
+    /// filter does what it claims, and that the two written acts are actually written. The last one
+    /// matters because an empty scene is a legal state - four of the six are deliberately empty
+    /// today - so "the script loaded" is not evidence that anything is in it.
+    /// </summary>
+
+    /// <summary>
+    /// The environment material library, and the fallback that lets it be empty.
+    ///
+    /// The fallback is the part under test. Eight materials will arrive one at a time, and the
+    /// whole arrangement is worth nothing if the game looks broken while seven of them are still
+    /// missing — so "no files on disk" has to be an ordinary, working state rather than the state
+    /// nobody tried.
+    /// </summary>
+
+    /// <summary>
+    /// Act I as a scene rather than as text: walk somewhere, hear something, walk on.
+    ///
+    /// Driven by moving a pawn rather than by calling the mission's own methods, because the thing
+    /// most likely to be wrong is not the state machine - it is whether the stages are anywhere
+    /// near the town. A stage written eight metres from the school door is a scene that plays to an
+    /// empty street, and only walking to it finds that out.
+    /// </summary>
+
+    /// <summary>
+    /// The needler: nearly nothing per needle, and everything at seven.
+    ///
+    /// The checks are all about the threshold, because the threshold is the weapon. A needler
+    /// whose individual needles are competitive is a homing SMG that also explodes, and the
+    /// interesting decision - keep pouring into one target while everything says switch - only
+    /// exists while a single needle is beneath notice.
+    /// </summary>
+    static void TestNeedler()
+    {
+        TestLog.Line("- the needler is worth nothing until it is worth everything");
+
+        var n = Weapons.Needler;
+
+        Check(n.Needles, "needles stick");
+        Check(n.Seeks, "and steer");
+        Check(n.SeekTurnRate < Weapons.Seeker.SeekTurnRate * 2f,
+              "gently, rather than as an aim button");
+        Check(n.SeekConeDeg < 45f, "and only at what you were roughly pointing at");
+
+        // A single needle has to be beneath notice, or there is no reason to commit to one target.
+        Check(n.Damage < Weapons.Minigun.Damage,
+              $"one needle is beneath notice ({n.Damage:0.#} against the minigun's {Weapons.Minigun.Damage:0.#})");
+
+        // And the payoff has to be worth the commitment, which means beating what the same time
+        // spent on a rocket would have done.
+        float burst = n.Damage * Match.SupercombineNeedles + Match.SupercombineDamage;
+        Check(burst > Weapons.RocketLauncher.BlastDamage,
+              $"seven of them beat a rocket ({burst:0} against {Weapons.RocketLauncher.BlastDamage:0})");
+
+        // Reachable inside the window it has to be reached in, or the threshold is decoration.
+        float toFire = n.FireInterval * (Match.SupercombineNeedles - 1);
+        TestLog.Line($"    seven needles take {toFire:0.00}s to fire, window is {Match.SupercombineWindow:0.0}s");
+        Check(toFire < Match.SupercombineWindow,
+              "seven needles can be fired inside the window they have to land in");
+
+        Check(n.Ammo > Match.SupercombineNeedles * 4,
+              "and the magazine holds several attempts");
+
+        // The counting itself. A bare pawn, never added to the tree: AddNeedle touches two fields
+        // and nothing else, and standing up a match to count to seven would be a strange way to
+        // find out whether an integer increments.
+        var pawn = new Pawn();
+        pawn.ClearNeedles();
+
+        for (int i = 1; i < Match.SupercombineNeedles; i++)
+            Check(!pawn.AddNeedle(Match.SupercombineNeedles, Match.SupercombineWindow),
+                  $"needle {i} does not set them off");
+
+        Check(pawn.AddNeedle(Match.SupercombineNeedles, Match.SupercombineWindow),
+              $"needle {Match.SupercombineNeedles} does");
+        Check(pawn.Needles == 0, "and the count resets rather than chaining");
+
+        pawn.ClearNeedles();
+        Check(pawn.Needles == 0, "needles can be cleared off a pawn");
+
+        pawn.Free();
+    }
+
+
+    static void TestChildhoodMission()
+    {
+        TestLog.Line("- Act I plays as a walk through Fairview");
+
+        var state = new CampaignState();
+        var mission = Missions.Childhood(state);
+
+        Check(mission.StageCount >= 4, $"the walk has somewhere to go ({mission.StageCount} stages)");
+        Check(!mission.Complete, "and is not over before it starts");
+
+        // No combat HUD over a childhood. A health bar, three cooldown gauges and a tactical
+        // minimap say what Fairview is well before the act has finished not saying it.
+        Check(!mission.ShowsCombatHud, "and no health bar over a walk to the shops");
+
+        // The settings a scene runs under: the town, alone, nothing to win.
+        var settings = Missions.SettingsFor(Act.Childhood);
+        Check(settings.IsStoryMission, "a scene knows it is a scene");
+        Check(settings.BotCount == 0, "and is played alone");
+        Check(Arena.IsStory(Match.ChooseArenaForTest(settings)),
+              "and it lands in Fairview, which nothing else may do");
+
+        var arena = new Arena(Arena.CombatLayouts);
+
+        // Every place the scene sends the player has to be somewhere they can stand, inside the
+        // town. This is the check that catches a stage drifting off the map.
+        var seen = new List<Vector3>();
+        var walker = new CampaignState();
+        var probe = Missions.Childhood(walker);
+
+        for (int guard = 0; guard < 200 && !probe.Complete; guard++)
+        {
+            if (probe.TargetForTest is { } target)
+            {
+                Check(arena.InPlay(target with { Y = 2f }),
+                      $"stage target ({target.X:0}, {target.Z:0}) is inside the town");
+                seen.Add(target);
+
+                // Standing on it is what advances the scene; the harness cannot walk, so it
+                // teleports and then lets the timer run the dialogue out.
+                probe.StepForTest(1f / 60f, target);
+            }
+            else
+            {
+                // Talking. Stepped by more than the longest a line can hold, so one call is one
+                // beat - at a realistic dt the twenty-seven lines of Act I are thousands of frames
+                // and the loop's guard would run out long before the scene did, which is what
+                // happened the first time this was written.
+                probe.StepForTest(8f, Vector3.Zero);
+            }
+        }
+
+        Check(probe.Complete, "the scene reaches its end");
+        Check(seen.Count >= 3, $"and sends the player to several places on the way ({seen.Count})");
+
+        // The places are actually apart. A walk whose stops are all in one spot is a cutscene.
+        float furthest = 0f;
+        foreach (var a in seen)
+        foreach (var b in seen)
+            furthest = MathF.Max(furthest, a.DistanceTo(b));
+
+        TestLog.Line($"    the walk spans {furthest:0}m of Fairview");
+        Check(furthest > 40f, $"the walk crosses the town ({furthest:0}m)");
+    }
+
+
+
+    static void TestSurfaces()
+    {
+        TestLog.Line("- surfaces fall back to plating when there is no art");
+
+        Surfaces.ClearCacheForTest();
+
+        foreach (SurfaceKind kind in System.Enum.GetValues<SurfaceKind>())
+        {
+            var spec = Surfaces.SpecFor(kind);
+
+            Check(spec.Metres > 0.1f && spec.Metres < 12f,
+                  $"{kind} tiles at a believable size ({spec.Metres:0.0}m)");
+
+            // Every kind but the default names a file stem, and the default names none - it is
+            // the procedural plating and there is nothing to look for.
+            if (kind == SurfaceKind.Panel)
+                Check(spec.Name.Length == 0, "the panel kind is procedural and asks for no files");
+            else
+                Check(spec.Name.Length > 0, $"{kind} knows what its files are called");
+
+            // Asking for a material with nothing on disk must be quiet and must be cached, or a
+            // missing texture becomes a file probe per block per frame.
+            var set = Surfaces.For(kind);
+            Check(set != null, $"{kind} resolves to a set");
+            Check(ReferenceEquals(set, Surfaces.For(kind)), $"{kind} is cached, hit or miss");
+        }
+
+        // Two kinds must not share a stem, or one material silently becomes another.
+        var stems = new HashSet<string>();
+        foreach (SurfaceKind kind in System.Enum.GetValues<SurfaceKind>())
+        {
+            string name = Surfaces.SpecFor(kind).Name;
+            if (name.Length == 0) continue;
+            Check(stems.Add(name), $"{kind} has its own files, not {name} again");
+        }
+
+        // And the town says what it is made of, which is the only reason any of this exists yet.
+        var town = new Arena(Arena.CombatLayouts);
+        var used = new HashSet<SurfaceKind>();
+        foreach (var b in town.Blocks) used.Add(b.Surface);
+
+        TestLog.Line($"    Fairview is built from {used.Count} materials");
+        Check(used.Count >= 4, $"Fairview is made of several materials, not one ({used.Count})");
+        Check(used.Contains(SurfaceKind.Plaster), "its houses are rendered");
+        Check(used.Contains(SurfaceKind.RoofTile), "and roofed");
+        Check(used.Contains(SurfaceKind.Tarmac), "and it has a road");
+
+        // Arenas are untouched: they were built before materials existed and still ask for none.
+        var arena = new Arena(0);
+        bool allPanel = true;
+        foreach (var b in arena.Blocks) if (b.Surface != SurfaceKind.Panel) allPanel = false;
+        Check(allPanel, "the arenas still ask for the plating they were built with");
+    }
+
+
+    static void TestStoryScript()
+    {
+        TestLog.Line("- the story script is wired to the acts");
+
+        Check(Scripts.All.Length == Acts.All.Length, "every act has a scene");
+
+        foreach (var scene in Scripts.All)
+        {
+            Check(Scripts.For(scene.Act) == scene, $"{scene.Name} is reachable by its act");
+            Check(scene.Name.Length > 0, $"act {scene.Act} names its scene");
+        }
+
+        // The two that are written.
+        Check(Scripts.Childhood.Beats.Length > 15,
+              $"Act I is written ({Scripts.Childhood.Beats.Length} beats)");
+        Check(Scripts.Harvest.Beats.Length > 10,
+              $"Act II is written ({Scripts.Harvest.Beats.Length} beats)");
+
+        // All four make their case at the harvest, or the scene is not the scene.
+        var heard = new HashSet<Speaker>();
+        foreach (var b in Scripts.Harvest.Beats) heard.Add(b.Who);
+
+        foreach (var who in new[] { Speaker.Vessels, Speaker.Garden,
+                                    Speaker.Custodians, Speaker.Muses })
+            Check(heard.Contains(who), $"{Scripts.NameOf(who)} argue their case at the harvest");
+
+        foreach (var scene in Scripts.All)
+        foreach (var b in scene.Beats)
+        {
+            Check(b.Line.Length > 0, $"every beat in {scene.Name} says something");
+
+            // Somebody owns every line, including the narrator, and every speaker has a colour.
+            // A beat drawn in the default tint is a speaker somebody forgot to add.
+            Check(Scripts.TintOf(b.Who) != default, $"{scene.Name}: {b.Who} has a colour");
+        }
+
+        // The Fairview cast wear the Vessels' own colour from the first line, before John is told
+        // anything. That is the one clue in the presentation layer and it should not rot.
+        foreach (var who in new[] { Speaker.Dad, Speaker.Mum, Speaker.Teacher })
+            Check(Scripts.TintOf(who) == Factions.Vessels.Tint,
+                  $"{Scripts.NameOf(who)} is drawn in the Vessels' colour");
+
+        // The branch filter. An unmarked beat plays for everyone; a marked one plays for one side.
+        var always = new Beat { Who = Speaker.John, Line = "x" };
+        var onlyHarvested = new Beat { Who = Speaker.John, Line = "x",
+                                       Only = HarvestChoice.Harvested };
+
+        Check(always.PlaysFor(HarvestChoice.Undecided) && always.PlaysFor(HarvestChoice.Waited),
+              "an unmarked beat plays whatever he chose");
+        Check(onlyHarvested.PlaysFor(HarvestChoice.Harvested), "a marked beat plays on its own side");
+        Check(!onlyHarvested.PlaysFor(HarvestChoice.Waited), "and not on the other");
+    }
+
+
+    static void TestFairview()
+    {
+        TestLog.Line("- Fairview is a town, not an arena");
+
+        // The three kinds partition the list, with nothing in two of them and nothing in none.
+        int arenas = 0, story = 0, puzzles = 0;
+        for (int i = 0; i < Arena.Names.Length; i++)
+        {
+            if (Arena.IsArena(i)) arenas++;
+            if (Arena.IsStory(i)) story++;
+            if (Arena.IsPuzzle(i)) puzzles++;
+        }
+
+        Check(arenas + story + puzzles == Arena.Names.Length,
+              $"every layout is exactly one kind ({arenas} arenas, {story} story, {puzzles} puzzle)");
+        Check(arenas == Arena.CombatLayouts, "and the combat count agrees with the predicate");
+        Check(story == Arena.StoryLayouts, "and the story count does too");
+
+        int layout = Arena.CombatLayouts;
+        Check(Arena.IsStory(layout), $"{Arena.Names[layout]} is a story set");
+
+        var town = new Arena(layout);
+        TestLog.Line($"    {town.Name}: {town.Blocks.Count} blocks, {town.SpawnPoints.Count} spawns");
+
+        Check(town.Name == "Fairview", "and it is Fairview");
+        Check(town.SpawnPoints.Count > 0, "somebody can stand in it");
+
+        // The absences. A town with a rocket-launcher crate on the corner says what it is louder
+        // than any amount of dialogue can say otherwise.
+        Check(town.WeaponSpawns.Count == 0, "there are no weapon crates on the green");
+        Check(town.HealthSpawns.Count == 0, "and no med kits");
+        Check(town.VehicleSpawns.Count == 0, "and no tank parked outside the school");
+        Check(town.LaunchPads.Count == 0, "and nothing to bounce off");
+        Check(town.Checkpoints.Count == 0, "and nothing to race through");
+
+        int fragile = 0;
+        foreach (var b in town.Blocks) if (b.Fragile) fragile++;
+        Check(fragile == 0, $"and nothing in it can be blown up ({fragile})");
+
+        // It has a floor, unlike a puzzle chamber, because people live on it.
+        Check(town.FloorSlabs.Count > 0, "it has ground under it");
+
+        // Enough building to be a place rather than a diagram. The houses alone are six a side.
+        Check(town.Blocks.Count > 60, $"there is a town here ({town.Blocks.Count} blocks)");
+
+        // The index the puzzles start at is not the number of combat arenas, and was until
+        // Fairview sat between them.
+        Check(Arena.FirstPuzzleLayout == Arena.CombatLayouts + Arena.StoryLayouts,
+              "the puzzle chambers start after the story sets, not after the arenas");
+        Check(Arena.IsPuzzle(Arena.FirstPuzzleLayout), "and that index really is a puzzle chamber");
+
+        // And no match of any kind may land on the town, however the picker is asked.
+        //
+        // Both modes and both paths, which is the shape this test was missing the first time: it
+        // covered a deathmatch by name and a deathmatch at random, and the bug that got through was
+        // a *puzzle* at random — the fallback counted up from the end of the arenas, which had been
+        // where the puzzles began right up until it wasn't.
+        foreach (var mode in new[] { GameMode.Deathmatch, GameMode.Portal })
+        {
+            string which = mode == GameMode.Portal ? "Portal" : "a deathmatch";
+
+            var named = new MatchSettings { Mode = mode, ArenaIndex = layout };
+            Check(!Arena.IsStory(Match.ChooseArenaForTest(named)),
+                  $"{which} asked for Fairview by name is given something else");
+
+            bool wantPuzzle = new MatchSettings { Mode = mode }.IsPuzzle;
+            bool wrong = false;
+
+            for (int i = 0; i < 60 && !wrong; i++)
+            {
+                int got = Match.ChooseArenaForTest(new MatchSettings { Mode = mode, ArenaIndex = -1 });
+                wrong = Arena.IsStory(got) || Arena.IsPuzzle(got) != wantPuzzle;
+                if (wrong) Check(false, $"{which} rolled {Arena.Names[got]}, which is the wrong kind");
+            }
+
+            if (!wrong) Check(true, $"{which} only ever rolls a map of its own kind");
+        }
+    }
+
+
+    static void TestCampaignState()
+    {
+        TestLog.Line("- the campaign runs in order and remembers one choice");
+
+        // Every act has a card. A gap here is a blank chapter title and nothing else, which is
+        // exactly the sort of thing that survives to release.
+        Check(Acts.All.Length == System.Enum.GetValues<Act>().Length,
+              "every act has a definition");
+
+        foreach (var a in Acts.All)
+        {
+            Check(a.Name.Length > 0, $"act {a.Act} has a name");
+            Check(a.Blurb.Length > 0, $"{a.Name} has a chapter line");
+            Check(Acts.Get(a.Act) == a, $"{a.Name} is reachable by its own enum value");
+        }
+
+        // Four of the six are a faction making its case; the harvest and the ruling belong to
+        // nobody, which is the whole point of both of them.
+        int hosted = 0;
+        foreach (var a in Acts.All) if (a.Host != null) hosted++;
+        Check(hosted == 4, $"four acts are a faction's case, two are nobody's ({hosted})");
+
+        var c = new CampaignState();
+
+        Check(c.Act == Act.Childhood, "a new campaign starts at the beginning");
+        Check(c.Choice == HarvestChoice.Undecided, "with nothing decided");
+        Check(!c.SheIsWith, "and alone");
+        Check(c.Affinity > 0f && !c.WouldSayYes,
+              "she is hesitant rather than hostile, and nowhere near saying yes");
+
+        Check(c.Advance(), "the childhood ends");
+        Check(c.Act == Act.Harvest, "and the question is asked");
+
+        // The sequencing rule, and the reason this test exists.
+        Check(!c.Advance(), "the harvest act will not end while the question is open");
+        Check(c.Act == Act.Harvest, "and it has not moved on regardless");
+
+        c.Decide(HarvestChoice.Waited);
+        Check(c.Choice == HarvestChoice.Waited, "he answers");
+
+        c.Decide(HarvestChoice.Harvested);
+        Check(c.Choice == HarvestChoice.Waited, "and cannot un-answer it later");
+
+        Check(c.Advance() && c.Act == Act.Vault, "the vault opens once he has decided");
+        Check(c.SheIsWith, "and she is there from here on");
+
+        // Her, over the rest of the game.
+        c.Warm(-5f);
+        Check(c.Affinity >= 0f, "she cannot be driven below nothing");
+        c.Warm(5f);
+        Check(c.Affinity <= 1f, "or flattered past everything");
+        Check(c.WouldSayYes, "and at the top of the range she would say yes");
+
+        while (c.Advance()) { }
+        Check(c.Act == Act.Arbiter && c.Finished, "the acts run out at the ruling");
+        Check(!c.Advance(), "and there is nothing after it");
+
+        c.Reset();
+        Check(c.Act == Act.Childhood && c.Choice == HarvestChoice.Undecided
+              && !c.WouldSayYes, "starting again forgets the choice and her with it");
+
+        // A save file is a text file in a folder the player can open. Nonsense in it should put
+        // somebody at the start of a chapter, not throw on a cast with nowhere to land.
+        var saved = new CampaignState();
+        saved.Advance();
+        saved.Decide(HarvestChoice.Harvested);
+        saved.Advance();
+        saved.Warm(0.4f);
+        saved.Save();
+
+        var loaded = CampaignState.Load();
+        Check(loaded.Act == saved.Act, "a saved campaign comes back at the same act");
+        Check(loaded.Choice == saved.Choice, "with the same answer");
+        Check(Mathf.Abs(loaded.Affinity - saved.Affinity) < 0.001f, "and her where she was");
+    }
+
+
     static void TestModeLimitsMakeSense()
     {
         TestLog.Line("- score limits suit their modes");
@@ -1158,9 +1636,9 @@ public static class UiSelfTest
 
         for (int layout = 0; layout < Arena.Names.Length; layout++)
         {
-            // Puzzle chambers are not arenas and are checked in CheckPortalMode instead. Every
-            // invariant below is about a map that has a fight on it.
-            if (Arena.IsPuzzle(layout)) continue;
+            // Only combat arenas. Puzzle chambers are checked in CheckPortalMode and story sets
+            // have no fight on them at all; every invariant below is about a map that does.
+            if (!Arena.IsArena(layout)) continue;
 
             var arena = new Arena(layout);
 
@@ -1284,9 +1762,9 @@ public static class UiSelfTest
         // Every arena has to actually park them somewhere legal.
         for (int layout = 0; layout < Arena.Names.Length; layout++)
         {
-            // Puzzle chambers are not arenas and are checked in CheckPortalMode instead. Every
-            // invariant below is about a map that has a fight on it.
-            if (Arena.IsPuzzle(layout)) continue;
+            // Only combat arenas. Puzzle chambers are checked in CheckPortalMode and story sets
+            // have no fight on them at all; every invariant below is about a map that does.
+            if (!Arena.IsArena(layout)) continue;
 
             var arena = new Arena(layout);
             Check(arena.VehicleSpawns.Count >= Vehicles.Spawnable.Length,
@@ -1330,9 +1808,9 @@ public static class UiSelfTest
         // the shared district pass rather than per layout.
         for (int layout = 0; layout < Arena.Names.Length; layout++)
         {
-            // Puzzle chambers are not arenas and are checked in CheckPortalMode instead. Every
-            // invariant below is about a map that has a fight on it.
-            if (Arena.IsPuzzle(layout)) continue;
+            // Only combat arenas. Puzzle chambers are checked in CheckPortalMode and story sets
+            // have no fight on them at all; every invariant below is about a map that does.
+            if (!Arena.IsArena(layout)) continue;
 
             var arena = new Arena(layout);
 
@@ -1386,6 +1864,12 @@ public static class UiSelfTest
         TestVehiclesCanLeaveTheirSpawns();
         TestWeaponsLookDifferent();
         TestModeLimitsMakeSense();
+        TestCampaignState();
+        TestFairview();
+        TestStoryScript();
+        TestSurfaces();
+        TestChildhoodMission();
+        TestNeedler();
         TestPlayBoundsAreTight();
 
         // Every wall and platform on the map comes down, and the two things that must not are the
@@ -1399,9 +1883,9 @@ public static class UiSelfTest
         // and about things coming back rather than about how little is breakable.
         for (int layout = 0; layout < Arena.Names.Length; layout++)
         {
-            // Puzzle chambers are not arenas and are checked in CheckPortalMode instead. Every
-            // invariant below is about a map that has a fight on it.
-            if (Arena.IsPuzzle(layout)) continue;
+            // Only combat arenas. Puzzle chambers are checked in CheckPortalMode and story sets
+            // have no fight on them at all; every invariant below is about a map that does.
+            if (!Arena.IsArena(layout)) continue;
 
             var arena = new Arena(layout);
 
@@ -1468,12 +1952,18 @@ public static class UiSelfTest
 
         // One tank shell takes a walkway. Nothing in the game takes a citadel tier in one, which is
         // the point of the cap being where it is.
+        //
+        // Measured through the vehicle multiplier rather than off the weapon table. The raw
+        // BlastDamage is no longer what a shell does to a wall, so checking it would have gone on
+        // passing while saying nothing about the rule it exists to protect.
         var shell = Vehicles.Tank.Gun!;
+        float againstStructure = shell.BlastDamage * Match.VehicleStructureMultiplier;
 
-        Check(shell.BlastDamage >= Match.PlatformHealth,
-              "one shell brings a walkway down");
-        Check(shell.BlastDamage < Match.StructureHealthCap,
-              "and nothing in the game drops heavy structure in one hit");
+        Check(againstStructure >= Match.PlatformHealth,
+              $"one shell brings a walkway down ({againstStructure:0} against {Match.PlatformHealth:0})");
+        Check(againstStructure < Match.StructureHealthCap,
+              $"and nothing in the game drops heavy structure in one hit "
+              + $"({againstStructure:0} against {Match.StructureHealthCap:0})");
         Check(Match.StructureRebuildTime(Match.StructureHealthCap)
               > Match.StructureRebuildTime(Match.PlatformHealth),
               "heavy structure stays down longer than a catwalk");

@@ -118,6 +118,19 @@ public sealed class MatchSettings
     /// <summary>Arena to play, or -1 for a random pick each match.</summary>
     public int ArenaIndex = -1;
 
+    /// <summary>
+    /// A story set to play instead, or -1 for none.
+    ///
+    /// Separate from <see cref="ArenaIndex"/> and honoured ahead of it, because they answer
+    /// different questions. ArenaIndex is a request from the lobby and is checked against the kind
+    /// of match being started - a versus match asking for a town is refused. This is not a request,
+    /// it is story mode saying where its scene happens, and nothing in the lobby can set it.
+    /// </summary>
+    public int StoryLayout = -1;
+
+    /// <summary>True when this match is a scene rather than a fight.</summary>
+    public bool IsStoryMission => StoryLayout >= 0;
+
     /// <summary>Which half of Portal mode. Meaningless in every other mode.</summary>
     public PortalVariant Portal = PortalVariant.Elimination;
 

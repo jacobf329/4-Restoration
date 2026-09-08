@@ -377,6 +377,8 @@ public static class MatchSelfTest
         Once(CheckGrapple);
         Once(CheckJetpack);
         Once(CheckLeavingAVehicleUnderWay);
+        Once(CheckButterTrail);
+        Once(CheckSeeker);
         BeginPushWallProbe();
     }
 
@@ -390,6 +392,159 @@ public static class MatchSelfTest
     /// produced eleven unrelated failures across the vehicles, the bots and the eject placement,
     /// none of which were real. Diagnosing that cost more than writing this.
     /// </summary>
+
+    /// <summary>
+    /// The butter trail: crossing one takes your feet out from under you for a second.
+    ///
+    /// Driven through the harness hook rather than by actually driving a car, because what is
+    /// under test is the slip and not the driving. A car doing more than
+    /// <see cref="Match.ButterMinSpeed"/> in a headless world is a second thing to get working
+    /// before this one can be checked at all, and if it broke, this test would fail for a reason
+    /// that has nothing to do with butter.
+    /// </summary>
+    static void CheckButterTrail()
+    {
+        var m = current!;
+        var p = m.Pawns[0];
+
+        if (p.InVehicle) m.ToggleVehicle(p);
+        p.Respawn(m.Arena.SpawnPoints[0]);
+        p.ClearSpawnProtectionForTest();
+
+        var still = new PawnInput { Aim = MathU.FromAngle(p.Facing) };
+
+        Check(!p.Slipping, "a pawn on clean ground is on its feet");
+
+        int before = m.ButterCount;
+        m.DropButterForTest(p.GlobalPosition);
+        Check(m.ButterCount == before + 1, "a patch of butter goes down where it is laid");
+
+        m.StepButterForTest(1f / 60f);
+        Check(p.Slipping, "and standing in one takes your feet out from under you");
+
+        // Held down for about the second it claims. Ticked without stepping the trail again, so
+        // this measures the slip's own timer rather than the patch re-slipping them underneath it.
+        int ticks = 0;
+        while (p.Slipping && ticks < 240)
+        {
+            p.Tick(1f / 60f, still, m);
+            ticks++;
+        }
+
+        float held = ticks / 60f;
+        TestLog.Line($"    a slip holds you down for {held:0.00}s");
+
+        Check(!p.Slipping, "and you get back up again");
+        Check(MathF.Abs(held - Pawn.SlipDuration) < 0.2f,
+              $"about a second later ({held:0.00}s against {Pawn.SlipDuration:0.00}s)");
+
+        // The trail is terrain, not an attack: it must not be lethal on its own, or driving in
+        // circles round a spawn would be a way of killing people who never saw a weapon.
+        Check(p.Alive, "and slipping over does not kill you");
+
+        // Nothing left greased behind the test. A patch surviving into the scenarios below would
+        // have bots falling over for reasons those tests know nothing about.
+        //
+        // Checked by standing in it again rather than by counting patches. The count is shared
+        // with every car on the map, and one being driven by another part of the suite would drop
+        // a fresh patch during the very step that ages this one out — a count of zero is not
+        // something this test can honestly demand. Whether the spot is still slippery is.
+        m.StepButterForTest(Match.ButterLife + 1f);
+
+        p.Respawn(m.Arena.SpawnPoints[0]);
+        p.ClearSpawnProtectionForTest();
+        m.StepButterForTest(1f / 60f);
+
+        Check(!p.Slipping, "and the trail wears off");
+    }
+
+
+
+    /// <summary>
+    /// The seeker: a slow rocket that turns toward what it is fired at.
+    ///
+    /// Two halves, checked separately. The table says what the weapon is and can be read without a
+    /// world; the steering only means anything through the real projectile loop, because turning
+    /// is something that happens per tick against live targets.
+    /// </summary>
+    static void CheckSeeker()
+    {
+        var gun = Weapons.Seeker;
+        var rocket = Weapons.RocketLauncher;
+
+        Check(gun.Seeks, "the seeker seeks");
+        Check(gun.TriggerRadius > 0f, "and goes off when something touches it");
+
+        // Everything it gives up for the steering. A seeker that were also the best rocket would
+        // simply retire the rocket launcher.
+        Check(gun.ProjectileSpeed < rocket.ProjectileSpeed * 0.75f,
+              $"it is markedly slower than a rocket ({gun.ProjectileSpeed:0} against {rocket.ProjectileSpeed:0})");
+        Check(gun.BlastDamage < rocket.BlastDamage, "and its blast is smaller");
+        Check(gun.FireInterval > rocket.FireInterval, "and it reloads more slowly");
+        Check(gun.Ammo < rocket.Ammo, "and it carries fewer");
+
+        // Turn rate against speed is the whole balance: it has to lose to distance, or breaking
+        // line of sight would not be the answer to it and nothing would be.
+        Check(gun.SeekTurnRate > 0.5f && gun.SeekTurnRate < 3f,
+              $"it turns hard enough to matter and not hard enough to be unavoidable ({gun.SeekTurnRate:0.0} rad/s)");
+        Check(gun.SeekConeDeg < 90f,
+              $"and it still has to be pointed at something ({gun.SeekConeDeg:0} degrees)");
+
+        // ---- it actually turns ----
+        var m = current!;
+        var a = m.Pawns[0];
+        var b = m.Pawns[1];
+
+        if (a.InVehicle) m.ToggleVehicle(a);
+        if (b.InVehicle) m.ToggleVehicle(b);
+
+        var lane = ClearLane(m.Arena, 30f);
+        Check(lane.HasValue, "the harness has somewhere to fly one");
+        if (lane is not { } from) return;
+
+        m.ClearShotsForTest();
+
+        // The target sits down the lane; the round is launched along it but aimed off to one side.
+        // Fired straight at them there would be nothing to prove — a round that never turns would
+        // pass the same check.
+        var target = from + new Vector3(25f, 0f, 0f);
+
+        a.Respawn(from);
+        b.Respawn(target);
+        a.ClearSpawnProtectionForTest();
+        b.ClearSpawnProtectionForTest();
+
+        float off = Mathf.DegToRad(15f);
+        var aim = new Vector3(MathF.Cos(off), 0f, MathF.Sin(off));
+
+        m.InjectSeekerForTest(a, from + Vector3.Up * 1.2f, aim * gun.ProjectileSpeed, gun);
+        Check(m.ShotsInFlight == 1, "a seeker is in the air");
+        if (m.ShotsInFlight != 1) return;
+
+        float Astray()
+        {
+            var to = (b.GlobalPosition + Vector3.Up * 1.2f) - m.ShotPositionForTest(0);
+            return m.ShotVelocityForTest(0).Normalized().AngleTo(to.Normalized());
+        }
+
+        float before = Astray();
+
+        for (int i = 0; i < 18 && m.ShotsInFlight == 1; i++) m.StepShotsForTest(1f / 60f);
+
+        Check(m.ShotsInFlight == 1, "and it is still in the air three tenths of a second later");
+        if (m.ShotsInFlight != 1) return;
+
+        float after = Astray();
+
+        TestLog.Line($"    seeker: {Mathf.RadToDeg(before):0.0} degrees off target, "
+                 + $"{Mathf.RadToDeg(after):0.0} three tenths of a second later");
+
+        Check(after < before, "and it has turned toward its target rather than flying straight");
+
+        m.ClearShotsForTest();
+    }
+
+
     static void Once(Action check)
     {
         try
@@ -777,16 +932,19 @@ public static class MatchSelfTest
     /// Getting out on purpose, which is the case the player actually reported.
     ///
     /// Everything above this tests being *thrown* from a hull that just exploded. Walking out of a
-    /// working one goes through the same placement search but was never covered, and that is the
-    /// half that was broken: the fit test excluded the pawn and not the hull, so the tank's own
-    /// collider vetoed all four door positions, the search fell through to its fallback every time,
-    /// and the driver was put on the roof of a vehicle that was frequently still moving.
+    /// working one goes through the same placement and was never covered, and that is the half
+    /// that kept being broken.
     ///
-    /// "I get out and I am under the tank", three times, against a suite that was green — because
-    /// the suite only ever blew the tank up first.
+    /// "I get out and I am under the tank", four times, against a suite that was green each time —
+    /// because the suite only ever blew the tank up first, and a wreck is not going anywhere.
     ///
-    /// Tested moving as well as stationary. A stationary hull hides it: land on the roof of a tank
-    /// that is not going anywhere and you slide off and are fine.
+    /// The reports outlasted three different placement searches. Each one put the driver on the
+    /// ground somewhere the hull was not *at that instant*, and a hull that is being driven is
+    /// somewhere else an instant later. The ground beside a vehicle cannot be made safe; the roof
+    /// needs no search, because it moves with the thing it is on top of.
+    ///
+    /// Tested moving as well as stationary, and that is the half that matters: a stationary hull
+    /// hides every version of this bug, because nothing can be run over by something parked.
     /// </summary>
     static void CheckWalkingOutOfAVehicle(
         Match m, Pawn p, List<(Vector3 At, float Facing, string Where)> sites)
@@ -846,11 +1004,19 @@ public static class MatchSelfTest
                 Check(!insideHull,
                       $"walking out of a {rig.Def.Name} {where} leaves you clear of the hull");
 
-                // And beside it rather than on top of it. Landing on the roof is the fallback, and
-                // the fallback being taken routinely is exactly what the bug was — on a hull under
-                // way it puts you in front of the tracks a second later.
-                Check(d.Y < rig.Def.HalfExtents.Y + Pawn.Height,
-                      $"and beside a {rig.Def.Name} {where} rather than on its roof");
+                // And on top of it, which is the rule now and used to be the opposite one.
+                //
+                // This check read `d.Y < HalfExtents.Y + Pawn.Height` and said "beside it rather
+                // than on its roof", because at the time the roof was the fallback and the
+                // fallback being taken routinely was the bug. Three more reports later the ground
+                // beside a hull turned out to be the thing that could not be made safe — it is
+                // only clear until the hull moves, and the hull is usually moving — so the roof
+                // stopped being the fallback and became the answer. It is the one place the
+                // vehicle cannot drive over you, because it travels with you.
+                //
+                // Both the lifted spot and the flush one clear this: the lift only adds to it.
+                Check(d.Y > rig.Def.HalfExtents.Y,
+                      $"and on top of a {rig.Def.Name} {where}, not beside it");
             }
         }
     }

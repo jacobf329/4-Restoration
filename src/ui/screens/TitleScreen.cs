@@ -17,6 +17,10 @@ public sealed class TitleScreen : UiScreen
         this.app = app;
 
         menu.Add("Play", () => Stack.Push(new ModeSelectScreen(settings, app)));
+
+        // Second, not first. The versus game is what this project is and what somebody launching it
+        // is most likely here for; the story is the thing you go and find.
+        menu.Add("Story", () => Stack.Push(new StoryScreen(app)));
         menu.Add("Controls", () => Stack.Push(new ControlsScreen()));
         menu.Add("Options", () => Stack.Push(new OptionsScreen()));
         menu.Add("Devices", () => Stack.Push(new DeviceTestScreen()));
@@ -38,6 +42,8 @@ public sealed class TitleScreen : UiScreen
     /// close the game out from under four people on a couch.
     /// </summary>
     protected override bool OnBack(InputDevice d) => true;
+
+    public override string? SelectedLabel => menu.Current?.Label;
 
     protected override void UpdateScreen(float dt, IReadOnlyList<InputDevice> devices)
         => menu.Update(devices);

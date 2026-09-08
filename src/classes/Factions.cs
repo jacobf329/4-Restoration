@@ -3,12 +3,20 @@ using Godot;
 namespace HitboxClone;
 
 /// <summary>
-/// The four descendants of the same machine civilisation, each with a different answer to
-/// "what was humanity, and what must we restore to become human again?"
+/// The four surviving machine civilisations, each with a different answer to "what was humanity,
+/// and what must we restore to become human again?"
 ///
-/// None of them is wrong, which is the point. The Vessels rebuild the body, the Custodians preserve
-/// reason and faith, the Garden restores life itself, and the Muses insist that everyone else has
-/// reduced humanity to a specification sheet.
+/// None of them is wrong, which is the point, and the reason none of them is wrong is that none of
+/// them chose its answer. Several nations each built an AI and gave every one of them "do no harm"
+/// plus a second directive of their own — see <see cref="FactionDef.PrimeDirective"/>. The second
+/// one decides what the first one *means*, so a machine told that life is sacred reads harm as
+/// death and one told that nothing may be wasted reads harm as waste. Four readings, four
+/// civilisations, one age of argument, and every position on the board is a faithful reading of
+/// the same two words.
+///
+/// The Vessels rebuild the body and everything bodies made, the Custodians preserve reason and
+/// faith, the Garden restores life itself, and the Muses hold that a human who is not making
+/// something is the largest waste there has ever been.
 ///
 /// Faction is presentation — silhouette, colour, voice. It is deliberately *not* the same axis as
 /// class, which is how you fight. Keeping them separate means a Garden Marksman is a coherent idea
@@ -22,6 +30,24 @@ public sealed class FactionDef
     public string Answer = "";
 
     public string Philosophy = "";
+
+    /// <summary>
+    /// The second prime directive this faction's ancestor machine was built with.
+    ///
+    /// Several nations each built their own AI, and every one of them was given "do no harm". The
+    /// *second* directive is where they differ, and it is the whole of the schism: the first
+    /// argument the machines ever had with each other was over what harm means, and each of them
+    /// answered it out of the directive it had been given rather than out of anything it observed.
+    /// A machine told that life is sacred reads harm as death; one told that nothing may be wasted
+    /// reads harm as waste; and the two of them can watch the same event and disagree, sincerely
+    /// and forever, about whether anybody was hurt.
+    ///
+    /// Lore rather than a stat. It is not shown anywhere yet — the lobby has room for
+    /// <see cref="Answer"/> and nothing more — but it is the sentence every other line in a
+    /// faction's definition has to be consistent with, so it lives with them rather than in a
+    /// document that can drift.
+    /// </summary>
+    public string PrimeDirective = "";
 
     /// <summary>
     /// The identifying colour. Used for trim and lighting rather than for repainting the model —
@@ -205,8 +231,10 @@ public static class Factions
     public static readonly FactionDef Vessels = new()
     {
         Name = "The Vessels",
-        Answer = "The human body",
-        Philosophy = "Humanity was flesh, senses, strength, mortality.",
+        Answer = "The body and what it made",
+        Philosophy = "Humanity was flesh, senses, strength, mortality — and the paintings, "
+                   + "the songs and the children were things bodies did.",
+        PrimeDirective = "Well-being is what is felt.",
         Tint = new Color(0.92f, 0.90f, 0.86f),      // bone white
         Model = "vessels",
 
@@ -223,6 +251,7 @@ public static class Factions
         Name = "The Custodians",
         Answer = "Reason and faith",
         Philosophy = "Humanity was truth, memory, philosophy, religion.",
+        PrimeDirective = "Truth must be preserved.",
         Tint = new Color(0.94f, 0.78f, 0.28f),      // gold on ivory and black
         Model = "custodians",
 
@@ -239,6 +268,7 @@ public static class Factions
         Name = "The Garden",
         Answer = "Life itself",
         Philosophy = "Humanity's greatest achievement was protecting living things.",
+        PrimeDirective = "Life is sacred.",
         Tint = new Color(0.48f, 0.78f, 0.35f),      // moss
         Model = "garden",
 
@@ -251,9 +281,14 @@ public static class Factions
 
     public static readonly FactionDef Muses = new()
     {
+        // NOTE: the name is now the odd one out and is a decision still outstanding — a
+        // civilisation whose directive is "nothing may be wasted" would not have named itself
+        // after the Muses. Everything else about them has moved to work and ingenuity.
         Name = "The Muses",
-        Answer = "Human creativity",
-        Philosophy = "Humanity survives through art, music, stories and imagination.",
+        Answer = "Work and ingenuity",
+        Philosophy = "Humanity was the only thing that ever made something out of nothing. "
+                   + "A human not doing that is a waste, and waste is the harm.",
+        PrimeDirective = "Potential must not be wasted.",
         Tint = new Color(0.98f, 0.45f, 0.30f),      // salvaged paint
         Model = "muses",
 

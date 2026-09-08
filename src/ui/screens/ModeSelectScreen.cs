@@ -75,7 +75,7 @@ public sealed class ModeSelectScreen : UiScreen
     /// </summary>
     void CycleArena(int dx)
     {
-        int combat = Arena.Names.Length - Arena.PuzzleLayouts;
+        int combat = Arena.CombatLayouts;
         bool puzzle = settings.IsPuzzle;
 
         int first = puzzle ? combat : 0;

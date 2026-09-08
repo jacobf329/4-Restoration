@@ -71,10 +71,22 @@ public sealed class VehicleDef
 /// </summary>
 public static class Vehicles
 {
+    /// <summary>
+    /// The butter car.
+    ///
+    /// Same hull, same numbers, new job. It is the only vehicle with no gun, and driving a fast
+    /// unarmed box around a shooter was transport rather than a play — the trail it now lays is
+    /// the weapon, and it is one you aim by choosing where to *be* rather than where to point.
+    /// See <c>Match.StepButter</c> for what crossing one does.
+    ///
+    /// The tint is the trail's own colour, deliberately: a slick and the thing that laid it should
+    /// be obviously the same substance, so the first time somebody goes over backwards they can
+    /// see what did it without being told.
+    /// </summary>
     public static readonly VehicleDef Car = new()
     {
         Kind = VehicleKind.Car,
-        Name = "Car",
+        Name = "Butter Car",
         Health = 260f,
         MaxSpeed = 34f,
         Accel = 26f,
@@ -82,7 +94,7 @@ public static class Vehicles
         RamDamage = 55f,
         Gun = null,
         HalfExtents = new Vector3(3.2f, 0.8f, 1.7f),
-        Tint = new Color(0.92f, 0.78f, 0.28f),
+        Tint = new Color(0.99f, 0.90f, 0.46f),
         EyeHeight = 1.5f,
     };
 
@@ -193,6 +205,15 @@ public static class Vehicles
 public partial class Vehicle : CharacterBody3D
 {
     public VehicleDef Def = Vehicles.Car;
+
+    /// <summary>
+    /// Counts down to the next dollop of butter. Only a car uses it.
+    ///
+    /// Held on the hull rather than in the match's own bookkeeping because it belongs to this
+    /// vehicle: a match-side dictionary keyed on the rig would have to be cleaned up when a car is
+    /// wrecked and respawned, and forgetting that is a leak nobody would notice.
+    /// </summary>
+    public float ButterTimer;
 
     /// <summary>Who is driving, or null when it is parked and enterable.</summary>
     public Pawn? Driver { get; private set; }
@@ -492,10 +513,12 @@ public partial class Vehicle : CharacterBody3D
     /// standing in solid geometry, and it resolved it by squeezing them out somewhere arbitrary —
     /// frequently underneath the hull they had just been driving.
     ///
-    /// Now the spot is measured rather than assumed: candidates hugging the hull on each side, then
-    /// the roof, each tested against the physics world with the pawn's own capsule, first free one
-    /// wins. If every one of them is blocked the driver is left on the roof, where the crush check
-    /// can make an honest ruling instead of the solver making an arbitrary one.
+    /// Every version after that measured spots on the ground and picked the first free one, and
+    /// every version after that still put somebody under the tracks eventually — because a spot
+    /// beside a hull is only clear until the hull moves, and the hull is usually moving. The
+    /// answer is not a better search. It is to stop looking at the ground: the driver goes on the
+    /// roof, which is the one place that cannot be driven over by the vehicle they just left,
+    /// because it travels with it. See <see cref="FreeSpotFor"/>.
     /// </summary>
     /// <param name="thrown">
     /// True when the hull was destroyed under them, which throws them clear rather than letting
@@ -522,66 +545,40 @@ public partial class Vehicle : CharacterBody3D
     }
 
     /// <summary>
-    /// A place beside this hull where <paramref name="p"/> fits, in order of preference.
+    /// Where <paramref name="p"/> is put down when they leave this hull: on the roof, always.
     ///
-    /// Sideways first because that is where a door would be, then the back, then the nose, then the
-    /// roof — which is always reachable if the hull itself is, since the vehicle got there.
+    /// One answer and no search. The flanks are gone with the nose and the tail before them — a
+    /// door beside a hull is only clear until the hull moves, and every version of this that
+    /// measured a spot on the ground eventually put somebody under the tracks, which is the same
+    /// report four times over. The roof is the one place that cannot be driven over by the thing
+    /// you just got out of, because it moves with it.
+    ///
+    /// Dropped from slightly above the roof rather than placed exactly on it. Landing a fraction
+    /// high costs a short fall that the controller resolves on its own; landing a fraction low
+    /// means starting the frame *inside* the hull, and the solver's answer to that is to squeeze
+    /// the pawn out somewhere arbitrary — underneath, as often as not. Erring upward turns the
+    /// worst case from the bug into a hop.
+    ///
+    /// <see cref="DropIn"/> is deliberately small. This is a step up out of a hatch, not a launch:
+    /// enough to guarantee clearance over the roof and never enough to be a way of gaining height,
+    /// and short enough that you are standing again before it reads as being thrown.
     /// </summary>
     Vector3 FreeSpotFor(Pawn p)
     {
-        // The hull's own axes. Local +X is the nose and local +Z is its left, which is why the
-        // clearances below are not interchangeable: a tank is 8m long and 4.8m wide.
-        var nose = new Vector3(MathF.Cos(Facing), 0f, MathF.Sin(Facing));
-        var side = new Vector3(-MathF.Sin(Facing), 0f, MathF.Cos(Facing));
-
-        float outSide = Def.HalfExtents.Z + Pawn.Radius + 0.35f;
-        float outEnd = Def.HalfExtents.X + Pawn.Radius + 0.35f;
         float roof = Def.HalfExtents.Y * 2f + 0.15f;
 
-        // Doors first, then further out, then the roof.
-        //
-        // The list is long on purpose. A vehicle can be parked anywhere — beside a wall, in a
-        // doorway, between two rooms — and the more ways there are to step out of it, the less
-        // often the search has to fall back on anything. The old list was five entries and the
-        // fallback was being taken constantly, which is how drivers ended up on the roof of a
-        // moving tank and then under its tracks.
-        Span<Vector3> candidates = stackalloc Vector3[13];
-        int n = 0;
+        // Tried lifted first, then flush. The lift is what makes the drop happen, but a hull can
+        // be parked under something — the spawn nearest the Reliquary's galleries is two metres
+        // from a room — and a spot inside a ceiling is exactly the state this whole thing exists
+        // to avoid. When there is no headroom, the roof itself still is not under the tracks.
+        var lifted = GlobalPosition + Vector3.Up * (roof + DropIn);
+        if (InsideWalls(lifted) && Fits(p, lifted)) return lifted;
 
-        // The four sides, at the hull's own clearance.
-        candidates[n++] = GlobalPosition + side * outSide + Vector3.Up * 0.15f;
-        candidates[n++] = GlobalPosition - side * outSide + Vector3.Up * 0.15f;
-        candidates[n++] = GlobalPosition - nose * outEnd + Vector3.Up * 0.15f;
-        candidates[n++] = GlobalPosition + nose * outEnd + Vector3.Up * 0.15f;
-
-        // The four corners, which are open surprisingly often when the flat sides are not — a hull
-        // parked along a wall has both its length blocked and both its diagonals free.
-        foreach (int sx in new[] { 1, -1 })
-        foreach (int sz in new[] { 1, -1 })
-            candidates[n++] = GlobalPosition + nose * (outEnd * 0.8f * sx)
-                                             + side * (outSide * 0.9f * sz) + Vector3.Up * 0.15f;
-
-        // Further out along each axis, for when the hull is wedged against something close.
-        candidates[n++] = GlobalPosition + side * (outSide * 1.8f) + Vector3.Up * 0.15f;
-        candidates[n++] = GlobalPosition - side * (outSide * 1.8f) + Vector3.Up * 0.15f;
-        candidates[n++] = GlobalPosition - nose * (outEnd * 1.6f) + Vector3.Up * 0.15f;
-
-        // And the roof, which is always reachable if the hull itself is.
-        candidates[n++] = GlobalPosition + Vector3.Up * roof;
-
-        for (int i = 0; i < n; i++)
-            if (InsideWalls(candidates[i]) && Fits(p, candidates[i])) return candidates[i];
-
-        // Nowhere clear at all. The roof unchecked is the least bad answer: a pawn left there falls
-        // off rather than being welded into the geometry, and falling off a tank is survivable in a
-        // way that being inside one is not.
-        //
-        // Deliberately *not* lifted above the roof. Doing that put the driver through the ceiling
-        // of whatever the tank happened to be parked beside — the spawn nearest the Reliquary's
-        // galleries is two metres from a room — and a spot inside a roof is exactly the state this
-        // whole search exists to avoid.
         return GlobalPosition + Vector3.Up * roof;
     }
+
+    /// <summary>How far above the roof a driver is let go of, in metres.</summary>
+    const float DropIn = 1.1f;
 
     /// <summary>
     /// Whether a point is inside the arena at all. A spot on the far side of the perimeter wall is

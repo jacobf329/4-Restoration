@@ -11,6 +11,7 @@ set "PROJ=%~dp0"
 set "PROJ=%PROJ:~0,-1%"
 set "DOTNET_URL=https://dotnet.microsoft.com/download/dotnet/8.0"
 set "GODOT_URL=https://godotengine.org/download/windows/"
+set "GIT_URL=https://git-scm.com/download/win"
 
 echo.
 echo ============================================
@@ -38,6 +39,13 @@ if defined DOTNET_EXE (
   )
 )
 
+REM git is a tool the game needs, not just a tool the developer needs. Play.cmd updates
+REM the clone on every launch, so a machine without git plays whatever it was last given
+REM and never gets another change - which is the failure this was all written to close.
+set "GIT_OK="
+where git >nul 2>&1
+if not errorlevel 1 set "GIT_OK=1"
+
 set "GODOT_EXE="
 if defined GODOT_HOME if exist "%GODOT_HOME%\godot.cmd" set "GODOT_EXE=%GODOT_HOME%\godot.cmd"
 if not defined GODOT_EXE if defined GODOT_HOME if exist "%GODOT_HOME%\godot.exe" set "GODOT_EXE=%GODOT_HOME%\godot.exe"
@@ -48,13 +56,14 @@ if not defined GODOT_EXE for %%I in (Godot_v4.7.1-stable_mono_win64.exe) do if n
 
 if defined DOTNET_OK (echo   [found]   .NET 8 SDK   !DOTNET_EXE!) else (echo   [missing] .NET 8 SDK)
 if defined GODOT_EXE (echo   [found]   Godot        !GODOT_EXE!) else (echo   [missing] Godot .NET/mono)
+if defined GIT_OK (echo   [found]   git) else (echo   [missing] git)
 echo.
 
 REM Nothing missing still falls through to the shortcut below, rather than exiting here -
 REM rebuilding the shortcut after moving the folder is a reason to re-run this on a
 REM machine that is already fully set up.
 set "FAILED="
-if defined DOTNET_OK if defined GODOT_EXE goto :shortcut
+if defined DOTNET_OK if defined GODOT_EXE if defined GIT_OK goto :shortcut
 
 REM ---------------------------------------------------------------------------
 REM winget does the installing. It ships with Windows 11 and current Windows 10.
@@ -69,6 +78,7 @@ if errorlevel 1 (
   echo.
   if not defined DOTNET_OK echo     .NET 8 SDK ^(the SDK, not the runtime^)  !DOTNET_URL!
   if not defined GODOT_EXE echo     Godot 4.7.1 .NET/mono ^(not the plain build^)  !GODOT_URL!
+  if not defined GIT_OK    echo     git                                       !GIT_URL!
   echo.
   pause
   exit /b 1
@@ -83,6 +93,16 @@ if not defined DOTNET_OK (
   winget install --id Microsoft.DotNet.SDK.8 -e --accept-source-agreements --accept-package-agreements
   if errorlevel 1 (
     echo   .NET SDK install did not succeed - get it from !DOTNET_URL!
+    set "FAILED=1"
+  )
+  echo.
+)
+
+if not defined GIT_OK (
+  echo Installing git...
+  winget install --id Git.Git -e --accept-source-agreements --accept-package-agreements
+  if errorlevel 1 (
+    echo   git install did not succeed - get it from !GIT_URL!
     set "FAILED=1"
   )
   echo.
@@ -164,6 +184,23 @@ if exist "!LNK!" (
   set "FAILED=1"
 )
 
+REM ---------------------------------------------------------------------------
+REM Put the clone on the branch the game is actually developed on.
+REM
+REM A fresh clone lands on the repository's default branch, which is not where the work
+REM is - so a machine set up correctly, with every tool installed, would still build and
+REM launch a version of the game from before any of it existed. That is not a
+REM hypothetical: it is what both machines were doing. Update.cmd knows which branch is
+REM wanted, so setup finishes by asking it rather than by repeating the answer here.
+REM ---------------------------------------------------------------------------
+
+if not exist "%PROJ%\Update.cmd" goto :noupdater
+echo Getting the latest version...
+echo.
+call "%PROJ%\Update.cmd" /auto "%PROJ%"
+echo.
+:noupdater
+
 if defined FAILED (
   echo ============================================
   echo   Setup finished with something unresolved.
@@ -179,10 +216,11 @@ echo ============================================
 echo   Setup finished.
 echo.
 echo   Double-click HitboxClone on your Desktop.
+echo   It updates itself every launch, so that is
+echo   the only thing you ever need to run.
 echo.
-echo   Run "Update HitboxClone" whenever you want
-echo   the latest version. Play.cmd builds what is
-echo   in this folder - it does not fetch.
+echo   "Update HitboxClone" is there for fetching
+echo   without playing. You will rarely want it.
 echo.
 echo   First launch is slow - Godot imports every
 echo   model in assets\ before the game appears.

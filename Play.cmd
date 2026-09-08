@@ -66,6 +66,61 @@ if not defined GODOT_EXE (
   exit /b 1
 )
 
+REM ---------------------------------------------------------------------------
+REM Pull the latest version from GitHub before building.
+REM
+REM The rule throughout: never refuse to launch. Being offline, having edited a
+REM file, or having drifted from the remote are all reasons to play what is
+REM already here - not reasons to be locked out of your own game. Every failure
+REM below says what happened and falls through to playing.
+REM
+REM It also only ever fast-forwards. A merge could conflict and leave the working
+REM tree half-resolved, which is not something to discover at the moment you sat
+REM down to play.
+REM ---------------------------------------------------------------------------
+
+where git >nul 2>&1
+if errorlevel 1 goto play
+
+REM No upstream configured means this is not a clone that tracks anything.
+git -C "%PROJ%" rev-parse --abbrev-ref @{u} >nul 2>&1
+if errorlevel 1 goto play
+
+echo Checking for updates...
+git -C "%PROJ%" fetch --quiet
+if errorlevel 1 goto offline
+
+set "DIRTY="
+for /f "delims=" %%I in ('git -C "%PROJ%" status --porcelain 2^>nul') do set "DIRTY=1"
+if defined DIRTY goto dirty
+
+set "BEHIND=0"
+for /f "delims=" %%I in ('git -C "%PROJ%" rev-list --count HEAD..@{u} 2^>nul') do set "BEHIND=%%I"
+if "%BEHIND%"=="0" echo   Already up to date.
+if "%BEHIND%"=="0" goto play
+
+echo   %BEHIND% new change/s from GitHub - updating...
+git -C "%PROJ%" merge --ff-only @{u}
+if errorlevel 1 goto diverged
+echo   Updated.
+goto play
+
+:offline
+echo   Could not reach GitHub. Playing the version already here.
+goto play
+
+:dirty
+echo   You have uncommitted changes here, so nothing was pulled.
+echo   Playing the version already here.
+goto play
+
+:diverged
+echo   This copy has commits GitHub does not, so it was left alone.
+echo   Playing the version already here.
+goto play
+
+:play
+
 echo Building HitboxClone...
 "%DOTNET_EXE%" build "%PROJ%\HitboxClone.csproj" --nologo -v minimal
 if errorlevel 1 (

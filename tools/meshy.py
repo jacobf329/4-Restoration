@@ -37,10 +37,23 @@ KEY = os.environ.get("MESHY_API_KEY", "")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-# From the README's imported-model budget. Checked after download rather than
-# trusted, because the brief that came with the first batch warned against
-# importing Meshy output blindly and it was right to.
-MAX_TRIANGLES = 7000
+# Budgets, per kind of asset, checked after download rather than trusted - the brief
+# that came with the first batch warned against importing Meshy output blindly and was
+# right to.
+#
+# They are NOT the same number, which cost a false alarm on the first model this script
+# generated. The README's <=7,000 is under "Faction characters" and the four of them came
+# in at 2,679-2,916: a character is on screen at splitscreen distances and is skinned to
+# a shared 24-joint skeleton, so it is worth being strict about. The twenty-three weapons
+# that shipped run 5,874-12,281, because a held gun fills a corner of the view and its
+# silhouette is most of what it contributes. Applying the character budget to a weapon
+# flags every single one of them, which is a check nobody would keep listening to.
+BUDGETS = {
+    "characters": 7000,
+    "weapons": 13000,
+    "vehicles": 13000,
+}
+
 MAX_MATERIALS = 2
 
 
@@ -130,7 +143,7 @@ def entry_for(name):
              f"Add one there first - the prompt is the input to this, not an argument.")
 
 
-def check_budget(glb):
+def check_budget(glb, kind):
     """
     Parse the glTF header out of the .glb and count what is in it.
 
@@ -155,10 +168,12 @@ def check_budget(glb):
     materials = len(doc.get("materials", []))
     images = doc.get("images", [])
 
-    print(f"  triangles {tris} (budget {MAX_TRIANGLES}), "
+    budget = BUDGETS.get(kind, 13000)
+
+    print(f"  triangles {tris} (budget {budget} for {kind}), "
           f"materials {materials} (budget {MAX_MATERIALS}), images {len(images)}")
 
-    if tris > MAX_TRIANGLES:
+    if tris > budget:
         print("  ! over the triangle budget - regenerate with a lower target_polycount")
     if materials > MAX_MATERIALS:
         print("  ! more materials than the loader expects")
@@ -213,7 +228,7 @@ def main():
         out.write_bytes(r.read())
 
     print(f"  wrote {out.relative_to(ROOT)} ({out.stat().st_size // 1024} KB)")
-    check_budget(out)
+    check_budget(out, folder.name)
 
     print("\nDrop it in and relaunch - the loader picks it up with no code change, "
           "and the box silhouette stops being used the moment the file exists.")

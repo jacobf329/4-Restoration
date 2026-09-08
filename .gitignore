@@ -29,3 +29,7 @@ obj/
 *_metallic_roughness.jpg
 *_normal.jpg
 *_texture_[0-9].png
+
+# Python bytecode from the tools/ scripts.
+__pycache__/
+*.pyc

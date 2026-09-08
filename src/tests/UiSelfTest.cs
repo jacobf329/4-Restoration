@@ -1153,6 +1153,67 @@ public static class UiSelfTest
     /// near the town. A stage written eight metres from the school door is a scene that plays to an
     /// empty street, and only walking to it finds that out.
     /// </summary>
+
+    /// <summary>
+    /// The needler: nearly nothing per needle, and everything at seven.
+    ///
+    /// The checks are all about the threshold, because the threshold is the weapon. A needler
+    /// whose individual needles are competitive is a homing SMG that also explodes, and the
+    /// interesting decision - keep pouring into one target while everything says switch - only
+    /// exists while a single needle is beneath notice.
+    /// </summary>
+    static void TestNeedler()
+    {
+        TestLog.Line("- the needler is worth nothing until it is worth everything");
+
+        var n = Weapons.Needler;
+
+        Check(n.Needles, "needles stick");
+        Check(n.Seeks, "and steer");
+        Check(n.SeekTurnRate < Weapons.Seeker.SeekTurnRate * 2f,
+              "gently, rather than as an aim button");
+        Check(n.SeekConeDeg < 45f, "and only at what you were roughly pointing at");
+
+        // A single needle has to be beneath notice, or there is no reason to commit to one target.
+        Check(n.Damage < Weapons.Minigun.Damage,
+              $"one needle is beneath notice ({n.Damage:0.#} against the minigun's {Weapons.Minigun.Damage:0.#})");
+
+        // And the payoff has to be worth the commitment, which means beating what the same time
+        // spent on a rocket would have done.
+        float burst = n.Damage * Match.SupercombineNeedles + Match.SupercombineDamage;
+        Check(burst > Weapons.RocketLauncher.BlastDamage,
+              $"seven of them beat a rocket ({burst:0} against {Weapons.RocketLauncher.BlastDamage:0})");
+
+        // Reachable inside the window it has to be reached in, or the threshold is decoration.
+        float toFire = n.FireInterval * (Match.SupercombineNeedles - 1);
+        TestLog.Line($"    seven needles take {toFire:0.00}s to fire, window is {Match.SupercombineWindow:0.0}s");
+        Check(toFire < Match.SupercombineWindow,
+              "seven needles can be fired inside the window they have to land in");
+
+        Check(n.Ammo > Match.SupercombineNeedles * 4,
+              "and the magazine holds several attempts");
+
+        // The counting itself. A bare pawn, never added to the tree: AddNeedle touches two fields
+        // and nothing else, and standing up a match to count to seven would be a strange way to
+        // find out whether an integer increments.
+        var pawn = new Pawn();
+        pawn.ClearNeedles();
+
+        for (int i = 1; i < Match.SupercombineNeedles; i++)
+            Check(!pawn.AddNeedle(Match.SupercombineNeedles, Match.SupercombineWindow),
+                  $"needle {i} does not set them off");
+
+        Check(pawn.AddNeedle(Match.SupercombineNeedles, Match.SupercombineWindow),
+              $"needle {Match.SupercombineNeedles} does");
+        Check(pawn.Needles == 0, "and the count resets rather than chaining");
+
+        pawn.ClearNeedles();
+        Check(pawn.Needles == 0, "needles can be cleared off a pawn");
+
+        pawn.Free();
+    }
+
+
     static void TestChildhoodMission()
     {
         TestLog.Line("- Act I plays as a walk through Fairview");
@@ -1808,6 +1869,7 @@ public static class UiSelfTest
         TestStoryScript();
         TestSurfaces();
         TestChildhoodMission();
+        TestNeedler();
         TestPlayBoundsAreTight();
 
         // Every wall and platform on the map comes down, and the two things that must not are the

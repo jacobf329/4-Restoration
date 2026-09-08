@@ -136,5 +136,11 @@
     "prompt": "A sci-fi scoped battle rifle laid out horizontally, barrel pointing forward. Medium-length heavy barrel, large boxy telescopic scope, straight box magazine, solid squared stock with a cheek riser, angled foregrip.",
     "texture_prompt": "desert tan composite furniture, dark grey metal, glass scope lens",
     "target_polycount": 10000
+  },
+  {
+    "name": "needler",
+    "prompt": "A sci-fi needler pistol laid out horizontally along its length, barrel pointing forward. Bulbous organic alien body with a curved grip, and a fan of long translucent crystal needles standing up out of the top of the receiver like a magazine of glass spines. Smooth carapace shell, no iron sights, no rails. Grown rather than machined.",
+    "texture_prompt": "glossy dark violet carapace, glowing magenta translucent crystal needles, faint internal light",
+    "target_polycount": 9000
   }
 ]

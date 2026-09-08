@@ -952,6 +952,36 @@ public partial class Pawn : CharacterBody3D
     /// <summary>Seconds left on a slip. Zero means upright.</summary>
     public float SlipTime { get; private set; }
 
+    // ---- needles ----
+
+    /// <summary>How many needles are stuck in this pawn right now.</summary>
+    public int Needles { get; private set; }
+
+    /// <summary>Seconds until the stuck needles fall out. Reset by each new one.</summary>
+    float needleTime;
+
+    /// <summary>
+    /// Stick one more needle in, and say whether that was the one that sets them off.
+    ///
+    /// The window is refreshed rather than accumulated, so the count measures *sustained* fire
+    /// rather than total fire: eight needles landed over twenty seconds is not the same play as
+    /// eight in two, and only one of them should be rewarded.
+    /// </summary>
+    public bool AddNeedle(int threshold, float window)
+    {
+        needleTime = window;
+        Needles++;
+
+        if (Needles < threshold) return false;
+
+        Needles = 0;
+        needleTime = 0f;
+        return true;
+    }
+
+    /// <summary>Drop every needle, on death or respawn. A corpse cannot supercombine.</summary>
+    public void ClearNeedles() { Needles = 0; needleTime = 0f; }
+
     /// <summary>True while off your feet on a butter trail: no steering, no shooting, no jump.</summary>
     public bool Slipping => SlipTime > 0f;
 
@@ -1166,6 +1196,14 @@ public partial class Pawn : CharacterBody3D
         if (BuffTime > 0f) BuffTime -= dt;
         if (ClassBuffTime > 0f) ClassBuffTime -= dt;
         if (RevealedFor > 0f) RevealedFor -= dt;
+
+        // Needles work loose. Ticked here rather than in the match so it happens to bots, corpses
+        // and anybody the match forgot about, which is the whole reason pawns own their own timers.
+        if (needleTime > 0f)
+        {
+            needleTime -= dt;
+            if (needleTime <= 0f) Needles = 0;
+        }
 
         // The bank bleeds away, so Second Wind pays for a fight you are in rather than one you
         // walked away from a minute ago.
@@ -2327,6 +2365,7 @@ public partial class Pawn : CharacterBody3D
         // it made a test that dashes twice in a row silently measure a pawn simply falling.
         dashCooldown = 0f;
         SlipTime = 0f;
+        ClearNeedles();
         fireCooldown = 0f;
         meleeCooldown = 0f;
         MeleeSwing = 0f;

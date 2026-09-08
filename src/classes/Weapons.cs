@@ -108,6 +108,15 @@ public sealed class WeaponDef
     public bool Seeks => SeekTurnRate > 0f;
 
     /// <summary>
+    /// Whether rounds stick in whoever they hit and detonate together once enough of them have.
+    ///
+    /// A flag rather than a weapon subclass, like Bounces and Grapples above it, because the whole
+    /// projectile path is one ray sweep every weapon shares and a second one for the needler would
+    /// be a second set of tunnelling bugs to find.
+    /// </summary>
+    public bool Needles;
+
+    /// <summary>
     /// Whether a round landing on your own side mends them instead of hurting them.
     ///
     /// One flag rather than a healing weapon, because the projectile path is the one loop every
@@ -258,6 +267,47 @@ public static class Weapons
         BlastDamage = 105f,
         BlastRadius = 7f,
         Ammo = 6,
+    };
+
+    /// <summary>
+    /// The needler.
+    ///
+    /// Halo's, and the reason it is worth copying is not the homing — it is what the homing is
+    /// *for*. Needles chase gently enough that they are not an aim button: at 2.4 rad/s a single
+    /// needle corrects for someone strafing and loses to someone breaking line of sight, exactly
+    /// like the seeker. What makes it a needler is that they land, stick, and count.
+    ///
+    /// Alone, each needle is nearly nothing — six damage, which is below the minigun. The whole
+    /// weapon is the threshold: land <see cref="Match.SupercombineNeedles"/> of them in one person
+    /// inside <see cref="Match.SupercombineWindow"/> and they go off together. So it is not a gun
+    /// that rewards accuracy, it is a gun that rewards *commitment* — you have to keep pouring
+    /// into one target while everything in you says to switch, and the payoff arrives late or not
+    /// at all.
+    ///
+    /// The needles are cheap and the magazine is deep, because the fantasy is a stream of pink
+    /// glass and none of it means anything until suddenly it does.
+    /// </summary>
+    public static readonly WeaponDef Needler = new()
+    {
+        Name = "Needler",
+        Model = "needler",
+        Silhouette = WeaponSilhouette.Smg,
+        Damage = 6f,
+        FireInterval = 0.10f,
+        SpreadDeg = 2.4f,
+        Range = 70f,
+        ProjectileSpeed = 48f,      // slow enough to watch them curve, which is most of the charm
+        Recoil = 0.008f,
+        AdsFov = 48f,
+        Ammo = 90,
+
+        // Gentle. A needle that turned like a seeker would make the threshold trivial, and the
+        // threshold is the weapon.
+        SeekTurnRate = 2.4f,
+        SeekRange = 45f,
+        SeekConeDeg = 28f,
+
+        Needles = true,
     };
 
     /// <summary>
@@ -515,7 +565,8 @@ public static class Weapons
     public static readonly WeaponDef[] Pickups =
         {
             Railgun, Minigun, PortalGun, RocketLauncher, Grapple, Longshot,
-            Flamethrower, PortalGun, Seeker, Scattergun, GrenadeLauncher, PortalGun, Sword,
+            Flamethrower, PortalGun, Seeker, Scattergun, Needler, GrenadeLauncher,
+            PortalGun, Sword,
         };
 
     public static WeaponDef ByIndex(int i)
@@ -529,6 +580,7 @@ public static class Weapons
         if (w == Longshot) return new Color(0.42f, 0.72f, 0.98f);
         if (w == RocketLauncher) return new Color(0.98f, 0.34f, 0.22f);
         if (w == Seeker) return new Color(0.98f, 0.20f, 0.62f);
+        if (w == Needler) return new Color(0.80f, 0.42f, 0.98f);   // needle glass
         if (w == PortalGun) return new Color(0.30f, 0.88f, 0.98f);
         if (w == Grapple) return new Color(0.85f, 0.90f, 0.42f);
         if (w == Sword) return new Color(0.35f, 0.95f, 0.85f);

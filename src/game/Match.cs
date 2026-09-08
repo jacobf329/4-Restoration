@@ -116,6 +116,9 @@ public partial class Match : Node3D
         /// <summary>Metres at which anything but the shooter sets this round off in flight.</summary>
         public float TriggerRadius;
 
+        /// <summary>True when this round sticks in whoever it hits and counts toward a supercombine.</summary>
+        public bool Needles;
+
         /// <summary>Stops a round ping-ponging between two gates on consecutive frames.</summary>
         public float PortalLock;
 
@@ -163,6 +166,9 @@ public partial class Match : Node3D
 
     /// <summary>Headshots landed so far, so the harness can prove the head region is reachable.</summary>
     public int Headshots { get; private set; }
+
+    /// <summary>Supercombines set off so far. The needler is worth nothing without them.</summary>
+    public int Supercombines { get; private set; }
 
     /// <summary>Rewards precision without making body shots pointless.</summary>
     /// <summary>
@@ -1918,6 +1924,7 @@ public partial class Match : Node3D
                 SeekRange = gun.SeekRange,
                 SeekCone = Mathf.DegToRad(gun.SeekConeDeg),
                 TriggerRadius = gun.TriggerRadius,
+                Needles = gun.Needles,
             };
 
             if (Visuals)
@@ -4326,6 +4333,22 @@ public partial class Match : Node3D
     /// </summary>
     public const float VehicleStructureMultiplier = 3f;
 
+    /// <summary>
+    /// Needles that have to be in one person at once before they go off together.
+    ///
+    /// Seven, as in Halo, and the number is the weapon. Low enough that a committed magazine gets
+    /// there against someone who stands still, high enough that it never happens by accident to
+    /// whoever you last glanced at.
+    /// </summary>
+    public const int SupercombineNeedles = 7;
+
+    /// <summary>How long a needle stays in before it works loose. Refreshed by each new one.</summary>
+    public const float SupercombineWindow = 3.2f;
+
+    /// <summary>What the seven go off for, and how far it reaches.</summary>
+    public const float SupercombineDamage = 190f;
+    public const float SupercombineRadius = 4.5f;
+
     public const float VehicleWreckDamage = 90f;
     public const float VehicleWreckRadius = 9f;
 
@@ -5084,6 +5107,28 @@ public partial class Match : Node3D
                     bool killed = target.TakeDamage(damage);
                     float dealt = before - target.Health;
                     DamageDealt += dealt;
+
+                    // The needle sticks. Counted only when it actually did something, so needles
+                    // that glanced off a dashing player's invulnerability do not quietly build a
+                    // supercombine out of shots that missed.
+                    if (s.Needles && dealt > 0f && !killed
+                        && target.AddNeedle(SupercombineNeedles, SupercombineWindow))
+                    {
+                        Supercombines++;
+
+                        // Centred on them rather than on the impact, because it is the needles
+                        // going off and the needles are in them.
+                        var at = target.GlobalPosition + Vector3.Up * (target.CurrentHeight * 0.5f);
+                        Blast(s.Owner, at, SupercombineDamage, SupercombineRadius, hurtSelf: false);
+
+                        if (Visuals)
+                        {
+                            Impact.Death(this, at, Weapons.TintFor(Weapons.Needler));
+                            Sfx.PlayAt(Sound.Death, at, -2f, 1.4f);
+                        }
+
+                        killed = !target.Alive;
+                    }
 
                     // Only a shot that actually did something confirms. Hitting someone who is
                     // dashing through their invulnerability frames should read as a miss, because

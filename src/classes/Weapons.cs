@@ -282,6 +282,12 @@ public static class Weapons
     public static readonly WeaponDef Seeker = new()
     {
         Name = "Seeker",
+
+        // Borrowed from the Orchard's Pod Thrower, which is a launcher that throws things which
+        // find their own way to somewhere — near enough that it reads correctly, and the Orchard
+        // is a reinforcement whose gun is only ever seen in somebody's hands, never lying on the
+        // floor beside this one. A bespoke seeker.glb replaces this by changing one string.
+        Model = "pod_thrower",
         Silhouette = WeaponSilhouette.Launcher,
         Damage = 22f,
         FireInterval = 1.7f,

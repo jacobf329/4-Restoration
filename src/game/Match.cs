@@ -2472,25 +2472,84 @@ public partial class Match : Node3D
             AddChild(holder);
             holder.GlobalPosition = p.At + Vector3.Up * 0.9f;
 
-            // A jetpack crate is taller and thinner than a weapon crate, so the two are
-            // distinguishable by silhouette and not only by colour.
-            var size = kind switch
+            // A weapon on the floor is the weapon, not a box with its colour on. Gear keeps its
+            // crate: there is no model of a jetpack or a med kit, and a crate is what they are.
+            if (kind != PickupKind.Weapon || !BuildPickupModel(holder, weapon!))
             {
-                PickupKind.Jetpack => new Vector3(0.7f, 1.2f, 0.55f),
-                PickupKind.Health => new Vector3(1.0f, 0.45f, 0.7f),   // flat and wide: a case
-                _ => new Vector3(0.9f, 0.9f, 0.9f),
-            };
+                // A jetpack crate is taller and thinner than a weapon crate, so the two are
+                // distinguishable by silhouette and not only by colour.
+                var size = kind switch
+                {
+                    PickupKind.Jetpack => new Vector3(0.7f, 1.2f, 0.55f),
+                    PickupKind.Health => new Vector3(1.0f, 0.45f, 0.7f),   // flat and wide: a case
+                    _ => new Vector3(0.9f, 0.9f, 0.9f),
+                };
 
-            holder.AddChild(new MeshInstance3D
-            {
-                Mesh = new BoxMesh { Size = size },
-                MaterialOverride = Graphics.Hot(p.Tint, 1.5f),
-            });
+                holder.AddChild(new MeshInstance3D
+                {
+                    Mesh = new BoxMesh { Size = size },
+                    MaterialOverride = Graphics.Hot(p.Tint, 1.5f),
+                });
+            }
 
             p.Node = holder;
         }
 
         pickups.Add(p);
+    }
+
+    /// <summary>
+    /// Put the actual gun on the floor, or report that there is not a model of it.
+    ///
+    /// Scaled by the measurement rather than trusted, exactly as the view model does it: a
+    /// generated mesh has no idea how long a rifle is, and a pickup that arrives twice the size of
+    /// the one beside it reads as a bug rather than as a bigger gun. The silhouette's own length
+    /// is the target so a railgun on the floor is longer than a sidearm, which is information.
+    /// </summary>
+    bool BuildPickupModel(Node3D holder, WeaponDef weapon)
+    {
+        if (WeaponModels.Instance(weapon, out float sourceLength, out Vector3 along, out _)
+                is not { } model)
+            return false;
+
+        // Bigger than in the hands. A held gun is half a metre from the camera and a dropped one is
+        // across a courtyard, and the thing that has to survive that distance is the silhouette.
+        const float Longest = 1.5f;
+
+        float want = weapon.Silhouette switch
+        {
+            WeaponSilhouette.Blade => Longest,
+            WeaponSilhouette.Sniper => Longest,
+            WeaponSilhouette.Launcher => Longest * 0.85f,
+            WeaponSilhouette.Minigun => Longest * 0.8f,
+            WeaponSilhouette.Smg => Longest * 0.55f,
+            WeaponSilhouette.Portal => Longest * 0.6f,
+            WeaponSilhouette.Grapple => Longest * 0.55f,
+            _ => Longest * 0.7f,
+        };
+
+        model.Scale = Vector3.One * (want / sourceLength);
+
+        // Laid across the spin rather than pointed down it. A gun rotating about its own long axis
+        // is a rolling stick; across, the shape swings through the view and reads as what it is.
+        // Tilted a little nose-up so it looks placed rather than dropped.
+        if (along == Vector3.Right) model.RotationDegrees = new Vector3(0f, 0f, 14f);
+        else if (along == Vector3.Up) model.RotationDegrees = new Vector3(0f, 0f, 90f - 14f);
+        else model.RotationDegrees = new Vector3(0f, 90f, 14f);
+
+        holder.AddChild(model);
+
+        // And the colour underneath it, because colour is how you tell one pickup from another
+        // across an arena and the model is the weapon's own texture rather than its tint. The
+        // crate carried both jobs; the gun only does the first, so the second gets its own ring.
+        holder.AddChild(new MeshInstance3D
+        {
+            Mesh = new TorusMesh { InnerRadius = 0.52f, OuterRadius = 0.62f, RingSegments = 6 },
+            MaterialOverride = Graphics.Hot(Weapons.TintFor(weapon), 2.2f),
+            Position = new Vector3(0f, -0.55f, 0f),
+        });
+
+        return true;
     }
 
     void StepPickups(float dt)

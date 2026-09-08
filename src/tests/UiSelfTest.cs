@@ -932,6 +932,12 @@ public static class UiSelfTest
             Check(w.Damage > 0f || w.BlastDamage > 0f || w.PlantsPortal || w.Grapples,
                   $"{w.Name} does something when fired");
             Check(w.Range > 0f, $"{w.Name} has reach");
+
+            // Pickups lie on the floor as the gun itself now, so a weapon with no model named is
+            // the one crate in the arena still shaped like a box. That is a content gap rather
+            // than a crash, and it is invisible from anywhere except standing next to it - which
+            // is exactly the kind of thing that reaches release.
+            Check(w.Model.Length > 0, $"{w.Name} names a model to lie on the floor as");
             string tint = Weapons.TintFor(w).ToHtml();
             if (tints.TryGetValue(tint, out string? claimed))
                 Check(claimed == w.Name, $"{w.Name} has its own colour, not {claimed}'s");

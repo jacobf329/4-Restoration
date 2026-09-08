@@ -1157,6 +1157,10 @@ public static class UiSelfTest
         Check(mission.StageCount >= 4, $"the walk has somewhere to go ({mission.StageCount} stages)");
         Check(!mission.Complete, "and is not over before it starts");
 
+        // No combat HUD over a childhood. A health bar, three cooldown gauges and a tactical
+        // minimap say what Fairview is well before the act has finished not saying it.
+        Check(!mission.ShowsCombatHud, "and no health bar over a walk to the shops");
+
         // The settings a scene runs under: the town, alone, nothing to win.
         var settings = Missions.SettingsFor(Act.Childhood);
         Check(settings.IsStoryMission, "a scene knows it is a scene");

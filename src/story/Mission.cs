@@ -26,6 +26,16 @@ public interface IMission
     /// <summary>True once the scene is over and the screen should hand back to the campaign.</summary>
     bool Complete { get; }
 
+    /// <summary>
+    /// Whether to draw the combat HUD over this scene.
+    ///
+    /// On the mission rather than fixed for story mode, because later acts have fights in them and
+    /// will want it back. Act I does not: an eighteen-year-old walking to the green does not have
+    /// a health bar, three cooldown gauges and a tactical minimap, and putting them there says
+    /// what the town is before the act has finished not saying it.
+    /// </summary>
+    bool ShowsCombatHud { get; }
+
     void Step(float dt, Match match);
 }
 
@@ -82,6 +92,9 @@ public sealed class WalkMission : IMission
     }
 
     public bool Complete { get; private set; }
+
+    /// <summary>A walk has no fight in it and no HUD over it.</summary>
+    public bool ShowsCombatHud => false;
 
     public string Objective
         => Complete || beat >= 0 || stage >= stages.Length ? "" : stages[stage].Objective;

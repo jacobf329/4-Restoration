@@ -857,10 +857,13 @@ public sealed class MatchScreen : UiScreen
     {
         if (match == null) return;
 
-        foreach (var v in views) DrawPlayerHud(p, v);
+        // The combat HUD is the match's, not the game's, and a scene may want none of it. Checked
+        // before it is drawn rather than after, which is where this was and it was wrong: Act I
+        // was played with a health bar, a jetpack gauge and a minimap over a childhood.
+        if (Mission is not { } scene || scene.ShowsCombatHud)
+            foreach (var v in views) DrawPlayerHud(p, v);
 
-        // A scene has no score, no kill feed and no intermission, and drawing them over a
-        // childhood would say more about the game than any line in it.
+        // And a scene has no score, no kill feed and no intermission either.
         if (Mission != null) { DrawMission(p); return; }
 
         DrawScoreboard(p);

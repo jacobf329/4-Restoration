@@ -617,6 +617,11 @@ public partial class Match : Node3D
 
     static int ChooseArena(MatchSettings settings)
     {
+        // Story mode says where it is going and is not negotiated with. Checked first so the
+        // versus rules below - which exist to keep a match off a story set - cannot refuse it.
+        if (settings.IsStoryMission && Arena.IsStory(settings.StoryLayout))
+            return settings.StoryLayout;
+
         int combat = Arena.CombatLayouts;
 
         if (settings.ArenaIndex >= 0)
@@ -5332,6 +5337,11 @@ public partial class Match : Node3D
 
     void CheckWin()
     {
+        // A scene ends when its script does. Every condition below is a way of winning, and there
+        // is nothing to win in a town - left in, a story mission would quietly declare somebody
+        // the victor of his own childhood the moment the clock ran out.
+        if (Settings.IsStoryMission) return;
+
         // Time runs out for every mode, and whoever is ahead takes it. A draw leaves no winner
         // rather than picking one arbitrarily.
         if (TimeRemaining is <= 0f)

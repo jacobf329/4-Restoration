@@ -1138,6 +1138,77 @@ public static class UiSelfTest
     /// missing — so "no files on disk" has to be an ordinary, working state rather than the state
     /// nobody tried.
     /// </summary>
+
+    /// <summary>
+    /// Act I as a scene rather than as text: walk somewhere, hear something, walk on.
+    ///
+    /// Driven by moving a pawn rather than by calling the mission's own methods, because the thing
+    /// most likely to be wrong is not the state machine - it is whether the stages are anywhere
+    /// near the town. A stage written eight metres from the school door is a scene that plays to an
+    /// empty street, and only walking to it finds that out.
+    /// </summary>
+    static void TestChildhoodMission()
+    {
+        TestLog.Line("- Act I plays as a walk through Fairview");
+
+        var state = new CampaignState();
+        var mission = Missions.Childhood(state);
+
+        Check(mission.StageCount >= 4, $"the walk has somewhere to go ({mission.StageCount} stages)");
+        Check(!mission.Complete, "and is not over before it starts");
+
+        // The settings a scene runs under: the town, alone, nothing to win.
+        var settings = Missions.SettingsFor(Act.Childhood);
+        Check(settings.IsStoryMission, "a scene knows it is a scene");
+        Check(settings.BotCount == 0, "and is played alone");
+        Check(Arena.IsStory(Match.ChooseArenaForTest(settings)),
+              "and it lands in Fairview, which nothing else may do");
+
+        var arena = new Arena(Arena.CombatLayouts);
+
+        // Every place the scene sends the player has to be somewhere they can stand, inside the
+        // town. This is the check that catches a stage drifting off the map.
+        var seen = new List<Vector3>();
+        var walker = new CampaignState();
+        var probe = Missions.Childhood(walker);
+
+        for (int guard = 0; guard < 200 && !probe.Complete; guard++)
+        {
+            if (probe.TargetForTest is { } target)
+            {
+                Check(arena.InPlay(target with { Y = 2f }),
+                      $"stage target ({target.X:0}, {target.Z:0}) is inside the town");
+                seen.Add(target);
+
+                // Standing on it is what advances the scene; the harness cannot walk, so it
+                // teleports and then lets the timer run the dialogue out.
+                probe.StepForTest(1f / 60f, target);
+            }
+            else
+            {
+                // Talking. Stepped by more than the longest a line can hold, so one call is one
+                // beat - at a realistic dt the twenty-seven lines of Act I are thousands of frames
+                // and the loop's guard would run out long before the scene did, which is what
+                // happened the first time this was written.
+                probe.StepForTest(8f, Vector3.Zero);
+            }
+        }
+
+        Check(probe.Complete, "the scene reaches its end");
+        Check(seen.Count >= 3, $"and sends the player to several places on the way ({seen.Count})");
+
+        // The places are actually apart. A walk whose stops are all in one spot is a cutscene.
+        float furthest = 0f;
+        foreach (var a in seen)
+        foreach (var b in seen)
+            furthest = MathF.Max(furthest, a.DistanceTo(b));
+
+        TestLog.Line($"    the walk spans {furthest:0}m of Fairview");
+        Check(furthest > 40f, $"the walk crosses the town ({furthest:0}m)");
+    }
+
+
+
     static void TestSurfaces()
     {
         TestLog.Line("- surfaces fall back to plating when there is no art");
@@ -1726,6 +1797,7 @@ public static class UiSelfTest
         TestFairview();
         TestStoryScript();
         TestSurfaces();
+        TestChildhoodMission();
         TestPlayBoundsAreTight();
 
         // Every wall and platform on the map comes down, and the two things that must not are the

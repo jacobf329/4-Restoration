@@ -103,6 +103,18 @@ public sealed class MatchScreen : UiScreen
 
     public Match Sim => match;
 
+    /// <summary>
+    /// A scripted scene running in this match, or null for an ordinary fight.
+    ///
+    /// Set after construction rather than passed in, because it needs the match that construction
+    /// builds. A mission owns no input and no rendering — it watches where the player is and says
+    /// what is being said — so this is the entire surface story mode needs from the match screen.
+    /// </summary>
+    public IMission? Mission;
+
+    /// <summary>Called once the mission's last line is read, so the campaign can move on.</summary>
+    public System.Action? OnMissionDone;
+
     public override void OnEnter()
     {
         if (built) return;
@@ -274,6 +286,21 @@ public sealed class MatchScreen : UiScreen
         for (int i = 0; i < views.Count; i++)
             listeners[i] = match.Pawns[views[i].PawnIndex].GlobalPosition;
         Sfx.Listeners = listeners;
+
+        // A scene ends when its script does, not on a score. Stepped after the views so the
+        // stage test sees where the player actually got to this frame.
+        if (Mission is { } mission)
+        {
+            mission.Step(dt, match);
+
+            if (mission.Complete)
+            {
+                Mission = null;
+                Stack.Pop();
+                OnMissionDone?.Invoke();
+                return;
+            }
+        }
 
         if (match.Finished)
         {
@@ -832,9 +859,66 @@ public sealed class MatchScreen : UiScreen
 
         foreach (var v in views) DrawPlayerHud(p, v);
 
+        // A scene has no score, no kill feed and no intermission, and drawing them over a
+        // childhood would say more about the game than any line in it.
+        if (Mission != null) { DrawMission(p); return; }
+
         DrawScoreboard(p);
         DrawKillFeed(p);
         DrawIntermission(p);
+    }
+
+    /// <summary>
+    /// The scene's objective and whatever is being said, over the whole screen.
+    ///
+    /// Drawn once rather than per view. Story mode is one player by construction, and a dialogue
+    /// panel repeated into four splitscreen quarters is a thing nobody would ever want to look at.
+    /// </summary>
+    void DrawMission(UiPainter p)
+    {
+        var mission = Mission!;
+
+        if (mission.Objective.Length > 0)
+            p.TextCentered(mission.Objective.ToUpperInvariant(), p.Size.X * 0.5f,
+                           p.Size.Y * 0.11f, 22, Pal.TextDim);
+
+        if (mission.Speaking is not { } beat) return;
+
+        float w = MathF.Min(940f, p.Size.X - 140f);
+        float x = p.Size.X * 0.5f - w * 0.5f;
+        float y = p.Size.Y - 226f;
+
+        var tint = Scripts.TintOf(beat.Who);
+        p.Panel(x, y, w, 150f, Pal.Panel * new Color(1, 1, 1, 0.92f),
+                tint * new Color(1, 1, 1, 0.55f));
+
+        string name = Scripts.NameOf(beat.Who);
+        if (name.Length > 0) p.Text(name, x + 26f, y + 28f, 17, tint);
+
+        float ty = y + (name.Length > 0 ? 62f : 44f);
+        foreach (string line in WrapLine(p, beat.Line, w - 52f, 21))
+        {
+            p.Text(line, x + 26f, ty, 21, beat.Who == Speaker.Narrator ? Pal.TextDim : Pal.Text);
+            ty += 28f;
+        }
+    }
+
+    static List<string> WrapLine(UiPainter p, string text, float width, int size)
+    {
+        var lines = new List<string>();
+        string line = "";
+
+        foreach (string word in text.Split(' '))
+        {
+            string next = line.Length == 0 ? word : line + " " + word;
+            if (p.Measure(next, size).X <= width) { line = next; continue; }
+
+            if (line.Length > 0) lines.Add(line);
+            line = word;
+        }
+
+        if (line.Length > 0) lines.Add(line);
+        return lines;
     }
 
     void DrawPlayerHud(UiPainter p, View v)

@@ -76,7 +76,17 @@ public sealed class StoryScreen : UiScreen
 
     void Advance()
     {
-        if (card) { card = false; return; }
+        if (card)
+        {
+            card = false;
+
+            // An act with a mission is played rather than read. The script for that act stays in
+            // Scripts as the reading version and is not used here — the beats a player hears are
+            // the ones attached to the places they hear them in, which is what makes it a scene in
+            // a town instead of a wall of text with a town behind it.
+            if (Missions.For(state.Act, state) is { } mission) Launch(mission);
+            return;
+        }
 
         if (at < beats.Count - 1) { at++; return; }
 
@@ -96,6 +106,51 @@ public sealed class StoryScreen : UiScreen
             Stack.Pop();
             return;
         }
+
+        state.Save();
+        BeginAct();
+    }
+
+    /// <summary>
+    /// Drop into the town and run the scene there.
+    ///
+    /// The match screen is pushed on top of this one, so when the scene ends and it pops, the
+    /// campaign is still underneath holding the act, the choice and her — which is the whole
+    /// reason the shell was built before the missions were.
+    /// </summary>
+    void Launch(IMission mission)
+    {
+        var settings = Missions.SettingsFor(state.Act);
+
+        // One player, no bots. A slot counts as claimed by having a device on it, so the first
+        // connected one gets it - which in story mode is whoever is holding the pad.
+        var slots = new LobbySlot[LobbyScreen.MaxPlayers];
+        for (int i = 0; i < slots.Length; i++) slots[i] = new LobbySlot();
+
+        // John is a Vessel by upbringing and nothing else. He has no faction of his own and the
+        // faction axis has no "human" on it yet - see STORY.md, where his kit is the open
+        // question. Wearing the colours of the people who raised him is the least wrong answer
+        // available today and is not meant to survive contact with a decision about it.
+        slots[0].DeviceId = Devices.All.Count > 0 ? Devices.All[0].Id : null;
+        slots[0].FactionIndex = 0;
+        slots[0].ClassIndex = 0;
+
+        var screen = new MatchScreen(settings, slots, app) { Mission = mission };
+        screen.OnMissionDone = SceneFinished;
+
+        Stack.Push(screen);
+    }
+
+    /// <summary>The scene is over. Move the campaign on, exactly as reading to the end would.</summary>
+    void SceneFinished()
+    {
+        if (state.Act == Act.Harvest && state.Choice == HarvestChoice.Undecided)
+        {
+            OpenChoice();
+            return;
+        }
+
+        if (!state.Advance()) { Stack.Pop(); return; }
 
         state.Save();
         BeginAct();

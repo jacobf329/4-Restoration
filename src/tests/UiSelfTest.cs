@@ -1540,6 +1540,114 @@ public static class UiSelfTest
                    + $"gone by {ends:0.0}s, override at {MatchScreen.ScopeOverrideForTest:0.00} stick");
     }
 
+    /// <summary>
+    /// The dressing: every arena carries some, none of it can be touched, and it stays in budget.
+    ///
+    /// The middle one is the check worth having. Decoration that quietly acquired collision would
+    /// be a gameplay change nobody asked for and nobody would look for — a crate you can hide
+    /// behind is cover, and cover is balance. So this asserts the separation directly rather than
+    /// trusting that nobody adds a body to the render pass later.
+    /// </summary>
+    static void TestDressing()
+    {
+        TestLog.Line("- the arenas are dressed, and none of it is solid");
+
+        for (int layout = 0; layout < Arena.Names.Length; layout++)
+        {
+            var arena = new Arena(layout);
+            int props = arena.Decorations.Count;
+
+            Check(props <= Arena.DecorBudget,
+                  $"{Arena.Names[layout]} stays inside the dressing budget ({props})");
+
+            // Two kinds of map are deliberately bare, and the test says so rather than being
+            // relaxed to accommodate them.
+            //
+            // A puzzle chamber is about the portal and the gap; litter in a void would be scenery
+            // for a place that is not one. The Convocation is bare for a stronger reason: it is a
+            // sealed room four civilisations built to be right in, containing nothing but the man
+            // they are arguing about, and a stack of barrels in the corner would undercut the one
+            // thing the whole act is doing.
+            if (Arena.IsPuzzle(layout) || layout == Arena.ConvocationLayout)
+            {
+                Check(props == 0, $"{Arena.Names[layout]} is meant to be bare and is");
+                continue;
+            }
+
+            Check(props > 0, $"{Arena.Names[layout]} has something in it ({props} pieces)");
+            TestLog.Line($"    {Arena.Names[layout]}: {arena.Blocks.Count} blocks, {props} props");
+
+            // Every piece has real size and sits inside the map.
+            foreach (var d in arena.Decorations)
+            {
+                Check(d.HalfExtents.X > 0f && d.HalfExtents.Y > 0f && d.HalfExtents.Z > 0f,
+                      "a prop has size");
+                Check(arena.Contains(d.Centre), "a prop is inside the arena");
+            }
+        }
+
+        // Every combat arena actually reaches the material library, which it did not for as long
+        // as its blocks all defaulted to plating. Counted through the same derivation the renderer
+        // uses, so this cannot pass while the screen stays grey.
+        var lit = new Arena(0);
+        var used = new System.Collections.Generic.HashSet<SurfaceKind> { Arena.GroundSurface };
+        foreach (var b in lit.Blocks) used.Add(Arena.MaterialForTest(b, false));
+        foreach (var b in lit.Blocks) used.Add(Arena.MaterialForTest(b, true));
+
+        {
+            var tally = new System.Collections.Generic.Dictionary<SurfaceKind, int>();
+            foreach (var b in lit.Blocks)
+            {
+                bool outerBlock = MathF.Abs(b.Centre.X) > 40f || MathF.Abs(b.Centre.Z) > 40f;
+                var kind = Arena.MaterialForTest(b, outerBlock);
+                tally[kind] = tally.GetValueOrDefault(kind) + 1;
+            }
+
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (var (kind, n) in tally) parts.Add($"{n} {kind}");
+            TestLog.Line($"    Reliquary is built from {string.Join(", ", parts)}");
+        }
+
+        Check(used.Count >= 4, $"an arena is built from several materials ({used.Count})");
+        Check(used.Contains(SurfaceKind.Concrete) && used.Contains(SurfaceKind.Brick),
+              "including the two the walls are meant to be");
+
+        // An explicit choice by a builder survives everything, including being made breakable -
+        // which rebuilds the block, and used to drop the material while doing it.
+        var town = new Arena(Arena.FairviewLayout);
+        var chosen = new System.Collections.Generic.HashSet<SurfaceKind>();
+        foreach (var b in town.Blocks) chosen.Add(Arena.MaterialForTest(b, false));
+
+        Check(chosen.Contains(SurfaceKind.Plaster) && chosen.Contains(SurfaceKind.RoofTile),
+              "a builder's own materials are never overridden");
+
+        // The separation, stated as a test. Dressing is invisible to every query the simulation
+        // makes, so a point standing in the middle of a barrel is still clear ground.
+        var dressed = new Arena(0);
+        Check(dressed.Decorations.Count > 0, "there is something to stand in");
+
+        int solid = 0;
+        foreach (var d in dressed.Decorations)
+        {
+            // Only test props sitting on open floor; one against a wall is inside the wall's
+            // clearance and would fail for a reason that has nothing to do with the prop.
+            if (!dressed.IsClearOfBlocks(d.Centre with { Y = 0.1f }, 0.9f, 1.8f)) continue;
+            if (!dressed.IsClearOfBlocks(d.Centre with { Y = 0.1f }, 0.4f, 1.8f)) solid++;
+        }
+
+        Check(solid == 0, $"no piece of dressing is solid ({solid} were)");
+
+        // And the same arena dresses identically twice, or players cannot learn a map.
+        var again = new Arena(0);
+        Check(again.Decorations.Count == dressed.Decorations.Count,
+              "an arena dresses the same way every time");
+
+        bool same = true;
+        for (int i = 0; i < again.Decorations.Count && same; i++)
+            same = again.Decorations[i].Centre.IsEqualApprox(dressed.Decorations[i].Centre);
+        Check(same, "down to where every piece of it is");
+    }
+
     static void TestSurfaces()
     {
         TestLog.Line("- surfaces fall back to plating when there is no art");
@@ -2131,6 +2239,7 @@ public static class UiSelfTest
         TestChildhoodMission();
         TestHarvestMission();
         TestScopeLock();
+        TestDressing();
         TestNeedler();
         TestHeadshotsAndMuzzles();
         TestPlayBoundsAreTight();

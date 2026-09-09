@@ -130,29 +130,49 @@ public sealed class StoryScreen : UiScreen
     /// campaign is still underneath holding the act, the choice and her — which is the whole
     /// reason the shell was built before the missions were.
     /// </summary>
+    /// <summary>
+    /// The slots a scene is played with, so the harness can check the wiring that broke twice.
+    ///
+    /// Separated from <see cref="Launch"/> because everything past this point needs viewports a
+    /// headless run does not have, and everything before it is exactly where both control bugs
+    /// lived. Testing the simulation proved only that the pawn walks when told to; what was
+    /// missing was a test of whether anything ever tells it.
+    /// </summary>
+    public static LobbySlot[] SlotsFor(InputDevice? device)
+    {
+        var slots = new LobbySlot[LobbyScreen.MaxPlayers];
+        for (int i = 0; i < slots.Length; i++) slots[i] = new LobbySlot();
+
+        // Always claimed, even when no device resolves.
+        //
+        // A slot is claimed by having a device id, and an unclaimed slot produces no roster entry,
+        // no view, no camera and no input path - the whole act would open on a black screen with
+        // nothing to press. The fallback id belongs to nothing, and that is fine: a scene reads
+        // every connected device rather than its bound one, so the id only has to exist.
+        slots[0].DeviceId = (device ?? FirstUsable())?.Id ?? "story";
+
+        // John is a Vessel by upbringing and nothing else. He has no faction of his own and the
+        // faction axis has no "human" on it yet - see STORY.md, where his kit is the open
+        // question. Wearing the colours of the people who raised him is the least wrong answer
+        // available today and is not meant to survive contact with a decision about it.
+        slots[0].FactionIndex = 0;
+        slots[0].ClassIndex = 0;
+        return slots;
+    }
+
     void Launch(IMission mission)
     {
         var settings = Missions.SettingsFor(state.Act);
 
-        // One player, no bots. A slot counts as claimed by having a device on it, and the device
-        // is whoever pressed the button to get here rather than whichever happens to be first in
-        // the registry.
+        // One player, no bots. The device is whoever pressed the button to get here rather than
+        // whichever happens to be first in the registry.
         //
         // Deliberately not filtered through Devices.CanClaimSlot. That rule keeps keyboards out of
         // the lobby unless the player opts in, and the reason is real - a pad being translated into
         // keypresses by Steam Input would otherwise claim a second slot and act twice. Story mode
         // has exactly one slot, so there is no second claim to make, and refusing to let somebody
         // play the story on the keyboard they just navigated the menu with would be its own bug.
-        var slots = new LobbySlot[LobbyScreen.MaxPlayers];
-        for (int i = 0; i < slots.Length; i++) slots[i] = new LobbySlot();
-
-        // John is a Vessel by upbringing and nothing else. He has no faction of his own and the
-        // faction axis has no "human" on it yet - see STORY.md, where his kit is the open
-        // question. Wearing the colours of the people who raised him is the least wrong answer
-        // available today and is not meant to survive contact with a decision about it.
-        slots[0].DeviceId = (driver ?? FirstUsable())?.Id;
-        slots[0].FactionIndex = 0;
-        slots[0].ClassIndex = 0;
+        var slots = SlotsFor(driver);
 
         var screen = new MatchScreen(settings, slots, app) { Mission = mission };
         screen.OnMissionDone = SceneFinished;
@@ -166,8 +186,12 @@ public sealed class StoryScreen : UiScreen
     /// A connected gamepad first, because this is a controller-first game and somebody with a pad
     /// plugged in meant to use it. Any connected device otherwise, so the scene is playable rather
     /// than inert.
+    ///
+    /// Which device this picks now matters far less than it did. A scene takes its input from
+    /// every connected device at once (see MatchScreen.Controls), so this only decides which one
+    /// the camera and the rumble belong to, not whether the player can move.
     /// </summary>
-    static InputDevice? FirstUsable()
+    public static InputDevice? FirstUsable()
     {
         foreach (var d in Devices.All) if (d.Connected && d.IsGamepad) return d;
         foreach (var d in Devices.All) if (d.Connected) return d;

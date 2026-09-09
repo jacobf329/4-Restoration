@@ -359,6 +359,7 @@ public static class MatchSelfTest
         Once(CheckScopedRiflesCanBePickedUp);
         Once(CheckClassAbilities);
         Once(CheckBotsSeekGunsNotMedKits);
+        Once(CheckStoryModeIsPlayable);
         Once(CheckCaptureTheFlag);
         Once(CheckJuggernaut);
         Once(CheckDominion);
@@ -1293,6 +1294,99 @@ public static class MatchSelfTest
     ///
     /// This runs inside whatever mode the current scenario is, so the flags are set up by hand.
     /// </summary>
+    /// <summary>
+    /// Story mode, played rather than described: build the match the way StoryScreen builds it,
+    /// hold the stick forward, and see whether John Smith walks.
+    ///
+    /// Every previous attempt at this bug was reasoned about from the code and got it wrong. The
+    /// report was "I literally can't move or do anything", which is a claim about a running game,
+    /// so this test is the same claim: a pawn, a stick, and a distance.
+    ///
+    /// Built from Missions.SettingsFor and a hand-made roster rather than through MatchScreen,
+    /// which needs viewports a headless run has none of. That is a real gap in coverage and it is
+    /// named here rather than papered over: everything from the settings inward is tested, and the
+    /// slot-to-view wiring above it is not.
+    /// </summary>
+    static void CheckStoryModeIsPlayable()
+    {
+        foreach (var act in new[] { Act.Childhood, Act.Harvest })
+        {
+            var settings = Missions.SettingsFor(act);
+
+            // The real slots StoryScreen hands to MatchScreen, run through the same claim rule
+            // MatchScreen's constructor uses. This is the hop that was broken - twice - and a
+            // roster invented here instead would have tested a copy of the bug's fix rather than
+            // the fix.
+            var slots = StoryScreen.SlotsFor(null);
+
+            int claimed = 0;
+            foreach (var slot in slots) if (slot.Claimed) claimed++;
+
+            Check(claimed == 1, $"{act}: exactly one slot is claimed for the scene ({claimed})");
+            Check(slots[0].Claimed,
+                  $"{act}: and it is claimed even with no device to bind - an unclaimed slot "
+                + "means no view, no camera and no way to press anything");
+
+            var roster = new List<LobbySlot>();
+            foreach (var slot in slots)
+                if (slot.Claimed)
+                    roster.Add(new LobbySlot
+                    {
+                        DeviceId = slot.DeviceId, ClassIndex = slot.ClassIndex,
+                        FactionIndex = slot.FactionIndex, IsBot = false,
+                    });
+
+            Check(roster.Count == 1, $"{act}: which is one human in the roster ({roster.Count})");
+
+            var m = new Match();
+            m.Build(app, settings, roster, visuals: false);
+
+            Check(m.Pawns.Count == 1, $"{act}: the scene has exactly one pawn ({m.Pawns.Count})");
+            if (m.Pawns.Count == 0) { m.QueueFree(); continue; }
+
+            var john = m.Pawns[0];
+            Check(john.Alive, $"{act}: and he is alive when it starts");
+            Check(!john.IsBot, $"{act}: and he is not being driven by the computer");
+
+            Check(Arena.IsStory(m.Arena.Layout), $"{act}: the scene runs on a story set");
+
+            // Hold the stick forward, exactly as a player would.
+            var stick = new Vector2(0f, -1f);
+            m.InputSource = _ => new PawnInput { RawMove = stick, Move = MoveFor(stick, john.Facing) };
+
+            var from = john.GlobalPosition;
+            for (int i = 0; i < 120; i++) m._PhysicsProcess(1.0 / 60.0);
+            float walked = john.GlobalPosition.DistanceTo(from);
+
+            TestLog.Line($"    {act}: two seconds of forward walked {walked:0.0}m");
+            Check(walked > 4f, $"{act}: holding forward moves him ({walked:0.0}m in 2s)");
+
+            // And he can look around, which is the other half of "can't do anything".
+            float faced = john.Facing;
+            m.InputSource = _ => new PawnInput { RawLook = new Vector2(1f, 0f) };
+            for (int i = 0; i < 60; i++) m._PhysicsProcess(1.0 / 60.0);
+
+            // Facing is driven by the view in a real game, so this only proves the pawn accepts
+            // a look at all - the view integration is the untested gap named above.
+            Check(john.Alive, $"{act}: and he survives a second of looking around");
+
+            // Nothing in a scene should be shooting at him.
+            int others = 0;
+            foreach (var p in m.Pawns) if (p != john) others++;
+            Check(others == 0, $"{act}: and he is alone in it ({others} others)");
+
+            m.QueueFree();
+        }
+    }
+
+    /// <summary>Stick to world movement, the way MatchScreen.ResolveInput does it.</summary>
+    static Vector2 MoveFor(Vector2 stick, float yaw)
+    {
+        var forward = new Vector2(MathF.Cos(yaw), MathF.Sin(yaw));
+        var right = new Vector2(-forward.Y, forward.X);
+        return MathU.ClampLen(forward * -stick.Y + right * stick.X, 1f);
+    }
+
     static void CheckCaptureTheFlag()
     {
         var ctf = Modes.Get(GameMode.CaptureTheFlag);

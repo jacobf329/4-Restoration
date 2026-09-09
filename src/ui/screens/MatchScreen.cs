@@ -252,12 +252,19 @@ public sealed class MatchScreen : UiScreen
 
         foreach (var v in views)
         {
-            var d = v.Device;
+            var d = DeviceFor(v);
+            var c = ReadControls(v);
 
-            if (d is null || !d.Connected)
+            // A pad vanishing mid-match auto-pauses and names the player, rather than leaving a
+            // frozen body in the arena for everyone else to shoot.
+            //
+            // Not in a scene, though, and that exemption is a bug fix rather than a nicety. There
+            // is nobody else in a story mission to be disadvantaged by a still body, and this
+            // branch is reached whenever the bound device id fails to resolve for any reason at
+            // all - which pauses the game on the frame it opens and looks, from the outside,
+            // exactly like a player who cannot move or do anything.
+            if (!SoloScene && (d is null || !d.Connected))
             {
-                // A pad vanishing mid-match auto-pauses and names the player, rather than leaving
-                // a frozen body in the arena for everyone else to shoot.
                 disconnectNote = $"Player {v.PawnIndex + 1}'s controller disconnected";
                 Pause();
                 return;
@@ -278,26 +285,26 @@ public sealed class MatchScreen : UiScreen
             if (pawn.Slipping && pawn.Alive)
             {
                 v.Pitch = Mathf.Lerp(v.Pitch, Pawn.MaxPitch, 1f - MathF.Exp(-11f * dt));
-                if (d.StartPressed) { Pause(); return; }
+                if (c.Start) { Pause(); return; }
                 continue;
             }
 
             TrackScopeState(v, pawn);
-            ApplyAimAssist(v, pawn, d.Look, dt, ref steady);
+            ApplyAimAssist(v, pawn, c.Look, dt, ref steady);
 
-            v.Yaw += d.Look.X * TurnRate * steady * dt;
-            v.Pitch = MathU.Clamp(v.Pitch - d.Look.Y * PitchRate * steady * dt,
+            v.Yaw += c.Look.X * TurnRate * steady * dt;
+            v.Pitch = MathU.Clamp(v.Pitch - c.Look.Y * PitchRate * steady * dt,
                                   -Pawn.MaxPitch, Pawn.MaxPitch);
 
             // Rumble on the moment of a kill. The match cannot do this itself — it has no idea
             // which pad, if any, is behind a given pawn.
             var pawnForRumble = match.Pawns[v.PawnIndex];
-            if (pawnForRumble.KillBanner > v.LastKillBanner) d.Rumble(0.3f, 0.55f, 0.18f);
+            if (pawnForRumble.KillBanner > v.LastKillBanner) d?.Rumble(0.3f, 0.55f, 0.18f);
             v.LastKillBanner = pawnForRumble.KillBanner;
 
-            if (!pawn.Alive) StepSpawnChoice(v, pawn, d);
+            if (!pawn.Alive && d != null) StepSpawnChoice(v, pawn, d);
 
-            if (d.StartPressed) { Pause(); return; }
+            if (c.Start) { Pause(); return; }
         }
 
         UpdateCameras(dt);
@@ -808,11 +815,109 @@ public sealed class MatchScreen : UiScreen
         return MathU.Clamp01(hit[0] - 0.06f);
     }
 
+    /// <summary>
+    /// Whether this is a scene rather than a fight, and therefore has exactly one player in it.
+    ///
+    /// The distinction earns its keep in <see cref="ReadControls"/>: with one pawn and one player
+    /// there is nothing to arbitrate, so there is no reason to insist on knowing which device the
+    /// player meant to use.
+    /// </summary>
+    bool SoloScene => Mission != null;
+
+    /// <summary>
+    /// Everything a pawn needs from a person this frame, from one device or from all of them.
+    ///
+    /// A versus match has to know whose stick is whose — four people share a screen and a pawn
+    /// that answered to any of them would be unplayable. A scene has one player, so binding it to
+    /// a specific device buys nothing and costs everything: story mode has now been unplayable
+    /// twice for two different reasons, both of them "the pawn is listening to a device that is
+    /// not the one in your hands".
+    ///
+    /// The first was the keyboard being registered before any gamepad. The second could not be
+    /// reproduced from here at all - the simulation walks perfectly when driven directly, so the
+    /// fault was always in this last hop - and the list of ways it can go wrong is longer than the
+    /// list of ways it can go right: two keyboard schemes where only one has your movement keys, a
+    /// menu navigated with the mouse, a pad plugged in after the act began, a device id that no
+    /// longer resolves.
+    ///
+    /// So in a scene, every connected device drives the one pawn. There is no wrong answer to give
+    /// because there is no longer a question being asked.
+    /// </summary>
+    readonly struct Controls
+    {
+        public readonly Vector2 Move, Look;
+        public readonly bool Attack, Ads, Dash, Melee, ClassAbility, Special;
+        public readonly bool Jump, JumpHeld, Sprint, Crouch, CrouchPressed;
+        public readonly bool Use, UseHeld, Swap, Start;
+
+        public Controls(InputDevice d)
+        {
+            Move = d.Move; Look = d.Look;
+            Attack = d.AttackHeld; Ads = d.AdsHeld;
+            Dash = d.DashPressed; Melee = d.MeleePressed;
+            ClassAbility = d.ClassAbilityPressed; Special = d.SpecialPressed;
+            Jump = d.JumpPressed; JumpHeld = d.JumpHeld;
+            Sprint = d.SprintHeld; Crouch = d.CrouchHeld; CrouchPressed = d.CrouchPressed;
+            Use = d.UsePressed; UseHeld = d.UseHeld; Swap = d.SwapPressed; Start = d.StartPressed;
+        }
+
+        Controls(Controls a, Controls b)
+        {
+            // Sticks merge by whichever is pushed further, rather than by adding. Adding lets an
+            // idle device with a drifting stick fight a deliberate one, and two devices pushed in
+            // opposite directions would cancel to nothing instead of one of them winning.
+            Move = b.Move.LengthSquared() > a.Move.LengthSquared() ? b.Move : a.Move;
+            Look = b.Look.LengthSquared() > a.Look.LengthSquared() ? b.Look : a.Look;
+
+            Attack = a.Attack | b.Attack; Ads = a.Ads | b.Ads;
+            Dash = a.Dash | b.Dash; Melee = a.Melee | b.Melee;
+            ClassAbility = a.ClassAbility | b.ClassAbility; Special = a.Special | b.Special;
+            Jump = a.Jump | b.Jump; JumpHeld = a.JumpHeld | b.JumpHeld;
+            Sprint = a.Sprint | b.Sprint; Crouch = a.Crouch | b.Crouch;
+            CrouchPressed = a.CrouchPressed | b.CrouchPressed;
+            Use = a.Use | b.Use; UseHeld = a.UseHeld | b.UseHeld;
+            Swap = a.Swap | b.Swap; Start = a.Start | b.Start;
+        }
+
+        public static Controls Merge(Controls a, Controls b) => new(a, b);
+    }
+
+    /// <summary>What is being asked of this view's pawn this frame. See <see cref="Controls"/>.</summary>
+    Controls ReadControls(View v)
+    {
+        if (!SoloScene)
+            return v.Device is { } bound ? new Controls(bound) : default;
+
+        var all = default(Controls);
+        foreach (var d in Devices.All)
+            if (d.Connected)
+                all = Controls.Merge(all, new Controls(d));
+
+        return all;
+    }
+
+    /// <summary>
+    /// A device to rumble and to drive the spawn cards with.
+    ///
+    /// Only ever used for things that need a specific piece of hardware rather than an intent.
+    /// In a scene it falls back to anything connected, so a lost device id cannot strand a player.
+    /// </summary>
+    InputDevice? DeviceFor(View v)
+    {
+        if (v.Device is { Connected: true } bound) return bound;
+        if (!SoloScene) return v.Device;
+
+        foreach (var d in Devices.All) if (d.Connected && d.IsGamepad) return d;
+        foreach (var d in Devices.All) if (d.Connected) return d;
+        return null;
+    }
+
     PawnInput ResolveInput(int pawnIndex)
     {
         var v = views.Find(x => x.PawnIndex == pawnIndex);
-        if (v?.Device is not { } d) return default;
+        if (v == null) return default;
 
+        var c = ReadControls(v);
         var input = new PawnInput();
 
         // Movement is relative to the view, so "up" always means "away from the camera".
@@ -820,29 +925,29 @@ public sealed class MatchScreen : UiScreen
         var forward = new Vector2(MathF.Cos(yaw), MathF.Sin(yaw));
         var right = new Vector2(-forward.Y, forward.X);
 
-        input.Move = MathU.ClampLen(forward * -d.Move.Y + right * d.Move.X, 1f);
-        input.RawMove = d.Move;
-        input.RawLook = d.Look;
+        input.Move = MathU.ClampLen(forward * -c.Move.Y + right * c.Move.X, 1f);
+        input.RawMove = c.Move;
+        input.RawLook = c.Look;
 
         // First person: you always shoot where you are looking, whatever the device — recoil
         // included, so a climbing view really does throw your shots high.
         input.Aim = forward;
         input.Pitch = MathU.Clamp(v.Pitch + v.Recoil, -Pawn.MaxPitch, Pawn.MaxPitch);
 
-        input.Fire = d.AttackHeld;
-        input.Dash = d.DashPressed;
-        input.Melee = d.MeleePressed;
-        input.ClassAbility = d.ClassAbilityPressed;
-        input.Special = d.SpecialPressed;
-        input.Ads = d.AdsHeld;
-        input.Jump = d.JumpPressed;
-        input.JumpHeld = d.JumpHeld;
-        input.Sprint = d.SprintHeld;
-        input.Crouch = d.CrouchHeld;
-        input.CrouchPressed = d.CrouchPressed;
-        input.Use = d.UsePressed;
-        input.UseHeld = d.UseHeld;
-        input.SwapWeapon = d.SwapPressed;
+        input.Fire = c.Attack;
+        input.Dash = c.Dash;
+        input.Melee = c.Melee;
+        input.ClassAbility = c.ClassAbility;
+        input.Special = c.Special;
+        input.Ads = c.Ads;
+        input.Jump = c.Jump;
+        input.JumpHeld = c.JumpHeld;
+        input.Sprint = c.Sprint;
+        input.Crouch = c.Crouch;
+        input.CrouchPressed = c.CrouchPressed;
+        input.Use = c.Use;
+        input.UseHeld = c.UseHeld;
+        input.SwapWeapon = c.Swap;
         return input;
     }
 

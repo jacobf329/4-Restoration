@@ -108,6 +108,16 @@ public sealed class WeaponDef
     public bool Seeks => SeekTurnRate > 0f;
 
     /// <summary>
+    /// Turn this model end for end, for one that came out of generation backwards.
+    ///
+    /// An override on a shared convention rather than a per-weapon orientation: every prompt in
+    /// meshy-weapons.json asks for the gun "laid out horizontally along its length, barrel
+    /// pointing forward", so the batch is supposed to agree and this is for the ones that did not.
+    /// See <see cref="WeaponModels.MuzzleDirection"/> for what replaced the measurement and why.
+    /// </summary>
+    public bool MuzzleFlip;
+
+    /// <summary>
     /// Whether rounds stick in whoever they hit and detonate together once enough of them have.
     ///
     /// A flag rather than a weapon subclass, like Bounces and Grapples above it, because the whole

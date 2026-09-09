@@ -1162,6 +1162,59 @@ public static class UiSelfTest
     /// interesting decision - keep pouring into one target while everything says switch - only
     /// exists while a single needle is beneath notice.
     /// </summary>
+
+    /// <summary>
+    /// Two rules that used to be one number each, and a convention that used to be a measurement.
+    ///
+    /// The headshot half is about what a scope buys. The muzzle half is about a heuristic that was
+    /// wrong on purpose - see WeaponModels.MuzzleDirection - and the check that matters now is
+    /// that a weapon cannot get a facing without somebody having decided on one.
+    /// </summary>
+    static void TestHeadshotsAndMuzzles()
+    {
+        TestLog.Line("- a scope is what a full headshot costs");
+
+        Check(Match.UnscopedHeadshotMultiplier < Match.HeadshotMultiplier,
+              $"a headshot is worth less without a scope "
+              + $"({Match.UnscopedHeadshotMultiplier:0.#}x against {Match.HeadshotMultiplier:0.#}x)");
+
+        Check(Match.UnscopedHeadshotMultiplier > 1f,
+              "and still worth more than a body shot, or nobody would aim high at all");
+
+        // The shot a scope exists for still has to be the one that ends somebody, or the trade -
+        // your field of view, your pace, your awareness of what is beside you - buys nothing.
+        float toughest = 0f;
+        foreach (var c in Classes.All) toughest = MathF.Max(toughest, c.Health);
+
+        foreach (var w in Weapons.Pickups)
+        {
+            if (!w.HasScope) continue;
+            float head = w.Damage * Match.HeadshotMultiplier;
+            TestLog.Line($"    {w.Name}: {head:0} to the head, toughest class has {toughest:0}");
+            Check(head >= toughest, $"a {w.Name} headshot drops anybody in the game");
+        }
+
+        // And the unscoped rate is exactly half, which is the whole of the rule. An earlier
+        // version of this check asserted that six unscoped minigun headshots should not drop the
+        // toughest class; they do, by nine points, and that was an opinion invented here rather
+        // than a rule anybody set. Six headshots in a row is a third of a second of sustained fire
+        // held on a head, and a kill is a fair price for it.
+        Check(MathF.Abs(Match.UnscopedHeadshotMultiplier - Match.HeadshotMultiplier * 0.5f) < 0.01f,
+              "an unscoped headshot is worth exactly half a scoped one");
+
+        // Every pickup that carries a model has a decided facing rather than a measured one.
+        // MuzzleFlip defaulting false is the shared convention; this is only here so that adding a
+        // weapon which needs the override cannot silently skip it by never being looked at.
+        int flipped = 0;
+        foreach (var w in Weapons.Pickups) if (w.MuzzleFlip) flipped++;
+
+        TestLog.Line($"    {flipped} of {Weapons.Pickups.Length} pickup entries override the "
+                 + $"muzzle convention");
+        Check(flipped < Weapons.Pickups.Length,
+              "the muzzle convention is a convention, not a list of exceptions");
+    }
+
+
     static void TestNeedler()
     {
         TestLog.Line("- the needler is worth nothing until it is worth everything");
@@ -1280,6 +1333,321 @@ public static class UiSelfTest
 
 
 
+    /// <summary>
+    /// Act II: the four cases, in any order, and a decision made by standing somewhere.
+    ///
+    /// The thing worth testing here is not the dialogue, it is the claim the act makes about
+    /// itself — that all four delegations can be heard in whichever order the player finds them,
+    /// that the floor does not open until they have been, and that walking onto one of them is
+    /// what answers the question. Every one of those is a way for the only choice in the game to
+    /// become unreachable, and an unreachable choice is a campaign that cannot be finished.
+    /// </summary>
+    static void TestHarvestMission()
+    {
+        TestLog.Line("- Act II is answered by walking, not by a menu");
+
+        var settings = Missions.SettingsFor(Act.Harvest);
+        Check(settings.IsStoryMission, "the hearing is a scene");
+        Check(settings.BotCount == 0, "and nobody else is in the room");
+        Check(Match.ChooseArenaForTest(settings) == Arena.ConvocationLayout,
+              "and it lands in the Convocation rather than the town");
+        Check(Arena.ConvocationLayout != Arena.FairviewLayout,
+              "which is a different set from Act I's");
+
+        var arena = new Arena(Arena.ConvocationLayout);
+
+        // Each bay has to be somewhere a person can actually stand, and far enough from the next
+        // one that standing in one is not standing in two. That second check is the one that
+        // matters: overlapping bays would let a player answer the question by accident, from the
+        // middle of the room, without ever choosing anybody.
+        for (int i = 0; i < 4; i++)
+        {
+            var seat = Arena.ConvocationSeat(i);
+            Check(arena.InPlay(seat with { Y = 2f }),
+                  $"the {Arena.ConvocationHost(i).Name} bay is inside the room");
+
+            for (int j = i + 1; j < 4; j++)
+                Check(seat.DistanceTo(Arena.ConvocationSeat(j)) > Arena.ConvocationBay * 2f,
+                      $"bay {i} and bay {j} do not overlap");
+        }
+
+        // Hear them in an order nobody would design for, to prove the act does not secretly want
+        // one. The Vessels last is the interesting case - they are the ones who raised him, and a
+        // scene written as a sequence would have put them first.
+        var state = new CampaignState();
+        var mission = Missions.Harvest(state);
+
+        Check(!mission.OpenForTest, "the floor is shut before anybody has been heard");
+
+        int[] order = { 2, 0, 3, 1 };
+        var middle = new Vector3(0f, 0f, 0f);
+
+        for (int n = 0; n < order.Length; n++)
+        {
+            // Walk in, then let the case run out. Stepped by more than the longest a line can
+            // hold, so one call is one beat.
+            for (int guard = 0; guard < 60 && mission.HeardForTest <= n; guard++)
+                mission.StepForTest(8f, Arena.ConvocationSeat(order[n]));
+
+            Check(mission.HeardForTest == n + 1,
+                  $"{Arena.ConvocationHost(order[n]).Name} made their case ({mission.HeardForTest} heard)");
+
+            // Back to the middle, or the next step would be measured against the bay he is still
+            // standing in.
+            if (n < order.Length - 1) mission.StepForTest(0.01f, middle);
+        }
+
+        // The closing run has to play itself out before the floor opens.
+        for (int guard = 0; guard < 40 && !mission.OpenForTest; guard++)
+            mission.StepForTest(8f, middle);
+
+        Check(mission.OpenForTest, "and the floor opens once all four have spoken");
+        Check(state.Choice == HarvestChoice.Undecided, "with nothing decided yet");
+
+        // Standing in the middle decides nothing, however long he stands there. This is the check
+        // that a scene which merely waits long enough cannot answer for him.
+        for (int i = 0; i < 20; i++) mission.StepForTest(1f, middle);
+        Check(state.Choice == HarvestChoice.Undecided,
+              "waiting in the middle of the room is not an answer");
+
+        // Step onto a floor, but not for long enough, and then step off.
+        mission.StepForTest(ChamberMission.CommitSeconds * 0.5f, Arena.ConvocationSeat(3));
+        Check(mission.DwellForTest > 0.3f, "standing with somebody starts to count");
+        Check(state.Choice == HarvestChoice.Undecided, "but half a hold is not a decision");
+
+        mission.StepForTest(0.5f, middle);
+        Check(mission.DwellForTest < 1f, "and stepping away gives it back");
+
+        // Then commit properly. The Vessels, so the answer is Waited and the delegation is theirs
+        // rather than the Custodians' - the two share an answer and must not share an identity.
+        for (int guard = 0; guard < 40 && state.Choice == HarvestChoice.Undecided; guard++)
+            mission.StepForTest(1f, Arena.ConvocationSeat(3));
+
+        Check(state.Choice == HarvestChoice.Waited, "standing with the Vessels is an answer");
+        Check(state.Sided == Delegation.Vessels, "and the room remembers whose floor he stood on");
+
+        for (int guard = 0; guard < 40 && !mission.Complete; guard++)
+            mission.StepForTest(8f, Arena.ConvocationSeat(3));
+        Check(mission.Complete, "and the act ends after they have answered him back");
+
+        // The campaign was blocked on this and now is not. Act II being unfinishable was the
+        // state the game was actually in before this scene existed.
+        Check(state.Advance(), "the campaign can leave Act II once the question is answered");
+
+        // Every bay is reachable and the two answers are both reachable. Run each in its own
+        // campaign, because the question is asked once and a state that has answered it cannot
+        // answer it again - which is itself the thing being checked.
+        var answers = new HarvestChoice[4];
+        var sides = new Delegation[4];
+
+        for (int bay = 0; bay < 4; bay++)
+        {
+            var run = new CampaignState();
+            var m = Missions.Harvest(run);
+
+            for (int guard = 0; guard < 400 && !m.Complete; guard++)
+                m.StepForTest(m.OpenForTest ? 1f : 8f,
+                              m.HeardForTest >= 4 ? Arena.ConvocationSeat(bay)
+                                                  : Arena.ConvocationSeat(m.HeardForTest));
+
+            answers[bay] = run.Choice;
+            sides[bay] = run.Sided;
+
+            Check(run.Choice != HarvestChoice.Undecided,
+                  $"siding with {Arena.ConvocationHost(bay).Name} answers the question");
+            TestLog.Line($"    {Arena.ConvocationHost(bay).Name}: {run.Choice}, sided {run.Sided}");
+        }
+
+        Check(answers[0] == HarvestChoice.Harvested && answers[1] == HarvestChoice.Harvested,
+              "the Garden and Ingenuity both take him");
+        Check(answers[2] == HarvestChoice.Waited && answers[3] == HarvestChoice.Waited,
+              "the Custodians and the Vessels both let him wait");
+
+        // Four bays, four identities. Two of them agree about the harvest and none of them are
+        // each other, which is the whole reason Sided is a separate fact from Choice.
+        for (int i = 0; i < 4; i++)
+        for (int j = i + 1; j < 4; j++)
+            Check(sides[i] != sides[j], $"bay {i} and bay {j} are told apart");
+
+        // And it survives the game closing. A choice this size that a restart forgets would be
+        // worse than no choice at all.
+        var saved = new CampaignState();
+        saved.Decide(HarvestChoice.Harvested);
+        saved.SideWith(Delegation.Ingenuity);
+        saved.Save();
+
+        var reloaded = CampaignState.Load();
+        Check(reloaded.Choice == HarvestChoice.Harvested, "the answer survives a restart");
+        Check(reloaded.Sided == Delegation.Ingenuity, "and so does whose floor he was standing on");
+
+        // The room asks once. A second answer would be the game changing its mind about something
+        // the player already lived through.
+        reloaded.SideWith(Delegation.Garden);
+        Check(reloaded.Sided == Delegation.Ingenuity, "and it cannot be answered twice");
+    }
+
+    /// <summary>
+    /// The scope lock: help onto a target, then get out of the way.
+    ///
+    /// Tested as the relationships between the numbers rather than by flying a camera around,
+    /// because what went wrong last time was not arithmetic — it was a design that applied its
+    /// pull every frame, forever, whoever was in the cone. Each check below is one sentence of
+    /// that design written so it cannot quietly stop being true.
+    /// </summary>
+    static void TestScopeLock()
+    {
+        TestLog.Line("- the scope hands you a target and then lets go");
+
+        Check(MatchScreen.ScopeBreakConeForTest > MatchScreen.ScopeAcquireConeForTest,
+              "a lock is harder to lose than it was to get");
+
+        Check(MatchScreen.ScopeSnapRateForTest > MatchScreen.ScopeTrackForTest * 4f,
+              "the swing onto a target is far faster than the following afterwards");
+
+        // The snap has to cover the whole acquire cone inside its own time budget, or the scope
+        // comes up, starts turning, and hands over still pointing somewhere in between.
+        float covered = MatchScreen.ScopeSnapRateForTest * MatchScreen.ScopeSnapTimeForTest;
+        TestLog.Line($"    the snap covers {covered:0.00} rad, cone is "
+                   + $"{MatchScreen.ScopeAcquireConeForTest:0.00} rad");
+        Check(covered > MatchScreen.ScopeAcquireConeForTest * 2f,
+              $"the snap finishes the swing it starts ({covered:0.00} rad)");
+
+        // The override has to be a deadzone rather than a threshold somebody has to lean on.
+        Check(MatchScreen.ScopeOverrideForTest > 0f && MatchScreen.ScopeOverrideForTest < 0.25f,
+              $"a light touch is enough to take over ({MatchScreen.ScopeOverrideForTest:0.00})");
+
+        // And the lock must actually end. This is the check that would have failed against the
+        // version being replaced, which held on for as long as the scope was up.
+        Check(MatchScreen.ScopeGripForTest(0f) >= 0.99f, "the lock is at full strength when taken");
+        Check(MatchScreen.ScopeGripForTest(MatchScreen.ScopeHoldFullForTest * 0.5f) >= 0.99f,
+              "and stays there while you settle");
+
+        float ends = MatchScreen.ScopeHoldFullForTest + MatchScreen.ScopeHoldFadeForTest;
+        Check(MatchScreen.ScopeGripForTest(ends + 0.01f) <= 0f,
+              $"and is gone by {ends:0.0}s however still your hands are");
+
+        // Monotone, so the fade is a fade rather than a shape somebody has to reason about.
+        float last = 2f;
+        for (float t = 0f; t <= ends + 0.5f; t += 0.05f)
+        {
+            float g = MatchScreen.ScopeGripForTest(t);
+            if (g > last + 0.001f) { Check(false, $"the lock never strengthens again (at {t:0.00}s)"); break; }
+            last = g;
+        }
+        Check(last <= 0f, "and the fade only ever runs one way");
+
+        TestLog.Line($"    full for {MatchScreen.ScopeHoldFullForTest:0.0}s, "
+                   + $"gone by {ends:0.0}s, override at {MatchScreen.ScopeOverrideForTest:0.00} stick");
+    }
+
+    /// <summary>
+    /// The dressing: every arena carries some, none of it can be touched, and it stays in budget.
+    ///
+    /// The middle one is the check worth having. Decoration that quietly acquired collision would
+    /// be a gameplay change nobody asked for and nobody would look for — a crate you can hide
+    /// behind is cover, and cover is balance. So this asserts the separation directly rather than
+    /// trusting that nobody adds a body to the render pass later.
+    /// </summary>
+    static void TestDressing()
+    {
+        TestLog.Line("- the arenas are dressed, and none of it is solid");
+
+        for (int layout = 0; layout < Arena.Names.Length; layout++)
+        {
+            var arena = new Arena(layout);
+            int props = arena.Decorations.Count;
+
+            Check(props <= Arena.DecorBudget,
+                  $"{Arena.Names[layout]} stays inside the dressing budget ({props})");
+
+            // Two kinds of map are deliberately bare, and the test says so rather than being
+            // relaxed to accommodate them.
+            //
+            // A puzzle chamber is about the portal and the gap; litter in a void would be scenery
+            // for a place that is not one. The Convocation is bare for a stronger reason: it is a
+            // sealed room four civilisations built to be right in, containing nothing but the man
+            // they are arguing about, and a stack of barrels in the corner would undercut the one
+            // thing the whole act is doing.
+            if (Arena.IsPuzzle(layout) || layout == Arena.ConvocationLayout)
+            {
+                Check(props == 0, $"{Arena.Names[layout]} is meant to be bare and is");
+                continue;
+            }
+
+            Check(props > 0, $"{Arena.Names[layout]} has something in it ({props} pieces)");
+            TestLog.Line($"    {Arena.Names[layout]}: {arena.Blocks.Count} blocks, {props} props");
+
+            // Every piece has real size and sits inside the map.
+            foreach (var d in arena.Decorations)
+            {
+                Check(d.HalfExtents.X > 0f && d.HalfExtents.Y > 0f && d.HalfExtents.Z > 0f,
+                      "a prop has size");
+                Check(arena.Contains(d.Centre), "a prop is inside the arena");
+            }
+        }
+
+        // Every combat arena actually reaches the material library, which it did not for as long
+        // as its blocks all defaulted to plating. Counted through the same derivation the renderer
+        // uses, so this cannot pass while the screen stays grey.
+        var lit = new Arena(0);
+        var used = new System.Collections.Generic.HashSet<SurfaceKind> { Arena.GroundSurface };
+        foreach (var b in lit.Blocks) used.Add(Arena.MaterialForTest(b, false));
+        foreach (var b in lit.Blocks) used.Add(Arena.MaterialForTest(b, true));
+
+        {
+            var tally = new System.Collections.Generic.Dictionary<SurfaceKind, int>();
+            foreach (var b in lit.Blocks)
+            {
+                bool outerBlock = MathF.Abs(b.Centre.X) > 40f || MathF.Abs(b.Centre.Z) > 40f;
+                var kind = Arena.MaterialForTest(b, outerBlock);
+                tally[kind] = tally.GetValueOrDefault(kind) + 1;
+            }
+
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (var (kind, n) in tally) parts.Add($"{n} {kind}");
+            TestLog.Line($"    Reliquary is built from {string.Join(", ", parts)}");
+        }
+
+        Check(used.Count >= 4, $"an arena is built from several materials ({used.Count})");
+        Check(used.Contains(SurfaceKind.Concrete) && used.Contains(SurfaceKind.Brick),
+              "including the two the walls are meant to be");
+
+        // An explicit choice by a builder survives everything, including being made breakable -
+        // which rebuilds the block, and used to drop the material while doing it.
+        var town = new Arena(Arena.FairviewLayout);
+        var chosen = new System.Collections.Generic.HashSet<SurfaceKind>();
+        foreach (var b in town.Blocks) chosen.Add(Arena.MaterialForTest(b, false));
+
+        Check(chosen.Contains(SurfaceKind.Plaster) && chosen.Contains(SurfaceKind.RoofTile),
+              "a builder's own materials are never overridden");
+
+        // The separation, stated as a test. Dressing is invisible to every query the simulation
+        // makes, so a point standing in the middle of a barrel is still clear ground.
+        var dressed = new Arena(0);
+        Check(dressed.Decorations.Count > 0, "there is something to stand in");
+
+        int solid = 0;
+        foreach (var d in dressed.Decorations)
+        {
+            // Only test props sitting on open floor; one against a wall is inside the wall's
+            // clearance and would fail for a reason that has nothing to do with the prop.
+            if (!dressed.IsClearOfBlocks(d.Centre with { Y = 0.1f }, 0.9f, 1.8f)) continue;
+            if (!dressed.IsClearOfBlocks(d.Centre with { Y = 0.1f }, 0.4f, 1.8f)) solid++;
+        }
+
+        Check(solid == 0, $"no piece of dressing is solid ({solid} were)");
+
+        // And the same arena dresses identically twice, or players cannot learn a map.
+        var again = new Arena(0);
+        Check(again.Decorations.Count == dressed.Decorations.Count,
+              "an arena dresses the same way every time");
+
+        bool same = true;
+        for (int i = 0; i < again.Decorations.Count && same; i++)
+            same = again.Decorations[i].Centre.IsEqualApprox(dressed.Decorations[i].Centre);
+        Check(same, "down to where every piece of it is");
+    }
+
     static void TestSurfaces()
     {
         TestLog.Line("- surfaces fall back to plating when there is no art");
@@ -1358,7 +1726,7 @@ public static class UiSelfTest
         foreach (var b in Scripts.Harvest.Beats) heard.Add(b.Who);
 
         foreach (var who in new[] { Speaker.Vessels, Speaker.Garden,
-                                    Speaker.Custodians, Speaker.Muses })
+                                    Speaker.Custodians, Speaker.Ingenuity })
             Check(heard.Contains(who), $"{Scripts.NameOf(who)} argue their case at the harvest");
 
         foreach (var scene in Scripts.All)
@@ -1869,7 +2237,11 @@ public static class UiSelfTest
         TestStoryScript();
         TestSurfaces();
         TestChildhoodMission();
+        TestHarvestMission();
+        TestScopeLock();
+        TestDressing();
         TestNeedler();
+        TestHeadshotsAndMuzzles();
         TestPlayBoundsAreTight();
 
         // Every wall and platform on the map comes down, and the two things that must not are the

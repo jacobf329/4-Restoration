@@ -15,7 +15,7 @@ namespace HitboxClone;
 /// the same two words.
 ///
 /// The Vessels rebuild the body and everything bodies made, the Custodians preserve reason and
-/// faith, the Garden restores life itself, and the Muses hold that a human who is not making
+/// faith, the Garden restores life itself, and Ingenuity hold that a human who is not making
 /// something is the largest waste there has ever been.
 ///
 /// Faction is presentation — silhouette, colour, voice. It is deliberately *not* the same axis as
@@ -279,17 +279,20 @@ public static class Factions
         Juggernaut = Juggernauts.Noah,
     };
 
-    public static readonly FactionDef Muses = new()
+    public static readonly FactionDef Ingenuity = new()
     {
-        // NOTE: the name is now the odd one out and is a decision still outstanding — a
-        // civilisation whose directive is "nothing may be wasted" would not have named itself
-        // after the Muses. Everything else about them has moved to work and ingenuity.
-        Name = "The Muses",
+        // No definite article, unlike the other three. Deliberate rather than an oversight: the
+        // four are not one organisation and have no reason to share a naming convention, and this
+        // is the one that named itself the way a company would.
+        Name = "Ingenuity",
         Answer = "Work and ingenuity",
         Philosophy = "Humanity was the only thing that ever made something out of nothing. "
                    + "A human not doing that is a waste, and waste is the harm.",
         PrimeDirective = "Potential must not be wasted.",
         Tint = new Color(0.98f, 0.45f, 0.30f),      // salvaged paint
+        // The character model files are still muses_walk.glb and muses_run.glb. Left alone on
+        // purpose: renaming a binary asset means rewriting its .import sidecar and the UID that
+        // points at it, which is a real chance of breaking a model to fix a filename nobody sees.
         Model = "muses",
 
         Special = SpecialKind.Understudy,
@@ -300,7 +303,7 @@ public static class Factions
         Juggernaut = Juggernauts.Scheherazade,
     };
 
-    public static readonly FactionDef[] All = { Vessels, Custodians, Garden, Muses };
+    public static readonly FactionDef[] All = { Vessels, Custodians, Garden, Ingenuity };
 
     public static FactionDef ByIndex(int i) => All[((i % All.Length) + All.Length) % All.Length];
 }

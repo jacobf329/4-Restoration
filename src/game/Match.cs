@@ -119,6 +119,15 @@ public partial class Match : Node3D
         /// <summary>True when this round sticks in whoever it hits and counts toward a supercombine.</summary>
         public bool Needles;
 
+        /// <summary>
+        /// True when the weapon that fired this has a scope, which is what a full headshot needs.
+        ///
+        /// Carried on the round rather than read from the owner's hands when it lands, because by
+        /// then they may have swapped: a round in flight was fired by the gun that fired it, and a
+        /// railgun shot should not stop being a railgun shot because somebody pulled out a sword.
+        /// </summary>
+        public bool Scoped;
+
         /// <summary>Stops a round ping-ponging between two gates on consecutive frames.</summary>
         public float PortalLock;
 
@@ -186,6 +195,25 @@ public partial class Match : Node3D
     /// is the reason the number is a constant rather than being folded into the sniper damage.
     /// </summary>
     public const float HeadshotMultiplier = 6.6f;
+
+    /// <summary>
+    /// What a headshot is worth without a scope.
+    ///
+    /// Half. The 6.6 above was set for the shot a scoped rifle exists to take — a still target, a
+    /// held breath, one round — and applying it to everything made every other weapon reward the
+    /// same thing by accident. A minigun burst held on somebody's head was killing in a fifth of a
+    /// second for no decision anybody made.
+    ///
+    /// Scoped is the test rather than a per-weapon list, because it is the property that actually
+    /// distinguishes the shot: a scope is a commitment. You give up your field of view, most of
+    /// your pace and any chance of reacting to what is beside you, and the head is what you are
+    /// buying with that. Nothing else on the map pays a price for aiming high.
+    /// </summary>
+    public const float UnscopedHeadshotMultiplier = 3.3f;
+
+    /// <summary>What this shot's headshot is worth, given what fired it.</summary>
+    static float HeadshotScale(Shot s)
+        => s.Scoped ? HeadshotMultiplier : UnscopedHeadshotMultiplier;
 
     public const float HeadshotBannerTime = 1.15f;
 
@@ -1925,6 +1953,7 @@ public partial class Match : Node3D
                 SeekCone = Mathf.DegToRad(gun.SeekConeDeg),
                 TriggerRadius = gun.TriggerRadius,
                 Needles = gun.Needles,
+                Scoped = gun.HasScope,
             };
 
             if (Visuals)
@@ -2515,8 +2544,8 @@ public partial class Match : Node3D
     /// </summary>
     bool BuildPickupModel(Node3D holder, WeaponDef weapon)
     {
-        if (WeaponModels.Instance(weapon, out float sourceLength, out Vector3 along, out _)
-                is not { } model)
+        if (WeaponModels.Instance(weapon, out float sourceLength, out Vector3 along,
+                                  out float facing) is not { } model)
             return false;
 
         // Bigger than in the hands. A held gun is half a metre from the camera and a dropped one is
@@ -2540,9 +2569,16 @@ public partial class Match : Node3D
         // Laid across the spin rather than pointed down it. A gun rotating about its own long axis
         // is a rolling stick; across, the shape swings through the view and reads as what it is.
         // Tilted a little nose-up so it looks placed rather than dropped.
-        if (along == Vector3.Right) model.RotationDegrees = new Vector3(0f, 0f, 14f);
-        else if (along == Vector3.Up) model.RotationDegrees = new Vector3(0f, 0f, 90f - 14f);
-        else model.RotationDegrees = new Vector3(0f, 90f, 14f);
+        //
+        // Turned end for end with the same facing the held model uses, rather than ignoring it as
+        // this did. A pickup lying muzzle-backwards is less obviously wrong than a held one and it
+        // is still wrong, and having the two disagree about which end is the front would be worse
+        // than either.
+        float turn = facing > 0f ? 0f : 180f;
+
+        if (along == Vector3.Right) model.RotationDegrees = new Vector3(0f, turn, 14f);
+        else if (along == Vector3.Up) model.RotationDegrees = new Vector3(0f, turn, 90f - 14f);
+        else model.RotationDegrees = new Vector3(0f, 90f + turn, 14f);
 
         holder.AddChild(model);
 
@@ -3325,7 +3361,8 @@ public partial class Match : Node3D
     /// A decoy that walks on in the direction its owner was facing.
     ///
     /// Not a pawn: it has no health, takes no damage and cannot shoot. It exists to be shot *at*,
-    /// which is the whole point — every round spent on it is a round not spent on the Muse who is
+    /// which is the whole point — every round spent on it is a round not spent on the Ingenuity
+    /// fighter who is
     /// no longer standing there.
     /// </summary>
     sealed class Decoy
@@ -3353,7 +3390,7 @@ public partial class Match : Node3D
     ///
     /// Four times over, both halves. At 150 in a nine-metre circle the payoff still did not
     /// justify how ignorable the thing is — reading a decoy and stepping away cost one sidestep,
-    /// so the bomb half of the bluff was never a real threat and the Muses were back to owning a
+    /// so the bomb half of the bluff was never a real threat and Ingenuity were back to owning a
     /// lie nobody had to respect. At 600 across thirty-six metres, walking away is a commitment:
     /// the radius is most of a room, so "step aside" becomes "leave", and leaving is exactly the
     /// concession the ability is asking a player to make.
@@ -3428,7 +3465,7 @@ public partial class Match : Node3D
                 // to ignore them, at which point they stopped being a lie at all. One that
                 // detonates like a tank shell means every double has to be treated as either a
                 // trick or a bomb, and you cannot tell which. That it is a *copy of a person*,
-                // made to be spent, is the Muses' whole argument stated as a mechanic.
+                // made to be spent, is Ingenuity's whole argument stated as a mechanic.
                 Vector3 at = d.Node.GlobalPosition + Vector3.Up * 0.9f;
 
                 if (d.Owner is { } owner)
@@ -3436,8 +3473,8 @@ public partial class Match : Node3D
 
                 if (Visuals)
                 {
-                    Impact.Death(this, at, Factions.Muses.Tint);
-                    Impact.DeathRing(this, d.Node.GlobalPosition, Factions.Muses.Tint);
+                    Impact.Death(this, at, Factions.Ingenuity.Tint);
+                    Impact.DeathRing(this, d.Node.GlobalPosition, Factions.Ingenuity.Tint);
                     Sfx.PlayAt(Sound.Death, at);
                 }
 
@@ -3740,7 +3777,7 @@ public partial class Match : Node3D
     /// <summary>
     /// One decoy, thrown off at an angle from the user's heading.
     ///
-    /// The Muses' special leaves a single one walking straight on; the Thousand leaves eight in a
+    /// Ingenuity's special leaves a single one walking straight on; the Thousand leaves eight in a
     /// ring. Same body, same lifetime, same lie — only the direction differs.
     /// </summary>
     void LeaveDecoyAlong(Pawn user, float offset)
@@ -3756,7 +3793,7 @@ public partial class Match : Node3D
         //
         // It was two glowing boxes, on the reasoning that a decoy should be "obviously false close
         // up". That reasoning was wrong and the player said so: a lie that announces itself is not
-        // a lie, and it made the Muses' whole special into a distraction nobody was distracted by.
+        // a lie, and it made Ingenuity's whole special into a distraction nobody was distracted by.
         // A double that looks exactly like you is the entire ability — and now that it detonates,
         // being unable to tell at a glance is the threat as well as the bluff.
         //
@@ -5092,7 +5129,7 @@ public partial class Match : Node3D
                     float local = impact.Y - target.GlobalPosition.Y;
                     bool headshot = local >= target.CurrentHeight * Pawn.HeadFraction;
 
-                    float damage = headshot ? s.Damage * HeadshotMultiplier : s.Damage;
+                    float damage = headshot ? s.Damage * HeadshotScale(s) : s.Damage;
 
                     // Achilles' heel, and the shooter's own crown if they are wearing one. The heel
                     // deliberately inverts the instinct every other target in this game trains: aim

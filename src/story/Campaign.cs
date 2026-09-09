@@ -21,7 +21,7 @@ public enum Act
     /// <summary>The Custodians' library, and what they finally tell him he is for.</summary>
     Library,
 
-    /// <summary>The Muses' camps, preserved, by people who are not ashamed of them.</summary>
+    /// <summary>Ingenuity's camps, preserved, by people who are not ashamed of them.</summary>
     Camps,
 
     /// <summary>The ruling. What harm is, said out loud by the only thing that can say it.</summary>
@@ -39,11 +39,31 @@ public enum HarvestChoice
 {
     Undecided,
 
-    /// <summary>He allowed it. The Garden and the Muses got what they wanted.</summary>
+    /// <summary>He allowed it. The Garden and Ingenuity got what they wanted.</summary>
     Harvested,
 
     /// <summary>He refused, and waited for the Vessels to find him someone.</summary>
     Waited,
+}
+
+/// <summary>
+/// Whose side he took when the question was put to him.
+///
+/// Separate from <see cref="HarvestChoice"/> because two delegations share each answer, and which
+/// of the two he walked over to is not the same fact as what he decided. The Garden wants his body
+/// because life is sacred and Ingenuity want it because an idle asset is a waste; a man who stood
+/// with one of them has said something different about himself than a man who stood with the
+/// other, and Act III is owed that difference even though both of them harvested him.
+/// </summary>
+public enum Delegation
+{
+    /// <summary>Nobody. The state the first two acts are played in.</summary>
+    None,
+
+    Garden,
+    Ingenuity,
+    Custodians,
+    Vessels,
 }
 
 /// <summary>
@@ -61,6 +81,9 @@ public sealed class CampaignState
     public Act Act { get; private set; } = Act.Childhood;
 
     public HarvestChoice Choice { get; private set; } = HarvestChoice.Undecided;
+
+    /// <summary>Whose floor he was standing on when he answered. See <see cref="Delegation"/>.</summary>
+    public Delegation Sided { get; private set; } = Delegation.None;
 
     /// <summary>
     /// How far she has come round, from 0 to 1.
@@ -106,6 +129,18 @@ public sealed class CampaignState
     }
 
     /// <summary>
+    /// Record whose side he took. Guarded the same way <see cref="Decide"/> is and for the same
+    /// reason: the room asks once, and a second answer would be the game changing its mind about
+    /// something the player already lived through.
+    /// </summary>
+    public void SideWith(Delegation who)
+    {
+        if (who == Delegation.None) return;
+        if (Sided != Delegation.None) return;
+        Sided = who;
+    }
+
+    /// <summary>
     /// Move her opinion of him, and keep it inside the range.
     ///
     /// Clamped here rather than at the call sites, so a scene that hands out a large swing cannot
@@ -137,6 +172,7 @@ public sealed class CampaignState
     {
         Act = Act.Childhood;
         Choice = HarvestChoice.Undecided;
+        Sided = Delegation.None;
         Affinity = StartingAffinity;
     }
 
@@ -152,6 +188,7 @@ public sealed class CampaignState
         var cfg = new ConfigFile();
         cfg.SetValue("campaign", "act", (int)Act);
         cfg.SetValue("campaign", "choice", (int)Choice);
+        cfg.SetValue("campaign", "sided", (int)Sided);
         cfg.SetValue("campaign", "affinity", Affinity);
         cfg.Save(Path);
     }
@@ -172,11 +209,13 @@ public sealed class CampaignState
 
         int act = cfg.GetValue("campaign", "act", (int)Act.Childhood).AsInt32();
         int choice = cfg.GetValue("campaign", "choice", (int)HarvestChoice.Undecided).AsInt32();
+        int sided = cfg.GetValue("campaign", "sided", (int)Delegation.None).AsInt32();
         float affinity = (float)cfg.GetValue("campaign", "affinity", StartingAffinity).AsDouble();
 
         state.Act = (Act)Mathf.Clamp(act, (int)Act.Childhood, (int)Act.Arbiter);
         state.Choice = (HarvestChoice)Mathf.Clamp(choice, (int)HarvestChoice.Undecided,
                                                   (int)HarvestChoice.Waited);
+        state.Sided = (Delegation)Mathf.Clamp(sided, (int)Delegation.None, (int)Delegation.Vessels);
         state.Affinity = MathU.Clamp01(affinity);
 
         // A save that claims to be past the harvest with nothing decided is corrupt rather than
@@ -221,7 +260,7 @@ public static class Acts
         new() { Act = Act.Library, Host = Factions.Custodians, Name = "The Library",
                 Blurb = "The first people to answer your questions, and what they want for it." },
 
-        new() { Act = Act.Camps, Host = Factions.Muses, Name = "The Camps",
+        new() { Act = Act.Camps, Host = Factions.Ingenuity, Name = "The Camps",
                 Blurb = "Preserved, like everything else they made. They are not sorry." },
 
         new() { Act = Act.Arbiter, Host = null, Name = "The Arbiter",

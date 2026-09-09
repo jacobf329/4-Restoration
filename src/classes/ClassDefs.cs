@@ -42,7 +42,7 @@ public enum SpecialKind
     Bloom,
 
     /// <summary>
-    /// Muses. A decoy walks off in the direction you were facing while you go quiet. The only one
+    /// Ingenuity. A decoy walks off in the direction you were facing while you go quiet. The only one
     /// of the four that lies, from the faction that says the others reduced humanity to a
     /// specification sheet.
     /// </summary>
@@ -513,7 +513,7 @@ public static class SpecialClasses
         SpecialCooldown = 14f,
     };
 
-    // ---- The Muses ----
+    // ---- Ingenuity ----
 
     /// <summary>
     /// The fastest thing in the game and the flimsiest. Two guns and no answer to being hit.

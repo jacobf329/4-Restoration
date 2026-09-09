@@ -42,6 +42,43 @@ public readonly struct Block
     }
 }
 
+/// <summary>
+/// A piece of dressing: seen, never touched.
+///
+/// Deliberately not a <see cref="Block"/>, and the difference is the whole reason this type
+/// exists. A block is collision that happens to be drawn — every one of them is in the navigation
+/// graph, the hull-fitting test, the spawn clearance check and the line-of-sight scan, and adding
+/// two hundred of them to make a map look inhabited would change how every fight in it plays. A
+/// kerb you can trip on is a gameplay change wearing a decoration's clothes.
+///
+/// So decor is drawn and nothing else. Nothing queries it, nothing walks into it, and the
+/// simulation cannot tell it is there. That buys two things worth having: props can be placed
+/// with a free hand rather than against a nav budget, and they can be *rotated*, which blocks
+/// cannot be. A crate at eleven degrees is the single cheapest way to stop a room reading as a
+/// grid, and it is not available to anything that has to answer an axis-aligned overlap test.
+/// </summary>
+public readonly struct Decor
+{
+    public readonly Vector3 Centre;
+    public readonly Vector3 HalfExtents;
+
+    /// <summary>Euler degrees. The thing a block cannot have.</summary>
+    public readonly Vector3 Turn;
+
+    public readonly Color Tint;
+    public readonly SurfaceKind Surface;
+
+    public Decor(Vector3 centre, Vector3 halfExtents, Color tint,
+                 SurfaceKind surface = SurfaceKind.Panel, Vector3 turn = default)
+    {
+        Centre = centre;
+        HalfExtents = halfExtents;
+        Tint = tint;
+        Surface = surface;
+        Turn = turn;
+    }
+}
+
 /// <summary>A pad that flings anything standing on it straight up.</summary>
 public readonly struct LaunchPad
 {
@@ -179,7 +216,7 @@ public sealed class Arena
     /// architecture is a place for keeping bodies. The Furnace is the Custodians': Prometheus stole
     /// the fire and was chained to it, and every hazard left in the game is here and nowhere else.
     /// The Glasshouse is the Garden's: Noah carried the living through the flood and they are still
-    /// carrying them. The Thousand Rooms is the Muses': a civilisation
+    /// carrying them. The Thousand Rooms is Ingenuity': a civilisation
     /// that cannot let potential go unused builds something that never stops adding capacity, and
     /// it is not an accident that it is the layout closest to a camp.
     /// </summary>
@@ -193,12 +230,26 @@ public sealed class Arena
     /// </summary>
     public static readonly string[] Names =
         { "Reliquary", "Furnace", "Glasshouse", "Thousand Rooms",
-          "Fairview", "Antechamber", "Orrery" };
+          "Fairview", "Convocation", "Antechamber", "Orrery" };
 
     public readonly int Layout;
     public string Name => Names[Layout];
 
     public readonly List<Block> Blocks = new();
+
+    /// <summary>
+    /// Everything drawn but not collided with. See <see cref="Decor"/>.
+    ///
+    /// Budgeted rather than unlimited. Every entry is one more MeshInstance3D drawn once per
+    /// viewport, and this arena renderer has been here before: each block used to carry four
+    /// emissive trim bars, and nine hundred extra instances across four splitscreen quarters is
+    /// why the whole map shimmered along its edges. Dressing is worth a lot and worth nothing at
+    /// half the frame rate, so the scatter passes work to a cap.
+    /// </summary>
+    public readonly List<Decor> Decorations = new();
+
+    /// <summary>How many pieces of dressing an arena may carry. See <see cref="Decorations"/>.</summary>
+    public const int DecorBudget = 260;
 
     /// <summary>Interior chambers this arena actually built. Reported by the harness.</summary>
     public int RoomsBuilt;
@@ -315,7 +366,8 @@ public sealed class Arena
         // otherwise louder than any amount of dialogue.
         if (Story)
         {
-            BuildFairview();
+            if (Layout == ConvocationLayout) BuildConvocation();
+            else { BuildFairview(); DressFairview(); }
             return;
         }
 
@@ -347,6 +399,12 @@ public sealed class Arena
 
         // After every block exists and before anything reads them.
         MakeStructureBreakable();
+
+        // Dressing goes on last, once there is a finished map to dress. It reads the block list to
+        // find walls and corners, so running it any earlier would decorate half a level - and it
+        // adds nothing the passes above would have wanted to know about, because none of them can
+        // see it.
+        Dress();
 
         // Last, because it needs the finished map: it picks floor a pawn can stand on.
         ChooseHealthSpawns();
@@ -1531,7 +1589,11 @@ public sealed class Arena
             if (b.Fragile) continue;
             if (b.Centre.Y + b.HalfExtents.Y <= FloorDecalTop) continue;
 
-            Blocks[i] = new Block(b.Centre, b.HalfExtents, b.Tint, fragile: true);
+            // b.Surface carried through. It was not, and that was a live bug waiting for the
+            // first combat arena to name a material: this pass rebuilds nearly every block in the
+            // map, so anything a builder had chosen was silently reset to the default plating on
+            // the way past. Nothing had chosen one yet, which is the only reason it never showed.
+            Blocks[i] = new Block(b.Centre, b.HalfExtents, b.Tint, fragile: true, surface: b.Surface);
         }
     }
 
@@ -1998,7 +2060,7 @@ public sealed class Arena
     }
 
     /// <summary>
-    /// Gauntlet → THE THOUSAND ROOMS, of the Muses.
+    /// Gauntlet → THE THOUSAND ROOMS, of Ingenuity.
     ///
     /// Scheherazade lived one more night for every story, and her faction's answer to being told
     /// humanity was a specification sheet is a building that will not stop adding rooms. The
@@ -2074,7 +2136,13 @@ public sealed class Arena
     /// Ordered combat, story, puzzle so that <see cref="IsPuzzle"/> stays "the last few" and did
     /// not have to change when Fairview arrived.
     /// </summary>
-    public const int StoryLayouts = 1;
+    public const int StoryLayouts = 2;
+
+    /// <summary>Fairview, the town of Act I.</summary>
+    public static int FairviewLayout => CombatLayouts;
+
+    /// <summary>The chamber the four convene in for Act II.</summary>
+    public static int ConvocationLayout => CombatLayouts + 1;
 
     /// <summary>How many layouts are combat arenas — the only ones a versus match may pick.</summary>
     ///
@@ -2281,6 +2349,422 @@ public sealed class Arena
                  new Vector3(1.0f, 2.0f, Row + 12f), civic.Darkened(0.35f), SurfaceKind.Concrete);
     }
 
+    // ---- the Convocation ----
+    //
+    // Act II's set, and the opposite of Fairview in every way that matters. Fairview is a place
+    // somebody lives, built to be liked; this is a room four civilisations built to be *right* in.
+    // Nothing in it is comfortable, there is no way out of it, and the only thing on the floor is
+    // the man they are arguing about.
+    //
+    // The four bays are the argument made out of geometry. Each faction has an identical footprint
+    // at an identical distance — nobody is nearer, nobody is higher, nobody has the floor — and
+    // the player decides the whole story by walking into one of them. That is the entire design,
+    // and everything below is in service of making the walk read as a decision.
+
+    /// <summary>How far the four delegations stand from the middle of the floor.</summary>
+    public const float ConvocationRadius = 34f;
+
+    /// <summary>How much floor each delegation has, measured out from its bay's mouth.</summary>
+    public const float ConvocationBay = 9f;
+
+    /// <summary>
+    /// The four bays, in a fixed order, so the level and the script cannot disagree about which
+    /// corner belongs to whom.
+    ///
+    /// East, west, north, south, and the assignment is not arbitrary: the Garden is put in the
+    /// player's path along the street of the room, the Vessels are behind him where everything he
+    /// came from is, and the Custodians face him because they are the ones who ask him a question
+    /// rather than making him an offer.
+    /// </summary>
+    public static Vector3 ConvocationSeat(int i) => i switch
+    {
+        0 => new Vector3(ConvocationRadius, 0f, 0f),      // the Garden
+        1 => new Vector3(-ConvocationRadius, 0f, 0f),     // Ingenuity
+        2 => new Vector3(0f, 0f, -ConvocationRadius),     // the Custodians
+        _ => new Vector3(0f, 0f, ConvocationRadius),      // the Vessels
+    };
+
+    /// <summary>The faction standing in each bay, in the same order as <see cref="ConvocationSeat"/>.</summary>
+    public static FactionDef ConvocationHost(int i) => i switch
+    {
+        0 => Factions.Garden,
+        1 => Factions.Ingenuity,
+        2 => Factions.Custodians,
+        _ => Factions.Vessels,
+    };
+
+    // ---- dressing ----
+    //
+    // A vocabulary of props, each built from a handful of rotated boxes. Not because boxes are
+    // the ambition, but because a box at an angle with the right material on it stops being a box
+    // at about four metres, and eight of them arranged as a barrel stops being one immediately.
+    // The silhouette does almost all of the work; the material does the rest.
+    //
+    // Every one of these is decoration only. Nothing here is walked on, shot through differently,
+    // or pathed around - see Decor for why that is a deliberate line rather than a shortcut.
+
+    /// <summary>Deterministic per-arena randomness, so a map dresses the same way every launch.</summary>
+    ///
+    /// Seeded from the layout index rather than from the clock. A map that rearranges its own
+    /// litter between rounds is a map players cannot learn, and learning where things are is most
+    /// of what makes a place feel like a place.
+    Random dressRng = new(0);
+
+    float Vary(float a, float b) => a + (float)dressRng.NextDouble() * (b - a);
+    float Spin() => (float)dressRng.NextDouble() * 360f;
+
+    bool DecorRoom => Decorations.Count < DecorBudget;
+
+    void Prop(Vector3 at, Vector3 half, Color tint, SurfaceKind surface, Vector3 turn = default)
+    {
+        if (!DecorRoom) return;
+
+        // Kept inside the map at the one place every prop passes through.
+        //
+        // The scatter passes work outward from walls and along the perimeter, and both of those
+        // put things near the edge on purpose - then a random spread of a metre or two carries
+        // some of them past it. Clamping here rather than in each caller means a new prop shape
+        // cannot reintroduce this, and clamping rather than rejecting means the litter still
+        // reaches the edges of the map, which is where it was wanted.
+        at.X = Mathf.Clamp(at.X, -HalfWidth + 1f, HalfWidth - 1f);
+        at.Z = Mathf.Clamp(at.Z, -HalfDepth + 1f, HalfDepth - 1f);
+
+        Decorations.Add(new Decor(at, half, tint, surface, turn));
+    }
+
+    /// <summary>
+    /// A drum: two boxes crossed at 45 degrees, which is an octagon from every angle that matters,
+    /// plus a rim band so it reads as a container rather than a post.
+    /// </summary>
+    void Barrel(Vector3 foot, Color tint, float scale = 1f)
+    {
+        float r = 0.42f * scale, h = 0.58f * scale;
+        var mid = foot + Vector3.Up * h;
+        float yaw = Spin();
+
+        Prop(mid, new Vector3(r, h, r), tint, SurfaceKind.Panel, new Vector3(0f, yaw, 0f));
+        Prop(mid, new Vector3(r, h * 0.98f, r), tint, SurfaceKind.Panel, new Vector3(0f, yaw + 45f, 0f));
+
+        // Two bands, darker, standing slightly proud. This is the whole difference between a
+        // barrel and a bollard.
+        foreach (float t in new[] { 0.42f, 0.72f })
+            Prop(foot + Vector3.Up * (h * 2f * t), new Vector3(r * 1.06f, 0.05f * scale, r * 1.06f),
+                 tint.Darkened(0.4f), SurfaceKind.Panel, new Vector3(0f, yaw + 22f, 0f));
+    }
+
+    /// <summary>A crate, sat at a slight angle with battens along its edges.</summary>
+    void Crate(Vector3 foot, Color tint, float scale = 1f)
+    {
+        float s = 0.55f * scale;
+        var mid = foot + Vector3.Up * s;
+        var turn = new Vector3(0f, Spin(), 0f);
+
+        Prop(mid, new Vector3(s, s, s), tint, SurfaceKind.Timber, turn);
+
+        // Battens: two thin bands across the faces, which is what says "crate" rather than "cube".
+        Prop(mid + Vector3.Up * s * 0.55f, new Vector3(s * 1.03f, s * 0.10f, s * 1.03f),
+             tint.Darkened(0.28f), SurfaceKind.Timber, turn);
+        Prop(mid - Vector3.Up * s * 0.55f, new Vector3(s * 1.03f, s * 0.10f, s * 1.03f),
+             tint.Darkened(0.28f), SurfaceKind.Timber, turn);
+    }
+
+    /// <summary>Broken masonry: a few slabs at unrelated angles, lying where they fell.</summary>
+    void Rubble(Vector3 at, Color tint, int pieces = 4, float spread = 2.2f)
+    {
+        for (int i = 0; i < pieces; i++)
+        {
+            var to = at + new Vector3(Vary(-spread, spread), 0f, Vary(-spread, spread));
+            float sx = Vary(0.22f, 0.7f), sy = Vary(0.07f, 0.22f), sz = Vary(0.22f, 0.7f);
+
+            Prop(to + Vector3.Up * sy, new Vector3(sx, sy, sz), tint.Darkened(Vary(0f, 0.3f)),
+                 SurfaceKind.Concrete,
+                 new Vector3(Vary(-14f, 14f), Spin(), Vary(-14f, 14f)));
+        }
+    }
+
+    /// <summary>A run of pipe along a wall, with a flange every few metres.</summary>
+    void PipeRun(Vector3 from, Vector3 to, float radius, Color tint)
+    {
+        var mid = (from + to) * 0.5f;
+        var span = to - from;
+        float len = span.Length();
+        if (len < 0.5f) return;
+
+        bool alongX = MathF.Abs(span.X) > MathF.Abs(span.Z);
+        var half = alongX ? new Vector3(len * 0.5f, radius, radius)
+                          : new Vector3(radius, radius, len * 0.5f);
+
+        Prop(mid, half, tint, SurfaceKind.Panel);
+        Prop(mid, half * new Vector3(1f, 0.99f, 0.99f), tint, SurfaceKind.Panel,
+             alongX ? new Vector3(45f, 0f, 0f) : new Vector3(0f, 0f, 45f));
+
+        int flanges = Mathf.Clamp((int)(len / 4f), 1, 4);
+        for (int i = 1; i <= flanges; i++)
+        {
+            float t = i / (float)(flanges + 1);
+            var at = from.Lerp(to, t);
+            var band = alongX ? new Vector3(radius * 0.3f, radius * 1.35f, radius * 1.35f)
+                              : new Vector3(radius * 1.35f, radius * 1.35f, radius * 0.3f);
+            Prop(at, band, tint.Darkened(0.35f), SurfaceKind.Panel);
+        }
+    }
+
+    /// <summary>A planter with something growing out of it.</summary>
+    void Planter(Vector3 foot, Color box, Color green)
+    {
+        float w = Vary(0.8f, 1.15f);
+        Prop(foot + Vector3.Up * 0.34f, new Vector3(w, 0.34f, w * 0.8f), box, SurfaceKind.Concrete,
+             new Vector3(0f, Vary(-8f, 8f), 0f));
+
+        for (int i = 0; i < 3; i++)
+            Prop(foot + new Vector3(Vary(-w * 0.5f, w * 0.5f), Vary(0.7f, 1.15f),
+                                    Vary(-w * 0.4f, w * 0.4f)),
+                 new Vector3(Vary(0.22f, 0.42f), Vary(0.24f, 0.5f), Vary(0.22f, 0.42f)),
+                 green.Darkened(Vary(0f, 0.25f)), SurfaceKind.Foliage,
+                 new Vector3(Vary(-20f, 20f), Spin(), Vary(-20f, 20f)));
+    }
+
+    /// <summary>A lamp on a post, leaning very slightly, because nothing outdoors is plumb.</summary>
+    void StreetLight(Vector3 foot, Color post)
+    {
+        float h = Vary(3.4f, 4.0f);
+        float lean = Vary(-1.4f, 1.4f);
+
+        Prop(foot + Vector3.Up * h * 0.5f, new Vector3(0.09f, h * 0.5f, 0.09f), post,
+             SurfaceKind.Panel, new Vector3(lean, Spin(), lean));
+
+        Prop(foot + Vector3.Up * (h + 0.06f), new Vector3(0.55f, 0.09f, 0.2f),
+             post.Darkened(0.2f), SurfaceKind.Panel, new Vector3(0f, Spin(), 0f));
+    }
+
+    /// <summary>Tufts of growth, for the seams where a floor meets a wall.</summary>
+    void Weeds(Vector3 at, Color green, int tufts, float spread)
+    {
+        for (int i = 0; i < tufts; i++)
+            Prop(at + new Vector3(Vary(-spread, spread), Vary(0.10f, 0.26f), Vary(-spread, spread)),
+                 new Vector3(Vary(0.12f, 0.34f), Vary(0.10f, 0.26f), Vary(0.12f, 0.34f)),
+                 green.Darkened(Vary(0f, 0.35f)), SurfaceKind.Foliage,
+                 new Vector3(Vary(-18f, 18f), Spin(), Vary(-18f, 18f)));
+    }
+
+    /// <summary>
+    /// Dress a combat arena.
+    ///
+    /// Placed against the blocks already standing rather than on a grid: props go where things
+    /// collect in real places — at the feet of walls, in corners, against the perimeter. Scanning
+    /// the block list to find those spots means a layout change moves the litter with it, which is
+    /// the only way this stays true after the next time somebody edits a map.
+    /// </summary>
+    void Dress()
+    {
+        dressRng = new Random(9001 + Layout * 7919);
+
+        var drum = new Color(0.52f, 0.44f, 0.26f);
+        var timber = new Color(0.55f, 0.38f, 0.22f);
+        var stone = new Color(0.48f, 0.48f, 0.50f);
+        var green = new Color(0.30f, 0.46f, 0.24f);
+        var steel = new Color(0.40f, 0.43f, 0.48f);
+
+        // Sizeable standing blocks are walls, and things get left at the foot of walls.
+        var walls = new List<Block>();
+        foreach (var b in Blocks)
+        {
+            if (b.Fragile) continue;
+            if (b.HalfExtents.Y < 1.2f) continue;                 // not a wall, a step
+            if (b.Centre.Y - b.HalfExtents.Y > 0.8f) continue;    // not on the ground
+            walls.Add(b);
+        }
+
+        // Shuffled so a budget that runs out does not always run out in the same corner of the
+        // map. Fisher-Yates on a seeded generator, so it is still the same every launch.
+        for (int i = walls.Count - 1; i > 0; i--)
+        {
+            int j = dressRng.Next(i + 1);
+            (walls[i], walls[j]) = (walls[j], walls[i]);
+        }
+
+        foreach (var w in walls)
+        {
+            if (!DecorRoom) break;
+
+            // Pick a face and stand along it, a little way out so nothing z-fights the wall.
+            bool longX = w.HalfExtents.X > w.HalfExtents.Z;
+            float side = dressRng.Next(2) == 0 ? 1f : -1f;
+
+            var outward = longX ? new Vector3(0f, 0f, side) : new Vector3(side, 0f, 0f);
+            float offset = (longX ? w.HalfExtents.Z : w.HalfExtents.X) + 0.55f;
+            float along = longX ? w.HalfExtents.X : w.HalfExtents.Z;
+
+            var basePos = w.Centre with { Y = w.Centre.Y - w.HalfExtents.Y } + outward * offset;
+            var slide = longX ? Vector3.Right : Vector3.Back;
+
+            switch (dressRng.Next(6))
+            {
+                case 0:
+                    Barrel(basePos + slide * Vary(-along * 0.6f, along * 0.6f), drum, Vary(0.85f, 1.15f));
+                    Barrel(basePos + slide * Vary(-along * 0.6f, along * 0.6f), drum, Vary(0.85f, 1.1f));
+                    break;
+                case 1:
+                    Crate(basePos + slide * Vary(-along * 0.6f, along * 0.6f), timber, Vary(0.8f, 1.2f));
+                    break;
+                case 2:
+                    Rubble(basePos + slide * Vary(-along * 0.5f, along * 0.5f), stone, 5, 1.8f);
+                    break;
+                case 3:
+                    PipeRun(basePos + slide * -along * 0.8f + Vector3.Up * Vary(1.4f, 2.6f),
+                            basePos + slide * along * 0.8f + Vector3.Up * Vary(1.4f, 2.6f),
+                            Vary(0.10f, 0.17f), steel);
+                    break;
+                case 4:
+                    Weeds(basePos + slide * Vary(-along * 0.7f, along * 0.7f), green, 4, 1.3f);
+                    break;
+                default:
+                    Planter(basePos + slide * Vary(-along * 0.5f, along * 0.5f), stone, green);
+                    break;
+            }
+        }
+
+        // The perimeter, which is otherwise the emptiest and most visible surface on the map.
+        for (int i = 0; i < 14 && DecorRoom; i++)
+        {
+            float t = (i + 0.5f) / 14f;
+            float x = -HalfWidth + t * HalfWidth * 2f;
+
+            foreach (float z in new[] { -HalfDepth + 2.2f, HalfDepth - 2.2f })
+            {
+                if (!DecorRoom) break;
+                if (dressRng.Next(3) == 0) Weeds(new Vector3(x, 0f, z), green, 3, 1.6f);
+                else if (dressRng.Next(2) == 0) Rubble(new Vector3(x, 0f, z), stone, 3, 1.4f);
+                else StreetLight(new Vector3(x, 0f, z), steel);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Dress Fairview, which wants a different hand entirely.
+    ///
+    /// The combat pass scatters industrial litter to make an arena look used. A town has to look
+    /// *lived in*, which is the opposite job: nothing broken, nothing burnt, everything tidy and
+    /// slightly dull. That is the whole point of Fairview — it was built for one person by people
+    /// who wanted him to like it — so this places bins that have been put out, hedges that have
+    /// been cut, and lamps that all work.
+    /// </summary>
+    void DressFairview()
+    {
+        dressRng = new Random(4242);
+
+        var green = new Color(0.34f, 0.48f, 0.28f);
+        var steel = new Color(0.42f, 0.45f, 0.50f);
+        var stone = new Color(0.62f, 0.62f, 0.60f);
+        var bin = new Color(0.28f, 0.36f, 0.30f);
+
+        const float Row = 16f, Pitch = 26f, First = -78f;
+        const int Houses = 6;
+
+        for (int i = 0; i < Houses; i++)
+        {
+            float x = First + i * Pitch;
+
+            foreach (int side in new[] { -1, 1 })
+            {
+                float front = side * (Row - 8.5f);
+
+                // A wheelie bin at the kerb, and a second one when the household has two.
+                Barrel(new Vector3(x + Vary(-2.5f, 2.5f), 0f, front), bin, 0.9f);
+                if (dressRng.Next(2) == 0)
+                    Barrel(new Vector3(x + Vary(-3.5f, 3.5f), 0f, front), bin, 0.85f);
+
+                // A planter by the door.
+                Planter(new Vector3(x + Vary(-4f, 4f), 0f, side * (Row - 10.5f)), stone, green);
+            }
+        }
+
+        // Lamp posts down one side of the street, evenly, the way a council would.
+        for (float x = First - 6f; x <= 88f && DecorRoom; x += Pitch * 0.5f)
+            StreetLight(new Vector3(x, 0f, -7.5f), steel);
+
+        // And the green itself gets shrubs rather than litter.
+        for (int i = 0; i < 8 && DecorRoom; i++)
+            Weeds(new Vector3(Vary(-12f, 12f), 0f, Vary(-4f, 4f)), green, 3, 1.2f);
+    }
+
+    void BuildConvocation()
+    {
+        var stone = new Color(0.30f, 0.30f, 0.33f);
+        var floor = new Color(0.24f, 0.24f, 0.27f);
+
+        // He starts a little short of the middle, so the first thing the act asks him to do is
+        // walk into the centre of a room that is already looking at him.
+        SpawnPoints.Add(new Vector3(0f, 1.4f, 14f));
+        SpawnPoints.Add(new Vector3(2.5f, 1.4f, 14f));
+
+        // The floor he is called onto. Raised barely enough to feel like a stage underfoot, which
+        // is what it is.
+        Deck(new Vector3(0f, 0.12f, 0f), new Vector3(11f, 0.12f, 11f), floor, SurfaceKind.Concrete);
+
+        const float Wall = 48f;
+        const float Height = 9f;
+
+        // A sealed square. No gate, no gap, no corridor out — the act ends when he answers, and a
+        // room with a visible exit invites a player to spend Act II looking for it.
+        foreach (int side in new[] { -1, 1 })
+        {
+            Deck(new Vector3(side * Wall, Height, 0f),
+                 new Vector3(1.2f, Height, Wall), stone, SurfaceKind.Concrete);
+            Deck(new Vector3(0f, Height, side * Wall),
+                 new Vector3(Wall, Height, 1.2f), stone, SurfaceKind.Concrete);
+        }
+
+        for (int i = 0; i < 4; i++)
+        {
+            var seat = ConvocationSeat(i);
+            var host = ConvocationHost(i);
+
+            // Which way this bay faces. One of the two components is zero, so this is the axis it
+            // stands on and the sign is the direction it stands in.
+            bool alongX = MathF.Abs(seat.X) > MathF.Abs(seat.Z);
+            float sign = alongX ? MathF.Sign(seat.X) : MathF.Sign(seat.Z);
+
+            // Depth runs away from the centre, width across it. Swapping the two for the east and
+            // west bays is the whole of what makes four identical bays face four ways.
+            Vector3 Extent(float across, float deep, float y)
+                => alongX ? new Vector3(deep, y, across) : new Vector3(across, y, deep);
+
+            Vector3 Out(float d) => alongX
+                ? new Vector3(seat.X + sign * d, 0f, 0f)
+                : new Vector3(0f, 0f, seat.Z + sign * d);
+
+            // The back of the bay, in the faction's own colour, darkened. It is the only large
+            // block of colour in the room and it is what the player is walking towards.
+            Deck(Out(ConvocationBay) + Vector3.Up * 5f, Extent(ConvocationBay + 2f, 1.0f, 5f),
+                 host.Tint.Darkened(0.55f), SurfaceKind.Concrete);
+
+            // Two side walls, low enough to see over from the floor and high enough that standing
+            // between them is standing somewhere rather than near something.
+            foreach (int s in new[] { -1, 1 })
+            {
+                var across = alongX
+                    ? new Vector3(0f, 0f, s * (ConvocationBay + 1.5f))
+                    : new Vector3(s * (ConvocationBay + 1.5f), 0f, 0f);
+
+                Deck(Out(ConvocationBay * 0.5f) + across + Vector3.Up * 2.6f,
+                     Extent(1.0f, ConvocationBay * 0.5f, 2.6f), stone, SurfaceKind.Concrete);
+            }
+
+            // The floor of the bay, tinted. This is the patch the mission measures against, so it
+            // is exactly as wide as the zone the player has to stand in — what he can see and what
+            // the game is testing are the same rectangle, which is the only honest way to ask
+            // somebody to commit by standing somewhere.
+            Deck(Out(0f) + Vector3.Up * 0.1f, Extent(ConvocationBay, ConvocationBay, 0.1f),
+                 host.Tint.Darkened(0.25f), SurfaceKind.Concrete);
+
+            // A standard at the back, so a bay is legible from the middle of the room at a glance
+            // and the player never has to walk somewhere to find out whose it is.
+            Deck(Out(ConvocationBay - 0.5f) + Vector3.Up * 7f,
+                 Extent(0.5f, 0.5f, 7f), host.Tint, SurfaceKind.Panel);
+        }
+    }
+
     void BuildAntechamber()
     {
         SpawnPoints.Add(new Vector3(-96f, 1.4f, -6f));
@@ -2373,10 +2857,13 @@ public sealed class Arena
 
             if (!visuals) continue;
 
+            var ground = new Vector3(slab.GetCenter().X, -1f, slab.GetCenter().Y);
+
             body.AddChild(new MeshInstance3D
             {
                 Mesh = new BoxMesh { Size = new Vector3(slab.Size.X, 2f, slab.Size.Y) },
-                MaterialOverride = Flat(new Color(0.44f, 0.48f, 0.56f)),
+                MaterialOverride = Graphics.SurfaceAt(new Color(0.50f, 0.52f, 0.56f), ground,
+                                                      0f, false, GroundSurface),
             });
         }
 
@@ -2399,7 +2886,8 @@ public sealed class Arena
             body.AddChild(new MeshInstance3D
             {
                 Mesh = new BoxMesh { Size = b.HalfExtents * 2f },
-                MaterialOverride = Graphics.SurfaceAt(b.Tint, b.Centre, top, outer, b.Surface),
+                MaterialOverride = Graphics.SurfaceAt(b.Tint, b.Centre, top, outer,
+                                                      MaterialFor(b, outer)),
             });
 
             // No edge trim any more. Every block used to get four glowing bars stuck along its top
@@ -2412,6 +2900,24 @@ public sealed class Arena
         }
 
         if (!visuals) return;
+
+        // Dressing. No bodies, no shapes, no entry in any of the queries below — see Decor.
+        foreach (var d in Decorations)
+        {
+            root.AddChild(new MeshInstance3D
+            {
+                Position = d.Centre,
+                RotationDegrees = d.Turn,
+                Mesh = new BoxMesh { Size = d.HalfExtents * 2f },
+                MaterialOverride = Graphics.SurfaceAt(d.Tint, d.Centre,
+                                                      d.Centre.Y + d.HalfExtents.Y, false, d.Surface),
+
+                // Props are small and everywhere. Letting them cast into the shadow map costs
+                // more than the shadows are worth, and a barrel's own shadow is the least
+                // interesting thing on a map that already shadows every wall.
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            });
+        }
 
         root.AddChild(Graphics.BuildSun());
         root.AddChild(Graphics.BuildFill());
@@ -2426,6 +2932,70 @@ public sealed class Arena
     /// A frame, not a plate. Covering the whole top face was fine on waist-high cover but turned
     /// the big decks into glowing slabs, which was especially obvious from underneath.
     /// </summary>
+
+    /// <summary>What the floor of a combat arena is made of.</summary>
+    ///
+    /// Named because it is asked for in two places and because it is a decision rather than a
+    /// detail: the ground is the largest single surface in the game and was, until there were any
+    /// materials at all, one flat blue-grey colour across every arena.
+    public const SurfaceKind GroundSurface = SurfaceKind.Tarmac;
+
+    /// <summary>
+    /// What a block is made of, for blocks that never said.
+    ///
+    /// The combat arenas were built before the material library existed and ask for nothing, so
+    /// every one of their three hundred blocks defaults to the original plating — which meant the
+    /// seven materials could be finished, loaded and correct, and still be invisible anywhere
+    /// except Fairview. Deriving a material from what a block *is* fixes that in one place instead
+    /// of in nine hundred call sites, and a builder that does have an opinion still wins: only
+    /// Panel, the default, is reinterpreted here.
+    ///
+    /// Fragile blocks are exempt and stay plating. That is legibility, not taste — the walkways of
+    /// the upper storey are the only things on the map that can be blown out from under somebody,
+    /// and a player has to be able to tell them apart at a glance. Making them look like the
+    /// concrete they are standing on would hide a rule of the game inside a texture change.
+    /// </summary>
+    static SurfaceKind MaterialFor(Block b, bool outer)
+    {
+        if (b.Surface != SurfaceKind.Panel) return b.Surface;
+
+        // No exemption for fragile blocks, though there was one here first, on the reasoning that
+        // a player must be able to tell what can be blown out from under them. The reasoning was
+        // sound and the premise was stale: MakeStructureBreakable marks everything above floor
+        // height, so 299 of the Reliquary's 313 blocks are fragile. A material that means
+        // "breakable" and is worn by ninety-five per cent of the map distinguishes nothing, and
+        // exempting them would have left every arena exactly as grey as before.
+        //
+        // Measured rather than assumed, and it is the reverse of what the old comment on
+        // Block.Fragile still claimed: "only the thin walkways of the upper storey".
+
+        // Anything out past the core is the shell of the place: retaining walls, the ring, the
+        // districts. Civic concrete, which is also what stops the outskirts competing with the
+        // middle for attention.
+        if (outer) return SurfaceKind.Concrete;
+
+        // Flat and wide and low is a floor, a step or a deck, and reads as poured rather than built.
+        if (b.HalfExtents.Y <= 0.6f) return SurfaceKind.Concrete;
+
+        // What is left is standing structure, split by what it is for.
+        float footprint = b.HalfExtents.X * b.HalfExtents.Z;
+
+        // Big masses: the buildings and spines a map is planned around.
+        if (footprint > 26f) return SurfaceKind.Concrete;
+
+        // Small and no taller than a person is cover — something put there to crouch behind
+        // rather than part of the building. Timber says that without a word of UI, and it is the
+        // one material in the library with a direction in it, so a row of them does not tile into
+        // a single wall the way brick would.
+        if (footprint <= 5f && b.HalfExtents.Y <= 1.6f) return SurfaceKind.Timber;
+
+        // And the rest are walls. Brick is the only material with a course in it, and a course is
+        // what gives a wall a readable scale from across an arena.
+        return SurfaceKind.Brick;
+    }
+
+    /// <summary>The material derivation, for the harness. See <see cref="MaterialFor"/>.</summary>
+    public static SurfaceKind MaterialForTest(Block b, bool outer) => MaterialFor(b, outer);
 
     public static StandardMaterial3D Flat(Color c) => Graphics.Surface(c);
 

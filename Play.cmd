@@ -1,13 +1,80 @@
 @echo off
-REM Double-click this to build and play. It is the only thing you need to run the game.
-REM Build first, launch second - godot.cmd does NOT compile C#, so skipping the build
-REM silently runs whatever assembly was left over from last time.
-setlocal
-title HitboxClone
+REM Double-click this to update, build and play. It is the only thing you need to run
+REM the game, on any machine.
+REM
+REM Three steps, and each one exists because skipping it produced a real bug:
+REM   1. Update - a clone that never pulls launches a months-old game perfectly happily
+REM      and says nothing, which is indistinguishable from the game ignoring you.
+REM   2. Build  - godot.cmd does NOT compile C#, so skipping it silently runs whatever
+REM      assembly was left over from last time.
+REM   3. Launch.
+REM
+REM Set HITBOX_NO_UPDATE=1 to skip step 1 for a session.
+setlocal EnableDelayedExpansion
 
-REM %~dp0 ends in a backslash, which would escape the closing quote. Trim it.
+REM ---------------------------------------------------------------------------
+REM Re-run from a copy of this file in TEMP before doing anything else.
+REM
+REM Not paranoia. cmd.exe reads a batch file incrementally, by byte offset, while it
+REM runs - so a script that updates itself and then keeps going resumes at a stale
+REM offset in a file whose bytes have moved, and executes whatever fragment of a line
+REM now sits there. The one file a self-updating launcher is most likely to receive an
+REM update to is the launcher, so this is the common case rather than the edge case.
+REM
+REM Running from a detached copy means git may rewrite Play.cmd and Update.cmd freely;
+REM the next launch picks up the new ones. The project folder is passed along because
+REM %~dp0 points at TEMP from inside the copy.
+REM ---------------------------------------------------------------------------
+
+if /i not "%~1"=="--inplace" goto :stage
+set "PROJ=%~2"
+goto :main
+
+:stage
+
 set "PROJ=%~dp0"
 set "PROJ=%PROJ:~0,-1%"
+
+set "STAGE=%TEMP%\hitbox-launch"
+md "!STAGE!" 2>nul
+copy /y "%~f0" "!STAGE!\play.cmd" >nul 2>&1
+copy /y "%PROJ%\Update.cmd" "!STAGE!\Update.cmd" >nul 2>&1
+
+if not exist "!STAGE!\play.cmd" goto :nostage
+call "!STAGE!\play.cmd" --inplace "!PROJ!"
+set "RC=!ERRORLEVEL!"
+exit /b !RC!
+
+:nostage
+
+REM No writable TEMP. Carry on in place rather than refusing to launch, but do not
+REM update - rewriting this file underneath itself is the one thing that must not happen.
+echo   Could not stage the launcher in TEMP; skipping the update this launch.
+set "HITBOX_NO_UPDATE=1"
+
+:main
+title HitboxClone
+
+REM ---------------------------------------------------------------------------
+REM Step 1: update.
+REM
+REM Never fatal. Update.cmd /auto reports what it skipped and returns success, because
+REM launching an old copy always beats refusing to launch - somebody on a train with no
+REM signal wants to play, not to hear about a fetch.
+REM ---------------------------------------------------------------------------
+
+if not defined HITBOX_NO_UPDATE goto :doupdate
+echo Skipping the update ^(HITBOX_NO_UPDATE is set^).
+echo.
+goto :updated
+
+:doupdate
+REM The staged copy beside this one, if the staging worked; the real one otherwise.
+if exist "%~dp0Update.cmd" call "%~dp0Update.cmd" /auto "%PROJ%"
+if not exist "%~dp0Update.cmd" if exist "%PROJ%\Update.cmd" call "%PROJ%\Update.cmd" /auto "%PROJ%"
+echo.
+
+:updated
 
 REM ---------------------------------------------------------------------------
 REM Find the tools, rather than assuming where they live.
@@ -66,61 +133,7 @@ if not defined GODOT_EXE (
   exit /b 1
 )
 
-REM ---------------------------------------------------------------------------
-REM Pull the latest version from GitHub before building.
-REM
-REM The rule throughout: never refuse to launch. Being offline, having edited a
-REM file, or having drifted from the remote are all reasons to play what is
-REM already here - not reasons to be locked out of your own game. Every failure
-REM below says what happened and falls through to playing.
-REM
-REM It also only ever fast-forwards. A merge could conflict and leave the working
-REM tree half-resolved, which is not something to discover at the moment you sat
-REM down to play.
-REM ---------------------------------------------------------------------------
-
-where git >nul 2>&1
-if errorlevel 1 goto play
-
-REM No upstream configured means this is not a clone that tracks anything.
-git -C "%PROJ%" rev-parse --abbrev-ref @{u} >nul 2>&1
-if errorlevel 1 goto play
-
-echo Checking for updates...
-git -C "%PROJ%" fetch --quiet
-if errorlevel 1 goto offline
-
-set "DIRTY="
-for /f "delims=" %%I in ('git -C "%PROJ%" status --porcelain 2^>nul') do set "DIRTY=1"
-if defined DIRTY goto dirty
-
-set "BEHIND=0"
-for /f "delims=" %%I in ('git -C "%PROJ%" rev-list --count HEAD..@{u} 2^>nul') do set "BEHIND=%%I"
-if "%BEHIND%"=="0" echo   Already up to date.
-if "%BEHIND%"=="0" goto play
-
-echo   %BEHIND% new change/s from GitHub - updating...
-git -C "%PROJ%" merge --ff-only @{u}
-if errorlevel 1 goto diverged
-echo   Updated.
-goto play
-
-:offline
-echo   Could not reach GitHub. Playing the version already here.
-goto play
-
-:dirty
-echo   You have uncommitted changes here, so nothing was pulled.
-echo   Playing the version already here.
-goto play
-
-:diverged
-echo   This copy has commits GitHub does not, so it was left alone.
-echo   Playing the version already here.
-goto play
-
-:play
-
+REM Step 2: build.
 echo Building HitboxClone...
 "%DOTNET_EXE%" build "%PROJ%\HitboxClone.csproj" --nologo -v minimal
 if errorlevel 1 (
@@ -135,5 +148,6 @@ if errorlevel 1 (
 )
 
 echo.
+REM Step 3: launch.
 echo Launching...
 "%GODOT_EXE%" --path "%PROJ%"

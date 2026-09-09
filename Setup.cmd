@@ -219,6 +219,12 @@ echo   Double-click HitboxClone on your Desktop.
 echo   It updates itself every launch, so that is
 echo   the only thing you ever need to run.
 echo.
+echo   The Desktop icon now points HERE:
+echo     %PROJ%
+echo   If you keep more than one copy of the game,
+echo   that is the one it will launch. Run Doctor.cmd
+echo   if anything ever looks out of date.
+echo.
 echo   "Update HitboxClone" is there for fetching
 echo   without playing. You will rarely want it.
 echo.

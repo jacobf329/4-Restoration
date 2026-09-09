@@ -109,9 +109,9 @@ pause
 exit /b 1
 :clean
 
-if defined AUTO echo Checking for updates...
-if not defined AUTO echo Fetching...
 
+
+echo Contacting GitHub...
 %GIT% fetch origin --prune --quiet
 if not errorlevel 1 goto :fetched
 if defined AUTO echo   [update skipped] could not reach GitHub - playing the copy in this folder.
@@ -141,6 +141,14 @@ echo   %BRANCH% is gone from the server - following !WANT! instead.
 
 set "NOW="
 set "WAS="
+REM Says which folder and which branch, every time.
+REM
+REM "Already up to date" is a true and completely useless sentence when there are two clones on
+REM the machine and the one being updated is not the one being launched. That went undiagnosed
+REM across two conversations. Naming the folder and the branch makes the same line diagnostic.
+if defined AUTO echo Checking %PROJ% ^(!WANT!^) for updates...
+if not defined AUTO echo Fetching %PROJ% ^(!WANT!^)...
+
 for /f "delims=" %%B in ('%GIT% rev-parse --abbrev-ref HEAD 2^>nul') do set "NOW=%%B"
 for /f "delims=" %%H in ('%GIT% rev-parse --short HEAD 2^>nul') do set "WAS=%%H"
 

@@ -271,6 +271,71 @@ def timber():
     return col, h, 0.66 + (1 - h) * 0.18
 
 
+# ---------------------------------------------------------------- the world grade
+#
+# Every material passes through this on the way out, and it is the whole reason they look like
+# one place rather than seven downloads.
+#
+# The first set was generated independently, each material picking its own palette, its own value
+# range and its own saturation. Individually each was defensible; together they had no continuity
+# at all - a near-black road beside a bright orange brick beside a saturated green hedge, none of
+# them agreeing about how bright the sun is or how dirty the world is.
+#
+# So the materials now describe only their own STRUCTURE - the courses, the grain, the aggregate -
+# and this pass decides what the world looks like. It is the same idea as grading a film: shoot
+# the scenes however you must, then put every frame through one look.
+
+WORLD_TINT = np.array([1.00, 0.975, 0.94])   # a slightly warm sun, on everything
+
+# Contrast is pulled toward this rather than normalised per material, which matters: normalising
+# each one would flatten the differences BETWEEN them and make tarmac as bright as plaster.
+# Compressing around a shared midpoint keeps the road the darkest thing and the render the
+# lightest, while stopping either from reaching an extreme nothing else in the world reaches.
+WORLD_MID = 0.40
+WORLD_CONTRAST = 0.62
+
+SATURATION = 0.55        # nothing in a real place is as saturated as a texture generator wants
+GRIME = 0.22             # how strongly the shared dirt field shows through
+
+LUMA = np.array([0.299, 0.587, 0.114])
+
+
+def world_grime():
+    """
+    One dirt field, shared by every material.
+
+    The same seed for all of them on purpose. Two materials meeting at a corner with unrelated
+    weathering read as two objects from different worlds set next to each other; the same field
+    across both reads as one building that has been rained on.
+    """
+    return fbm(5, 6, 90101) * 0.6 + fbm(4, 20, 90102) * 0.4
+
+
+def grade(col, grime):
+    """Desaturate, compress into the shared value range, warm it, then dirty it."""
+    lum = col @ LUMA
+    col = lum[..., None] + (col - lum[..., None]) * SATURATION
+
+    lum = np.clip(col @ LUMA, 1e-4, None)
+    want = np.clip(WORLD_MID + (lum - WORLD_MID) * WORLD_CONTRAST, 0.04, 0.86)
+    col = col * (want / lum)[..., None]
+
+    col = col * WORLD_TINT[None, None, :]
+    col = col * (1.0 - GRIME * (1.0 - grime)[..., None])
+    return col
+
+
+# Roughness lives in one band too. A world where one surface is glassy and the next is chalk
+# reads as a materials test; the eye picks up an inconsistent specular response long before it
+# consciously notices a colour being wrong.
+ROUGH_BAND = (0.58, 0.92)
+
+
+def grade_rough(rough, grime):
+    rough = ROUGH_BAND[0] + np.clip(rough, 0.0, 1.0) * (ROUGH_BAND[1] - ROUGH_BAND[0])
+    return np.clip(rough + (grime - 0.5) * 0.10, 0.0, 1.0)
+
+
 MATERIALS = {
     "brick": bricks,
     "roof_tile": roof_tile,
@@ -283,9 +348,12 @@ MATERIALS = {
 
 # How pronounced each material's relief is. Brick and tile are real geometry being faked and
 # want a lot; plaster is nearly flat and looks absurd with the same setting.
+# Relief, on one scale rather than seven unrelated ones. Read as multiples of each other: brick
+# and tile are real geometry being faked and want the most, plaster is nearly flat, a road is
+# flatter still.
 STRENGTH = {
-    "brick": 6.0, "roof_tile": 9.0, "plaster": 1.6, "concrete": 2.4,
-    "tarmac": 1.1, "foliage": 4.0, "timber": 3.0,
+    "brick": 5.0, "roof_tile": 7.0, "plaster": 1.4, "concrete": 2.2,
+    "tarmac": 1.0, "foliage": 3.5, "timber": 2.6,
 }
 
 
@@ -299,9 +367,12 @@ def main():
             continue
 
         col, height, rough = MATERIALS[name]()
-        rough = np.clip(rough, 0.0, 1.0)
         if np.isscalar(rough):
-            rough = np.full((SIZE, SIZE), rough)
+            rough = np.full((SIZE, SIZE), float(rough))
+
+        grime = world_grime()
+        col = grade(col, grime)
+        rough = grade_rough(rough, grime)
 
         write_png(f"{OUT}/{name}_base_color.png", col)
         write_png(f"{OUT}/{name}_normal.png", normal_map(norm(height), STRENGTH[name]))

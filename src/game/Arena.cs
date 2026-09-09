@@ -216,7 +216,7 @@ public sealed class Arena
     /// architecture is a place for keeping bodies. The Furnace is the Custodians': Prometheus stole
     /// the fire and was chained to it, and every hazard left in the game is here and nowhere else.
     /// The Glasshouse is the Garden's: Noah carried the living through the flood and they are still
-    /// carrying them. The Thousand Rooms is Ingenuity': a civilisation
+    /// carrying them. The Thousand Rooms is Ingenuity's: a civilisation
     /// that cannot let potential go unused builds something that never stops adding capacity, and
     /// it is not an accident that it is the layout closest to a camp.
     /// </summary>
@@ -2858,12 +2858,12 @@ public sealed class Arena
             if (!visuals) continue;
 
             var ground = new Vector3(slab.GetCenter().X, -1f, slab.GetCenter().Y);
+            var (groundKind, groundTint) = GroundDressing();
 
             body.AddChild(new MeshInstance3D
             {
                 Mesh = new BoxMesh { Size = new Vector3(slab.Size.X, 2f, slab.Size.Y) },
-                MaterialOverride = Graphics.SurfaceAt(new Color(0.50f, 0.52f, 0.56f), ground,
-                                                      0f, false, GroundSurface),
+                MaterialOverride = Graphics.SurfaceAt(groundTint, ground, 0f, false, groundKind),
             });
         }
 
@@ -2883,11 +2883,12 @@ public sealed class Arena
             float top = b.Centre.Y + b.HalfExtents.Y;
             bool outer = MathF.Abs(b.Centre.X) > CoreX || MathF.Abs(b.Centre.Z) > CoreZ;
 
+            var (kind, tint) = DressingFor(b, outer);
+
             body.AddChild(new MeshInstance3D
             {
                 Mesh = new BoxMesh { Size = b.HalfExtents * 2f },
-                MaterialOverride = Graphics.SurfaceAt(b.Tint, b.Centre, top, outer,
-                                                      MaterialFor(b, outer)),
+                MaterialOverride = Graphics.SurfaceAt(tint, b.Centre, top, outer, kind),
             });
 
             // No edge trim any more. Every block used to get four glowing bars stuck along its top
@@ -2938,8 +2939,6 @@ public sealed class Arena
     /// Named because it is asked for in two places and because it is a decision rather than a
     /// detail: the ground is the largest single surface in the game and was, until there were any
     /// materials at all, one flat blue-grey colour across every arena.
-    public const SurfaceKind GroundSurface = SurfaceKind.Tarmac;
-
     /// <summary>
     /// What a block is made of, for blocks that never said.
     ///
@@ -2955,47 +2954,130 @@ public sealed class Arena
     /// and a player has to be able to tell them apart at a glance. Making them look like the
     /// concrete they are standing on would hide a rule of the game inside a texture change.
     /// </summary>
-    static SurfaceKind MaterialFor(Block b, bool outer)
+    /// <summary>
+    /// What one arena is built out of, and what colour it is.
+    ///
+    /// Four maps that each belong to somebody, painted from four different palettes. That
+    /// belonging was written into this file long before there were any materials, and then the
+    /// first material pass ignored it completely and derived everything from block shape - so the
+    /// Vessels' ossuary, the Custodians' furnace, the Garden's glasshouse and Ingenuity's camp
+    /// were all the same concrete and the same brick, and the maps had no identity at all.
+    ///
+    /// The four roles are what a place is made of at four scales: the big masses it is planned
+    /// around, the walls of its rooms, the waist-high things you crouch behind, and the ground.
+    /// </summary>
+    public readonly struct Palette
     {
-        if (b.Surface != SurfaceKind.Panel) return b.Surface;
+        public readonly SurfaceKind Mass, Wall, Cover, Ground;
+        public readonly Color MassTint, WallTint, CoverTint, GroundTint;
 
-        // No exemption for fragile blocks, though there was one here first, on the reasoning that
-        // a player must be able to tell what can be blown out from under them. The reasoning was
-        // sound and the premise was stale: MakeStructureBreakable marks everything above floor
-        // height, so 299 of the Reliquary's 313 blocks are fragile. A material that means
-        // "breakable" and is worn by ninety-five per cent of the map distinguishes nothing, and
-        // exempting them would have left every arena exactly as grey as before.
-        //
-        // Measured rather than assumed, and it is the reverse of what the old comment on
-        // Block.Fragile still claimed: "only the thin walkways of the upper storey".
-
-        // Anything out past the core is the shell of the place: retaining walls, the ring, the
-        // districts. Civic concrete, which is also what stops the outskirts competing with the
-        // middle for attention.
-        if (outer) return SurfaceKind.Concrete;
-
-        // Flat and wide and low is a floor, a step or a deck, and reads as poured rather than built.
-        if (b.HalfExtents.Y <= 0.6f) return SurfaceKind.Concrete;
-
-        // What is left is standing structure, split by what it is for.
-        float footprint = b.HalfExtents.X * b.HalfExtents.Z;
-
-        // Big masses: the buildings and spines a map is planned around.
-        if (footprint > 26f) return SurfaceKind.Concrete;
-
-        // Small and no taller than a person is cover — something put there to crouch behind
-        // rather than part of the building. Timber says that without a word of UI, and it is the
-        // one material in the library with a direction in it, so a row of them does not tile into
-        // a single wall the way brick would.
-        if (footprint <= 5f && b.HalfExtents.Y <= 1.6f) return SurfaceKind.Timber;
-
-        // And the rest are walls. Brick is the only material with a course in it, and a course is
-        // what gives a wall a readable scale from across an arena.
-        return SurfaceKind.Brick;
+        public Palette(SurfaceKind mass, Color massTint, SurfaceKind wall, Color wallTint,
+                       SurfaceKind cover, Color coverTint, SurfaceKind ground, Color groundTint)
+        {
+            Mass = mass; MassTint = massTint;
+            Wall = wall; WallTint = wallTint;
+            Cover = cover; CoverTint = coverTint;
+            Ground = ground; GroundTint = groundTint;
+        }
     }
 
-    /// <summary>The material derivation, for the harness. See <see cref="MaterialFor"/>.</summary>
-    public static SurfaceKind MaterialForTest(Block b, bool outer) => MaterialFor(b, outer);
+    /// <summary>
+    /// The palette an arena is painted from. See <see cref="Palette"/> and the note on
+    /// <see cref="Names"/> for whose each place is.
+    ///
+    /// The tints are multiplied over materials that were graded to one shared look, which is what
+    /// lets four maps be recognisably different without coming apart into four art styles. The
+    /// faction colours themselves are used sparingly and never at full strength - the Furnace is a
+    /// place with gold in it, not a gold place.
+    /// </summary>
+    public static Palette PaletteFor(int layout)
+    {
+        if (layout == FairviewLayout || layout == ConvocationLayout || IsPuzzle(layout))
+            return Neutral;
+
+        return (layout % 4) switch
+        {
+            // THE RELIQUARY - the Vessels'. Somewhere bodies are kept: pale stone, lead, and dark
+            // oiled timber. The coldest and lightest of the four, and the only one that looks
+            // clean.
+            0 => new Palette(
+                SurfaceKind.Concrete, new Color(0.78f, 0.77f, 0.74f),
+                SurfaceKind.Plaster,  new Color(0.86f, 0.84f, 0.79f),
+                SurfaceKind.Timber,   new Color(0.34f, 0.30f, 0.28f),
+                SurfaceKind.Concrete, new Color(0.62f, 0.61f, 0.60f)),
+
+            // THE FURNACE - the Custodians'. Prometheus chained to the fire: firebrick, soot and
+            // scorched steel, with their gold showing through where the heat has not taken it.
+            1 => new Palette(
+                SurfaceKind.Concrete, new Color(0.40f, 0.35f, 0.32f),
+                SurfaceKind.Brick,    new Color(0.86f, 0.52f, 0.34f),
+                SurfaceKind.Timber,   new Color(0.26f, 0.22f, 0.20f),
+                SurfaceKind.Tarmac,   new Color(0.52f, 0.44f, 0.38f)),
+
+            // THE GLASSHOUSE - the Garden's. White-painted iron and glazing bars over planting
+            // beds. Light, damp, and the only arena where the ground is growing.
+            2 => new Palette(
+                SurfaceKind.Plaster,  new Color(0.88f, 0.90f, 0.86f),
+                SurfaceKind.Plaster,  new Color(0.80f, 0.85f, 0.80f),
+                SurfaceKind.Timber,   new Color(0.52f, 0.46f, 0.34f),
+                SurfaceKind.Foliage,  new Color(0.72f, 0.86f, 0.66f)),
+
+            // THE THOUSAND ROOMS - Ingenuity's. A civilisation that cannot let capacity go unused,
+            // building partitions forever: board, ply and breeze block in salvaged paint. The
+            // drabbest of the four on purpose - it is the one closest to a camp.
+            _ => new Palette(
+                SurfaceKind.Concrete, new Color(0.56f, 0.54f, 0.50f),
+                SurfaceKind.Timber,   new Color(0.66f, 0.56f, 0.42f),
+                SurfaceKind.Timber,   new Color(0.86f, 0.50f, 0.34f),
+                SurfaceKind.Tarmac,   new Color(0.50f, 0.49f, 0.47f)),
+        };
+    }
+
+    /// <summary>The palette with no opinion, for the town, the hearing room and the void.</summary>
+    static readonly Palette Neutral = new(
+        SurfaceKind.Concrete, Colors.White, SurfaceKind.Brick, Colors.White,
+        SurfaceKind.Timber, Colors.White, SurfaceKind.Tarmac, Colors.White);
+
+    /// <summary>What this arena's ground is made of and what colour it is.</summary>
+    public (SurfaceKind Kind, Color Tint) GroundDressing()
+    {
+        var p = PaletteFor(Layout);
+        return (p.Ground, p.GroundTint);
+    }
+
+    /// <summary>
+    /// What a block is made of and what colour it is, for blocks that never said.
+    ///
+    /// Only Panel, the default, is reinterpreted: a builder with an opinion still wins, which is
+    /// what keeps Fairview's plaster and roof tile out of this.
+    /// </summary>
+    public (SurfaceKind Kind, Color Tint) DressingFor(Block b, bool outer)
+    {
+        if (b.Surface != SurfaceKind.Panel) return (b.Surface, b.Tint);
+
+        var p = PaletteFor(Layout);
+
+        // Out past the core is the shell of the place, and it takes the mass material at a lower
+        // key so the outskirts do not compete with the middle for attention.
+        if (outer) return (p.Mass, p.MassTint.Darkened(0.22f) * b.Tint);
+
+        // Flat, wide and low is a floor, a step or a deck.
+        if (b.HalfExtents.Y <= 0.6f) return (p.Mass, p.MassTint * b.Tint);
+
+        float footprint = b.HalfExtents.X * b.HalfExtents.Z;
+
+        // The big masses the map is planned around.
+        if (footprint > 26f) return (p.Mass, p.MassTint * b.Tint);
+
+        // Small and no taller than a person is something to crouch behind rather than part of the
+        // building, and it says so by being made of something else.
+        if (footprint <= 5f && b.HalfExtents.Y <= 1.6f) return (p.Cover, p.CoverTint * b.Tint);
+
+        return (p.Wall, p.WallTint * b.Tint);
+    }
+
+    /// <summary>The material derivation, for the harness. See <see cref="DressingFor"/>.</summary>
+    public SurfaceKind MaterialForTest(Block b, bool outer) => DressingFor(b, outer).Kind;
 
     public static StandardMaterial3D Flat(Color c) => Graphics.Surface(c);
 

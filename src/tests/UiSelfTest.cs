@@ -1586,37 +1586,65 @@ public static class UiSelfTest
             }
         }
 
-        // Every combat arena actually reaches the material library, which it did not for as long
-        // as its blocks all defaulted to plating. Counted through the same derivation the renderer
-        // uses, so this cannot pass while the screen stays grey.
-        var lit = new Arena(0);
-        var used = new System.Collections.Generic.HashSet<SurfaceKind> { Arena.GroundSurface };
-        foreach (var b in lit.Blocks) used.Add(Arena.MaterialForTest(b, false));
-        foreach (var b in lit.Blocks) used.Add(Arena.MaterialForTest(b, true));
+        // The four arenas are four different places.
+        //
+        // This is the check the first material pass would have failed while looking correct: it
+        // derived everything from block shape, so the Vessels' ossuary and Ingenuity's camp came
+        // out of the same concrete and the same brick. Each map belongs to a faction - it says so
+        // in Arena's own doc comment - and a palette that ignores that is decoration rather than
+        // art direction.
+        var palettes = new System.Collections.Generic.List<string>();
 
+        for (int layout = 0; layout < Arena.CombatLayouts; layout++)
         {
-            var tally = new System.Collections.Generic.Dictionary<SurfaceKind, int>();
-            foreach (var b in lit.Blocks)
+            var lit = new Arena(layout);
+            var used = new System.Collections.Generic.HashSet<SurfaceKind>
             {
-                bool outerBlock = MathF.Abs(b.Centre.X) > 40f || MathF.Abs(b.Centre.Z) > 40f;
-                var kind = Arena.MaterialForTest(b, outerBlock);
-                tally[kind] = tally.GetValueOrDefault(kind) + 1;
-            }
+                lit.GroundDressing().Kind,
+            };
 
-            var parts = new System.Collections.Generic.List<string>();
-            foreach (var (kind, n) in tally) parts.Add($"{n} {kind}");
-            TestLog.Line($"    Reliquary is built from {string.Join(", ", parts)}");
+            foreach (var b in lit.Blocks) used.Add(lit.MaterialForTest(b, false));
+            foreach (var b in lit.Blocks) used.Add(lit.MaterialForTest(b, true));
+
+            Check(used.Count >= 3,
+                  $"{Arena.Names[layout]} is built from several materials ({used.Count})");
+
+            var p = Arena.PaletteFor(layout);
+            palettes.Add($"{p.Mass}/{p.Wall}/{p.Cover}/{p.Ground}");
+
+            TestLog.Line($"    {Arena.Names[layout]}: {p.Mass} masses, {p.Wall} walls, "
+                       + $"{p.Cover} cover, {p.Ground} ground");
         }
 
-        Check(used.Count >= 4, $"an arena is built from several materials ({used.Count})");
-        Check(used.Contains(SurfaceKind.Concrete) && used.Contains(SurfaceKind.Brick),
-              "including the two the walls are meant to be");
+        // No two of them are made of the same four things.
+        int identical = 0;
+        for (int i = 0; i < palettes.Count; i++)
+        for (int j = i + 1; j < palettes.Count; j++)
+            if (palettes[i] == palettes[j]) identical++;
+
+        Check(identical == 0, $"no two arenas are made of the same things ({identical} pairs match)");
+
+        // And they are different colours, not just different materials. Compared as the sum of
+        // channel differences across all four roles, so a palette that only nudged one of them
+        // would not pass.
+        for (int i = 0; i < Arena.CombatLayouts; i++)
+        for (int j = i + 1; j < Arena.CombatLayouts; j++)
+        {
+            var a = Arena.PaletteFor(i);
+            var b = Arena.PaletteFor(j);
+
+            float apart = Spread(a.MassTint, b.MassTint) + Spread(a.WallTint, b.WallTint)
+                        + Spread(a.CoverTint, b.CoverTint) + Spread(a.GroundTint, b.GroundTint);
+
+            Check(apart > 0.25f,
+                  $"{Arena.Names[i]} and {Arena.Names[j]} are painted differently ({apart:0.00})");
+        }
 
         // An explicit choice by a builder survives everything, including being made breakable -
         // which rebuilds the block, and used to drop the material while doing it.
         var town = new Arena(Arena.FairviewLayout);
         var chosen = new System.Collections.Generic.HashSet<SurfaceKind>();
-        foreach (var b in town.Blocks) chosen.Add(Arena.MaterialForTest(b, false));
+        foreach (var b in town.Blocks) chosen.Add(town.MaterialForTest(b, false));
 
         Check(chosen.Contains(SurfaceKind.Plaster) && chosen.Contains(SurfaceKind.RoofTile),
               "a builder's own materials are never overridden");
@@ -1647,6 +1675,10 @@ public static class UiSelfTest
             same = again.Decorations[i].Centre.IsEqualApprox(dressed.Decorations[i].Centre);
         Check(same, "down to where every piece of it is");
     }
+
+    /// <summary>Total channel distance between two tints, for comparing palettes.</summary>
+    static float Spread(Color a, Color b)
+        => MathF.Abs(a.R - b.R) + MathF.Abs(a.G - b.G) + MathF.Abs(a.B - b.B);
 
     static void TestSurfaces()
     {

@@ -2152,17 +2152,61 @@ public sealed class Arena
 
             Blocks.Add(new Block(LastRoomAt with { Y = 1.3f },
                                  new Vector3(3f, 1.3f, 3f), CoverTint));
+
+            // Somewhere ordinary worth walking to, as well as somewhere expensive.
+            //
+            // Put in the halls that already exist rather than in new ones. Two halls were built
+            // for this first, flanking the crucible, and adding them severed a route the map had
+            // been relying on: the road pass fired on the Furnace for the first time and took
+            // sixteen blocks of cover out of the Custodians' map to reconnect it. A weapon crate
+            // is not worth paying for in walls when there is already a room standing empty.
+            //
+            // Beside the machinery rather than on it. LastRoomAt is exactly where the block above
+            // stands, so a crate at the room's centre is a crate inside a solid object - which the
+            // suite caught at once as two unreachable weapon spawns. The hall is 20m across and
+            // the machinery 6m, so five and a half metres outboard is clear of one and well
+            // inside the other.
+            WeaponSpawns.Add(LastRoomAt + new Vector3(sx * 5.5f, 1f, 0f));
         }
 
         // The crucible: the one piece of burning ground on this map meant to be looked at, in a
         // roofless ring you can be pushed into. Off the centre line, because the centre line is
         // where the Foundry's spine runs and there has never been room there.
+        //
+        // The fire is now a RING with an island in it, and the best gun on the map is on the
+        // island. That is the Furnace's answer to a question every other arena had already
+        // answered and this one had not.
+        //
+        // The Reliquary keeps its prize in a closed vault, the Glasshouse in a seed store, the
+        // Thousand Rooms in a corner of the warren - each of them somewhere worth going that you
+        // cannot be chased out of without someone coming through the door you are watching. The
+        // Furnace had no such place at all: seven halls, thirteen hazards and not one weapon
+        // indoors, so its interiors were somewhere to fight THROUGH and never somewhere to go.
+        //
+        // A door would have been the easy fix and the wrong one. This is the Custodians' map,
+        // whose whole story is Prometheus chained to the fire he stole, so the price of the best
+        // thing on it should be paid in fire rather than in checking a doorway. You cross four
+        // metres of burning ground to reach it and four metres to leave, which at forty-four a
+        // second is most of a health bar for the round trip - survivable, expensive, and entirely
+        // your decision.
         if (Room(new Vector3(0f, 0f, -66f), new Vector3(14f, 2.2f, 14f),
                  doors: new[] { true, true, true, true }, roofed: false, tint: AccentTint))
         {
             var at = LastRoomAt;
-            Hazard(new Rect2(at.X - 8f, at.Z - 8f, 16f, 16f), 44f);
+
+            const float Reach = 8f;    // outer half-extent of the burning ground
+            const float Isle = 4f;     // half-extent of the standing island at its centre
+
+            // Four bands rather than one square, leaving the middle cold. Written as bands
+            // because a hazard is a rectangle and a ring is not.
+            Hazard(new Rect2(at.X - Reach, at.Z - Reach, Reach * 2f, Reach - Isle), 44f);
+            Hazard(new Rect2(at.X - Reach, at.Z + Isle, Reach * 2f, Reach - Isle), 44f);
+            Hazard(new Rect2(at.X - Reach, at.Z - Isle, Reach - Isle, Isle * 2f), 44f);
+            Hazard(new Rect2(at.X + Isle, at.Z - Isle, Reach - Isle, Isle * 2f), 44f);
+
+            WeaponSpawns.Add(at with { Y = 1f });
         }
+
     }
 
     /// <summary>

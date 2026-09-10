@@ -397,6 +397,9 @@ public sealed class Arena
         // it has been built.
         ClearLaunchPadCeilings();
 
+        // Before anything reads the block list, and after everything has finished adding to it.
+        OpenDriveways();
+
         // After every block exists and before anything reads them.
         MakeStructureBreakable();
 
@@ -823,6 +826,139 @@ public sealed class Arena
 
         // Vehicle spawns are not placed here. They are chosen from ground a hull can actually
         // reach — see ChooseVehicleSpawns, which runs once the whole map exists.
+    }
+
+    // ---- service roads ----
+
+    /// <summary>
+    /// Make sure a hull can actually get to the middle of the map, and open a road if it cannot.
+    ///
+    /// This is a repair pass in the same spirit as ClearLaunchPadCeilings: the layouts are built by
+    /// several independent passes that have never known what the others were doing, and the way
+    /// they interact is not something anybody can hold in their head. The Thousand Rooms is what
+    /// that produces. Its two warrens seal the map's north and south, the Gauntlet's lane walls
+    /// close the middle, and one piece of mid-edge cover - shared by all four arenas, harmless on
+    /// the other three - shuts the last gap in its waist. The result was a hull able to circle the
+    /// outside forever and never once reach the centre, on the only map where two of the four
+    /// objectives stand at x = +/-34, z = 0.
+    ///
+    /// Nobody wrote that. It is the product of four reasonable passes meeting.
+    ///
+    /// So rather than hand-editing coordinates until it happens to work - which the next layout
+    /// change would silently undo - the arena checks the thing that matters and fixes it only when
+    /// it is broken. Three of the four maps come out of here untouched.
+    /// </summary>
+    void OpenDriveways()
+    {
+        if (!IsArena(Layout) || VehicleSpawns.Count == 0) return;
+
+        float lane = DriveLane();
+        if (SpawnsConnected(lane)) return;
+
+        // Roads in order of what they cost, and only as many as it takes.
+        //
+        // The waist first, as a PAIR either side of the middle rather than one road through it.
+        // The middle of this map is a hole - the Gauntlet carves a pit at its centre that only a
+        // moving platform crosses, and that is the whole point of the layout - so a road down the
+        // axis arrives at the void and stops. These two run in the eleven metres between the lip
+        // of the pit and the edge of the warrens, which is the only ground there is.
+        foreach (int side in new[] { -1, 1 })
+            CarveRoad(new Rect2(-HalfWidth, side * WaistRoadZ - RoadHalf,
+                                HalfWidth * 2f, RoadHalf * 2f));
+
+        if (SpawnsConnected(lane)) return;
+
+        foreach (int side in new[] { -1, 1 })
+            CarveRoad(new Rect2(side * RingRoadX - RoadHalf, -HalfDepth,
+                                RoadHalf * 2f, HalfDepth * 2f));
+
+        if (SpawnsConnected(lane)) return;
+
+        // Still walled, so something is across the middle itself. This is the expensive one and it
+        // is only ever paid for by a layout that leaves no other way in.
+        CarveRoad(new Rect2(-RoadHalf, -HalfDepth, RoadHalf * 2f, HalfDepth * 2f));
+    }
+
+    /// <summary>Where the north-south service roads run: past the interiors, inside the districts.</summary>
+    const float RingRoadX = 60f;
+
+    /// <summary>How far off centre the waist roads run, to pass the central pit rather than into it.</summary>
+    const float WaistRoadZ = 12.5f;
+
+    /// <summary>Half-width of a service road: the widest hull that must pass, and room beside it.</summary>
+    const float RoadHalf = 5f;
+
+    /// <summary>The clearance a hull needs, taken from the vehicles that actually spawn.</summary>
+    static float DriveLane()
+    {
+        float lane = 0f;
+        foreach (var v in Vehicles.Spawnable) lane = MathF.Max(lane, v.HalfExtents.Z + 0.4f);
+        return lane;
+    }
+
+    /// <summary>
+    /// Whether every vehicle spawn can reach every other one.
+    ///
+    /// Two earlier versions of this asked the wrong question. The first asked whether the middle
+    /// of the map could reach ANY spawn, and was satisfied by a road joining the centre to one
+    /// corner while three quarters of the ring stayed as cut off as before. The second asked for
+    /// every spawn but still seeded from the middle of the map - which on this layout is a pit,
+    /// so it was measuring a flood that started on one arbitrary lip of a hole.
+    ///
+    /// What a driver actually needs is that a hull appearing anywhere can get to a hull appearing
+    /// anywhere else. That is a property of the spawns and does not care where the centre is or
+    /// whether there is any ground there at all.
+    /// </summary>
+    bool SpawnsConnected(float lane)
+    {
+        if (VehicleSpawns.Count < 2) return true;
+
+        var region = DrivableRegion(VehicleSpawns[0], lane);
+
+        foreach (var sp in VehicleSpawns)
+            if (!region.Contains((Mathf.RoundToInt(sp.X / DriveCell),
+                                  Mathf.RoundToInt(sp.Z / DriveCell)))) return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Take a road out of the block list, leaving whatever of each block survives beside it.
+    ///
+    /// Only blocks at hull height are touched. A kerb a hull rides over and a walkway it drives
+    /// under are both irrelevant to a road and cutting them would take away cover and cover alone.
+    /// Blocks are trimmed rather than deleted wherever there is something left to keep, so a wall
+    /// crossing the road becomes two walls with a gateway between them.
+    /// </summary>
+    void CarveRoad(Rect2 road)
+    {
+        var kept = new List<Block>();
+
+        foreach (var b in Blocks)
+        {
+            float top = b.Centre.Y + b.HalfExtents.Y;
+            float bottom = b.Centre.Y - b.HalfExtents.Y;
+
+            var foot = new Rect2(b.Centre.X - b.HalfExtents.X, b.Centre.Z - b.HalfExtents.Z,
+                                 b.HalfExtents.X * 2f, b.HalfExtents.Z * 2f);
+
+            if (top <= 0.35f || bottom >= 2.6f || !foot.Intersects(road)) { kept.Add(b); continue; }
+
+            foreach (var band in Subtract(foot, road))
+            {
+                // A sliver narrower than it is worth drawing is not cover, it is a splinter left
+                // standing in the road.
+                if (band.Size.X < 0.6f || band.Size.Y < 0.6f) continue;
+
+                kept.Add(new Block(
+                    new Vector3(band.GetCenter().X, b.Centre.Y, band.GetCenter().Y),
+                    new Vector3(band.Size.X * 0.5f, b.HalfExtents.Y, band.Size.Y * 0.5f),
+                    b.Tint, b.Fragile, b.Surface));
+            }
+        }
+
+        Blocks.Clear();
+        Blocks.AddRange(kept);
     }
 
     // ---- where vehicles can go ----

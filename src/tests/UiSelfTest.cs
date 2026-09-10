@@ -2048,6 +2048,7 @@ public static class UiSelfTest
             TestLog.Line($"    {arena.Name}: seed {seed}, {drivable} drivable cells, "
                      + $"{arena.VehicleSpawns.Count} vehicle spawns");
 
+
             foreach (var spawn in arena.VehicleSpawns)
             {
                 Check(Drivable(arena, spawn, turn),
@@ -2058,6 +2059,42 @@ public static class UiSelfTest
 
                 Check(escapes, $"{arena.Name}: a vehicle at {spawn} can drive out of its district");
             }
+
+            // Every spawn can reach every other one.
+            //
+            // This is the check that was missing, and its absence is the whole reason a map
+            // shipped where a hull could circle the outside forever and never reach the middle.
+            // Each spawn was asked, separately, whether it could escape its own district - and
+            // each could, truthfully. Nothing ever asked whether they were escaping into the SAME
+            // place. The Thousand Rooms had two disjoint halves and answered yes four times.
+            if (arena.VehicleSpawns.Count >= 2)
+            {
+                var region = arena.DrivableRegion(arena.VehicleSpawns[0], lane);
+
+                foreach (var spawn in arena.VehicleSpawns)
+                    Check(region.Contains((Mathf.RoundToInt(spawn.X / 4f),
+                                           Mathf.RoundToInt(spawn.Z / 4f))),
+                          $"{arena.Name}: a hull at {arena.VehicleSpawns[0]} can drive to {spawn}");
+            }
+
+            // And the objectives are reachable by vehicle, which is what the connectivity is FOR.
+            // Two of the Thousand Rooms' four zone spots stand at x = +/-34, z = 0, and for as
+            // long as its halves were separate a tank could never contest either of them.
+            int reachableZones = 0;
+            var fromSpawn = arena.DrivableRegion(arena.VehicleSpawns[0], lane);
+
+            foreach (var zone in arena.ZoneSpots)
+            {
+                var near = arena.NearestDrivable(zone, lane);
+                if (near.DistanceTo(zone with { Y = 0f }) > 18f) continue;
+                if (fromSpawn.Contains((Mathf.RoundToInt(near.X / 4f), Mathf.RoundToInt(near.Z / 4f))))
+                    reachableZones++;
+            }
+
+            TestLog.Line($"    {arena.Name}: {reachableZones} of {arena.ZoneSpots.Count} "
+                       + "objectives have drivable ground near them");
+            Check(reachableZones >= 2,
+                  $"{arena.Name}: a vehicle can contest at least two objectives ({reachableZones})");
         }
     }
 

@@ -93,9 +93,33 @@ public static class Vehicles
         TurnRate = 2.3f,
         RamDamage = 55f,
         Gun = null,
-        HalfExtents = new Vector3(3.2f, 0.8f, 1.7f),
+
+        // Reproportioned to the model, rather than the model being stretched onto the box.
+        //
+        // The old box was 6.4m long, 1.6m tall and 3.4m wide - a shape authored as a silhouette
+        // before there was anything to look at, and a flat wide pancake next to any real vehicle.
+        // The buggy is 1 : 0.49 : 0.66 and the box was 1 : 0.25 : 0.53, and a hull whose model is
+        // twice as tall as its collision is worse than one that is simply the wrong size.
+        //
+        // Smaller in every dimension, which is also the safe direction to move it: a shorter,
+        // narrower hull fits through more gaps than before, never fewer, so nothing that used to
+        // be drivable stops being so.
+        HalfExtents = new Vector3(2.4f, 1.1f, 1.5f),
         Tint = new Color(0.99f, 0.90f, 0.46f),
         EyeHeight = 1.5f,
+
+        HullModel = "car_hull",
+
+        // The model's nose points down its own -X, measured from a shaded render and confirmed by
+        // the height profile along its length: the lowest, longest slope is at the -X end and the
+        // roll cage sits at 0.61 of the way toward +X, which is a bonnet in front of a cockpit.
+        // A half turn puts that nose on the +X the simulation drives along.
+        HullTilt = new Vector3(0f, 180f, 0f),
+
+        // Seated so the tyres meet the ground. The model is hung from its own centre at half the
+        // box height, which lands correctly only when the box is exactly half the model's height -
+        // true of the tank by luck rather than design. This is the 7cm the buggy is out by.
+        HullOffset = new Vector3(0f, 0.07f, 0f),
     };
 
     public static readonly VehicleDef Tank = new()

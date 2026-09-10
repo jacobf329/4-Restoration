@@ -136,6 +136,7 @@ def triangles(path, clip=None, time=0.0):
 
     world = globals_for(js, posed)
     out = []
+    uvs = []
 
     for i, node in enumerate(js.get('nodes', [])):
         if 'mesh' not in node:
@@ -172,16 +173,45 @@ def triangles(path, clip=None, time=0.0):
                 idx = accessor(js, bin_, prim['indices']).reshape(-1).astype(np.int64)
             else:
                 idx = np.arange(len(pos))
-            out.append(pos[idx[:len(idx) // 3 * 3]].reshape(-1, 3, 3))
+            idx = idx[:len(idx) // 3 * 3]
+            out.append(pos[idx].reshape(-1, 3, 3))
+
+            if 'TEXCOORD_0' in attrs:
+                uv = accessor(js, bin_, attrs['TEXCOORD_0']).astype(np.float64)
+                uvs.append(uv[idx].reshape(-1, 3, 2))
+            else:
+                uvs.append(np.zeros((len(idx) // 3, 3, 2)))
 
     if not out:
         raise SystemExit('no triangles in %s' % path)
-    return np.concatenate(out), js
+    return np.concatenate(out), js, np.concatenate(uvs)
+
+
+def base_colour(path):
+    """The material's base colour map as an (h,w,3) array, or None."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    import io
+    js, bin_ = read_glb(path)
+    mats = js.get('materials') or []
+    tex = (mats[0].get('pbrMetallicRoughness', {}).get('baseColorTexture')
+           if mats else None)
+    if tex is None:
+        return None
+    img = js['images'][js['textures'][tex['index']]['source']]
+    if 'bufferView' not in img:
+        return None
+    bv = js['bufferViews'][img['bufferView']]
+    o = bv.get('byteOffset', 0)
+    raw = bin_[o:o + bv['byteLength']]
+    return np.asarray(Image.open(io.BytesIO(raw)).convert('RGB'), dtype=np.float64) / 255.0
 
 
 # ---------------------------------------------------------------- raster
 
-def view(tris, azimuth, elevation, w, h):
+def view(tris, azimuth, elevation, w, h, uv=None, tex=None):
     """Flat-shaded orthographic render, +Y up, framed to fit."""
     a, e = math.radians(azimuth), math.radians(elevation)
     # camera basis: right, up, forward(towards viewer)
@@ -212,6 +242,8 @@ def view(tris, azimuth, elevation, w, h):
 
     colour = np.zeros((h, w), dtype=np.float64)
     depth = np.full((h, w), -1e30)
+    albedo = np.zeros((h, w, 3), dtype=np.float64)
+    textured = uv is not None and tex is not None
 
     # painter-safe z-buffer, scanline per triangle
     x0 = np.clip(np.floor(p[:, :, 0].min(1)).astype(int), 0, w - 1)
@@ -229,22 +261,37 @@ def view(tris, azimuth, elevation, w, h):
         xs = np.arange(x0[t], x1[t] + 1) + 0.5
         ys = np.arange(y0[t], y1[t] + 1) + 0.5
         gx, gy = np.meshgrid(xs, ys)
-        w0 = ((bx - ax) * (gy - ay) - (by - ay) * (gx - ax)) / area
-        w1 = ((cx2 - bx) * (gy - by) - (cy2 - by) * (gx - bx)) / area
-        inside = (w0 >= 0) & (w1 >= 0) & (w0 + w1 <= 1)
+        wc = ((bx - ax) * (gy - ay) - (by - ay) * (gx - ax)) / area   # area ABP -> C
+        wa = ((cx2 - bx) * (gy - by) - (cy2 - by) * (gx - bx)) / area  # area BCP -> A
+        wb = 1.0 - wa - wc
+        inside = (wa >= 0) & (wb >= 0) & (wc >= 0)
         if not inside.any():
             continue
-        z = az + (cz - az) * w0 + (bz - az) * w1
+        z = az * wa + bz * wb + cz * wc
         sl = (slice(y0[t], y1[t] + 1), slice(x0[t], x1[t] + 1))
         win = inside & (z > depth[sl])
         depth[sl] = np.where(win, z, depth[sl])
         colour[sl] = np.where(win, lit[t], colour[sl])
+        if textured:
+            uu = (uv[t, 0] * wa[..., None] + uv[t, 1] * wb[..., None]
+                  + uv[t, 2] * wc[..., None])
+            th, tw = tex.shape[:2]
+            # glTF puts UV (0,0) at the TOP-left, which is also image row 0,
+            # so V is not flipped on the way in.
+            px = np.clip((uu[..., 0] % 1.0) * (tw - 1), 0, tw - 1).astype(int)
+            py = np.clip((uu[..., 1] % 1.0) * (th - 1), 0, th - 1).astype(int)
+            albedo[sl] = np.where(win[..., None], tex[py, px], albedo[sl])
 
     img = np.full((h, w, 3), 22, dtype=np.uint8)
     hit = depth > -1e29
-    grey = np.clip(colour * 255, 0, 255).astype(np.uint8)
+    if textured:
+        # keep some of the flat shading so form still reads under the texture
+        shaded = albedo * (0.55 + 0.65 * colour[..., None])
+    else:
+        shaded = np.repeat(colour[..., None], 3, axis=2)
+    shaded = np.clip(shaded * 255, 0, 255).astype(np.uint8)
     for c in range(3):
-        img[:, :, c] = np.where(hit, grey, img[:, :, c])
+        img[:, :, c] = np.where(hit, shaded[:, :, c], img[:, :, c])
     return img
 
 
@@ -271,6 +318,7 @@ def main(argv):
     elev = 8.0
     clip = None
     time = 0.0
+    tex = False
     i = 2
     while i < len(argv):
         if argv[i] == '-o':
@@ -285,10 +333,13 @@ def main(argv):
             clip = argv[i + 1]; i += 2
         elif argv[i] == '--time':
             time = float(argv[i + 1]); i += 2
+        elif argv[i] == '--tex':
+            tex = True; i += 1
         else:
             raise SystemExit('unknown argument %s' % argv[i])
 
-    tris, js = triangles(src, clip, time)
+    tris, js, uv = triangles(src, clip, time)
+    texture = base_colour(src) if tex else None
     lo = tris.reshape(-1, 3).min(0); hi = tris.reshape(-1, 3).max(0)
     print('%s: %d triangles, extent %.2f x %.2f x %.2f (XYZ)'
           % (os.path.basename(src), len(tris), *(hi - lo)))
@@ -297,7 +348,7 @@ def main(argv):
              len(js.get('animations', [])), len(js.get('images', []))))
 
     h = int(size * 1.35)
-    cells = [view(tris, a, elev, size, h) for a in angles]
+    cells = [view(tris, a, elev, size, h, uv, texture) for a in angles]
     sheet = np.concatenate(
         [np.concatenate([c, np.full((h, 2, 3), 70, np.uint8)], axis=1) for c in cells], axis=1)
     png(out, sheet)

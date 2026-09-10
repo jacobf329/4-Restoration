@@ -28,6 +28,22 @@ the same pose. Arms not level, or a hip cocked, or the camera below chest
 height, and the transfer degrades into per-character hand work. The pose
 paragraph is not styling, it is a contract with the next tool along.
 
+THE THIRTY SECOND CEILING
+-------------------------
+The agent proxy cuts a relay off at about thirty seconds and returns 502
+"upstream request failed". That is not OpenAI: measured here, quality=high at
+1024x1536 takes longer than that and fails every time, while the identical
+request at 1024x1024 returned 200 in exactly thirty seconds, and medium at
+1024x1536 returns in fifteen. So the setting that matters is not the one that
+looks like it should be - the prompt length is irrelevant, and a 2MB response
+comes back fine.
+
+Each entry therefore carries a quality it can actually finish in, and a 502 is
+retried once a step lower rather than reported as a failure. A T-pose is
+reference for a mesh generator and wants shape rather than skin texture, so
+medium costs it nothing; a portrait is a face somebody looks at, so it asks for
+high and falls back only if it has to.
+
 CREDENTIALS
 -----------
 No key is read or stored here. The environment's API credential is attached to
@@ -62,17 +78,25 @@ def entries():
     return json.loads(PROMPTS.read_text())
 
 
-def generate(entry):
+# What each kind asks for, and what it settles for when the relay runs out of
+# patience. See THE THIRTY SECOND CEILING above.
+DEFAULT_QUALITY = {"tpose": "medium", "portrait": "high"}
+FALLBACK = {"high": "medium", "medium": "low"}
+
+
+def generate(entry, quality=None):
     name, kind = entry["name"], entry["kind"]
 
     if kind not in FOLDERS:
         sys.exit(f"{name}: unknown kind {kind!r} - expected one of {sorted(FOLDERS)}")
 
+    quality = quality or entry.get("quality") or DEFAULT_QUALITY.get(kind, "medium")
+
     body = json.dumps({
         "model": MODEL,
         "prompt": entry["prompt"],
         "size": entry.get("size", "1024x1024"),
-        "quality": entry.get("quality", "high"),
+        "quality": quality,
         "n": 1,
 
         # Transparent so the T-pose hands Meshy a clean silhouette with no background
@@ -85,7 +109,8 @@ def generate(entry):
     req = urllib.request.Request(ENDPOINT, data=body,
                                  headers={"Content-Type": "application/json"})
 
-    print(f"{name} {kind}: {entry['prompt'][:66]}...")
+    print(f"{name} {kind} ({quality}, {entry.get('size', '1024x1024')}): "
+          f"{entry['prompt'][:52]}...")
 
     try:
         with urllib.request.urlopen(req, timeout=600) as r:
@@ -99,6 +124,14 @@ def generate(entry):
             print("\n  The request reached OpenAI and the key attached to it was refused.")
             print("  Nothing here can fix that: replace the OpenAI credential on the")
             print("  environment at claude.ai/code and run this again.")
+            return False
+
+        # 502 from the proxy means the relay was cut off, not that the request was
+        # wrong. Ask for less and it comes back inside the window.
+        if e.code == 502 and quality in FALLBACK:
+            print(f"  relay timed out; retrying at {FALLBACK[quality]}")
+            return generate(entry, FALLBACK[quality])
+
         return False
 
     # gpt-image-1 always returns base64 rather than a URL.

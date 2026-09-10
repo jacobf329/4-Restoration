@@ -1,0 +1,8 @@
+[
+  {
+    "name": "car_hull",
+    "prompt": "A rugged open-frame arena buggy, lying horizontally along its length with the nose pointing forward and the whole body level. Low wide stance on four chunky off-road wheels. Flat wedge bonnet at the front, two exposed bucket seats in the middle under a simple tubular roll cage, rear-mounted engine with two short upright exhaust stacks behind the cabin. No doors, no roof panel, no windscreen glass. Stocky and purposeful rather than sleek: about twice as long as it is wide, and low enough that the roll cage is the tallest thing on it.",
+    "texture_prompt": "creamy pale butter-yellow painted bodywork with a soft satin sheen, dark grey steel roll cage and engine, matte black tyres, light scuffing and road dirt along the lower edges",
+    "target_polycount": 6000
+  }
+]

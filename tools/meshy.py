@@ -51,6 +51,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUDGETS = {
     "characters": 7000,
     "weapons": 13000,
+
+    # Vehicles are budgeted against the two that already exist rather than against the weapons.
+    # The tank's hull and turret are about two thousand triangles each - an order of magnitude
+    # under a weapon - because a hull is a box with wheels and is only ever seen at driving
+    # distance, where a nine-thousand-triangle chassis buys nothing at all.
+    "vehicles": 8000,
     "vehicles": 13000,
 }
 
@@ -130,7 +136,8 @@ def wait(task_id, label):
 
 def entry_for(name):
     """Find the prompt, and the folder its kind of asset belongs in."""
-    for stem, folder in (("weapons", "weapons"), ("characters", "characters")):
+    for stem, folder in (("weapons", "weapons"), ("characters", "characters"),
+                        ("vehicles", "vehicles")):
         path = ROOT / "assets" / f"meshy-{stem}.json"
         if not path.exists():
             continue

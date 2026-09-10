@@ -57,7 +57,6 @@ BUDGETS = {
     # under a weapon - because a hull is a box with wheels and is only ever seen at driving
     # distance, where a nine-thousand-triangle chassis buys nothing at all.
     "vehicles": 8000,
-    "vehicles": 13000,
 }
 
 MAX_MATERIALS = 2

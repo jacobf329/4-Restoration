@@ -359,6 +359,7 @@ public static class MatchSelfTest
         Once(CheckScopedRiflesCanBePickedUp);
         Once(CheckClassAbilities);
         Once(CheckBotsSeekGunsNotMedKits);
+        Once(CheckCorpsesStayInTheWorld);
         Once(CheckStoryModeIsPlayable);
         Once(CheckCaptureTheFlag);
         Once(CheckJuggernaut);
@@ -1307,6 +1308,81 @@ public static class MatchSelfTest
     /// named here rather than papered over: everything from the settings inward is tested, and the
     /// slot-to-view wiring above it is not.
     /// </summary>
+    /// <summary>
+    /// A corpse cannot leave the world in either direction.
+    ///
+    /// Written against a real failure rather than a hypothetical: one Juggernaut round on the
+    /// Glasshouse reported a pawn at a constant eleven metres of X, rising through y=66, 73, 80
+    /// and on past 150, for a hundred and forty consecutive invariant samples. It was a body. The
+    /// match step clamped corpses at the kill plane so they could not fall out of the world during
+    /// their respawn timer, and had no matching clamp for the top - and CheckOutOfBounds, which
+    /// kills anything outside the play boundary, asks whether the pawn is alive first, which a
+    /// corpse is not.
+    ///
+    /// Both directions are checked, because the floor half of this has been fixed once already and
+    /// a test that only covers the new half invites the same asymmetry back.
+    /// </summary>
+    static void CheckCorpsesStayInTheWorld()
+    {
+        var roster = new List<LobbySlot>();
+        for (int i = 0; i < 2; i++)
+            roster.Add(new LobbySlot { IsBot = true, ClassIndex = i, FactionIndex = i });
+
+        var m = new Match();
+        m.Build(app, new MatchSettings
+        {
+            Mode = GameMode.Deathmatch, ScoreLimit = 99, BotSkill = 0, ArenaIndex = 2,
+        }, roster, visuals: false);
+
+        // A pawn each, rather than the same one twice. Reusing it fails on the second pass for a
+        // reason that has nothing to do with the ceiling: the first corpse respawns partway
+        // through, and a pawn that has just respawned is invulnerable, so the second kill simply
+        // does not land.
+        var probes = new[] { ("up", 46f, m.Pawns[0]), ("down", -46f, m.Pawns[1]) };
+
+        foreach (var (label, launch, pawn) in probes)
+        {
+            pawn.TakeDamage(pawn.MaxHealth * 3f);
+            Check(!pawn.Alive, $"{label}: the probe is a corpse before it is thrown");
+
+            // Thrown from a spawn point, which is open ground by construction. The first version
+            // used the middle of the map, which on this layout is the inside of the Atrium's
+            // central tower - the body was embedded in a block, MoveAndSlide zeroed its velocity
+            // on the first frame, and the test passed without ever throwing anything.
+            pawn.GlobalPosition = m.Arena.SpawnPoints[0] + Vector3.Up * 4f;
+            pawn.Velocity = new Vector3(0f, launch, 0f);
+
+            float reached = pawn.GlobalPosition.Y;
+            bool escaped = false;
+
+            // Long enough that anything unclamped has left the map several times over, and stopped
+            // at the respawn, after which the pawn is alive and no longer the thing being tested.
+            for (int i = 0; i < 240 && !pawn.Alive; i++)
+            {
+                m._PhysicsProcess(1.0 / 60.0);
+
+                float y = pawn.GlobalPosition.Y;
+                if (MathF.Abs(y) > MathF.Abs(reached)) reached = y;
+
+                // InPlay, not Contains. Contains is the loose invariant that looks for gross
+                // escapes and tolerates y up to 60; InPlay is the play boundary and stops at the
+                // ceiling. Asserted against the loose one first, this test watched an unclamped
+                // corpse sail to 57 and called it a pass.
+                if (m.Arena.InPlay(pawn.GlobalPosition)) continue;
+
+                escaped = true;
+                Check(false, $"a corpse thrown {label} left the world (reached y={y:0})");
+                break;
+            }
+
+            Check(!escaped, $"a corpse thrown {label} at {MathF.Abs(launch):0}m/s stays in the world");
+            TestLog.Line($"    a corpse thrown {label} at {MathF.Abs(launch):0}m/s reached "
+                       + $"y={reached:0} against a world of {Arena.KillPlaneY:0} to {Arena.CeilingY:0}");
+        }
+
+        m.QueueFree();
+    }
+
     static void CheckStoryModeIsPlayable()
     {
         foreach (var act in new[] { Act.Childhood, Act.Harvest })

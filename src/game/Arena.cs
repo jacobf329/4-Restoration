@@ -205,6 +205,16 @@ public sealed class Arena
     public const float KillPlaneY = -5f;
 
     /// <summary>
+    /// The top of the world, as far above it as the kill plane is below.
+    ///
+    /// Named because two places need to agree about it and used to only by coincidence: the play
+    /// boundary below and the corpse clamp in the match step. Comfortably above anything anybody
+    /// can legitimately reach - a full jetpack tops out at 33m and the strongest launch pad on any
+    /// map apexes at 18.6m - so a pawn up here got there by a fault rather than by playing.
+    /// </summary>
+    public const float CeilingY = WallHeight + 26f;
+
+    /// <summary>
     /// One arena per faith, named for what it is rather than for its floor plan.
     ///
     /// They were Crossfire, Foundry, Atrium and Gauntlet — four descriptions of a shape, which is
@@ -3328,7 +3338,7 @@ public sealed class Arena
         => MathF.Abs(p.X) <= HalfWidth + 1.5f
         && MathF.Abs(p.Z) <= HalfDepth + 1.5f
         && p.Y > KillPlaneY - 1f
-        && p.Y < WallHeight + 26f;
+        && p.Y < CeilingY;
 
     public bool Contains(Vector3 p)
         => MathF.Abs(p.X) <= HalfWidth + 4f

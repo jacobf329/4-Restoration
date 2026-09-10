@@ -314,13 +314,31 @@ public partial class Match : Node3D
 
                 pawn.Tick(dt, default, this);
 
-                // A corpse stops at the kill plane rather than falling out of the world for the
-                // whole respawn timer. It used to keep accelerating downward the entire time,
-                // which the arena-bounds invariant caught as soon as the outer districts gave it
-                // somewhere deep to fall — and which pointed the death camera into the void.
-                if (pawn.GlobalPosition.Y < Arena.KillPlaneY)
+                // A corpse stops at the edges of the world rather than leaving it for the whole
+                // respawn timer. It used to keep accelerating downward the entire time, which the
+                // arena-bounds invariant caught as soon as the outer districts gave it somewhere
+                // deep to fall — and which pointed the death camera into the void.
+                //
+                // The ceiling is the same rule and was missing, which took a rare invariant
+                // failure to find: a corpse blasted upward rose at a constant twelve metres a
+                // second, out through the top of the world, for a hundred and forty consecutive
+                // samples. Nothing caught it. CheckOutOfBounds kills anything outside the play
+                // boundary and would have, except that it asks whether the pawn is alive first —
+                // correctly, since a corpse cannot be killed again — so the only thing standing
+                // between a body and the void was this clamp, which only looked down.
+                var body = pawn.GlobalPosition;
+
+                if (body.Y < Arena.KillPlaneY || body.Y > Arena.CeilingY)
                 {
-                    pawn.GlobalPosition = pawn.GlobalPosition with { Y = Arena.KillPlaneY };
+                    // Held a metre inside the ceiling rather than exactly on it, mirroring the
+                    // metre of slack InPlay already allows below the kill plane. Parked precisely
+                    // on the boundary, a clamped body sits at a height the play boundary itself
+                    // calls out of play - so the clamp would work and the invariant would still
+                    // complain about the result.
+                    pawn.GlobalPosition = body with
+                    {
+                        Y = Mathf.Clamp(body.Y, Arena.KillPlaneY, Arena.CeilingY - 1f),
+                    };
                     pawn.Velocity = Vector3.Zero;
                 }
 

@@ -1377,7 +1377,7 @@ public static class MatchSelfTest
 
             Check(!escaped, $"a corpse thrown {label} at {MathF.Abs(launch):0}m/s stays in the world");
             TestLog.Line($"    a corpse thrown {label} at {MathF.Abs(launch):0}m/s reached "
-                       + $"y={reached:0} against a world of {Arena.KillPlaneY:0} to {Arena.CeilingY:0}");
+                       + $"y={reached:0} against a world of {Arena.KillPlaneY:0} to {m.Arena.CeilingY:0}");
         }
 
         m.QueueFree();

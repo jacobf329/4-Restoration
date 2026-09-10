@@ -2131,6 +2131,7 @@ public partial class Match : Node3D
             var v = new Vehicle { Name = $"Vehicle{i}" };
             AddChild(v);
             v.Setup(def, Visuals);
+            v.ArenaCeiling = Arena.WallHeight;
             v.HomePosition = Arena.VehicleSpawns[i];
             v.GlobalPosition = Arena.VehicleSpawns[i] + Vector3.Up * 0.5f;
             v.Facing = MathU.Angle(new Vector2(-v.GlobalPosition.X, -v.GlobalPosition.Z));

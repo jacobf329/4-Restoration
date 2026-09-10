@@ -184,7 +184,31 @@ public sealed class Arena
     // core is untouched and the new floor became new districts around it.
     public const float HalfWidth = 139f;
     public const float HalfDepth = 103f;
-    public const float WallHeight = 16f;
+    /// <summary>
+    /// How high the outer wall stands on an ordinary arena, and the height the game was built
+    /// around: a jump apex of 3.2m, a jetpack ceiling of 33m, an upper storey at 6.4m.
+    /// </summary>
+    public const float StandardWallHeight = 16f;
+
+    /// <summary>
+    /// How high THIS arena's wall stands.
+    ///
+    /// Per-layout rather than one constant, which it was until the Laboratory. Everything about
+    /// the four original maps is horizontal - they are floors with a storey over them - and a
+    /// single height was right for all of them. A tower is not that shape, and a global constant
+    /// would have capped it at the height of a map it has nothing in common with.
+    ///
+    /// Read rather than stored so it is available inside the constructor, where the perimeter is
+    /// built before any field initialiser would have run.
+    /// </summary>
+    public float WallHeight => HeightFor(Layout);
+
+    /// <summary>The wall height a layout wants. See <see cref="WallHeight"/>.</summary>
+    public static float HeightFor(int layout)
+        => layout == LaboratoryLayout ? StandardWallHeight * 4f : StandardWallHeight;
+
+    /// <summary>The tallest any arena stands, for anything that has to size a shared buffer.</summary>
+    public static float TallestWallHeight => StandardWallHeight * 4f;
 
     /// <summary>
     /// Where the original arena ended. Everything inside this is the tuned core; everything beyond
@@ -212,7 +236,7 @@ public sealed class Arena
     /// can legitimately reach - a full jetpack tops out at 33m and the strongest launch pad on any
     /// map apexes at 18.6m - so a pawn up here got there by a fault rather than by playing.
     /// </summary>
-    public const float CeilingY = WallHeight + 26f;
+    public float CeilingY => WallHeight + 26f;
 
     /// <summary>
     /// One arena per faith, named for what it is rather than for its floor plan.
@@ -239,7 +263,7 @@ public sealed class Arena
     /// picker is what keeps a puzzle chamber out of a deathmatch rotation.
     /// </summary>
     public static readonly string[] Names =
-        { "Reliquary", "Furnace", "Glasshouse", "Thousand Rooms",
+        { "Reliquary", "Furnace", "Glasshouse", "Thousand Rooms", "Laboratory",
           "Fairview", "Convocation", "Antechamber", "Orrery" };
 
     public readonly int Layout;
@@ -386,6 +410,7 @@ public sealed class Arena
             case 0: BuildCrossfire(); break;
             case 1: BuildFoundry(); break;
             case 2: BuildAtrium(); break;
+            case LaboratoryLayout: BuildLaboratory(); break;
             default: BuildGauntlet(); break;
         }
 
@@ -602,6 +627,12 @@ public sealed class Arena
             case 0: VerticalSpire(); break;
             case 1: VerticalGantries(); break;
             case 2: VerticalBalcony(); break;
+
+            // Nothing here either, for the same reason. A map that is already sixty-four metres of
+            // vertical does not want a second storey adding to it, and the ascent pass runs
+            // catwalks straight through the shaft.
+            case LaboratoryLayout: break;
+
             default: VerticalAscent(); break;
         }
 
@@ -1026,6 +1057,38 @@ public sealed class Arena
         return best;
     }
 
+    /// <summary>
+    /// The largest connected patch of ground a hull can drive around.
+    ///
+    /// Every cell is visited once: a cell already claimed by an earlier flood is skipped, so the
+    /// whole sweep costs about one flood over the lattice however many separate regions a layout
+    /// turns out to have.
+    /// </summary>
+    HashSet<(int, int)> LargestDrivableRegion(float radius)
+    {
+        var seen = new HashSet<(int, int)>();
+        var best = new HashSet<(int, int)>();
+
+        int nx = Mathf.FloorToInt((HalfWidth - 4f) / DriveCell);
+        int nz = Mathf.FloorToInt((HalfDepth - 4f) / DriveCell);
+
+        for (int cx = -nx; cx <= nx; cx++)
+        for (int cz = -nz; cz <= nz; cz++)
+        {
+            if (!seen.Add((cx, cz))) continue;
+
+            var at = new Vector3(cx * DriveCell, 0f, cz * DriveCell);
+            if (!HullFits(at, radius)) continue;
+
+            var region = DrivableRegion(at, radius);
+            foreach (var c in region) seen.Add(c);
+
+            if (region.Count > best.Count) best = region;
+        }
+
+        return best;
+    }
+
     /// <summary>Every grid cell a hull can drive to from <paramref name="from"/>.</summary>
 
 
@@ -1157,10 +1220,19 @@ public sealed class Arena
             turn = MathF.Max(turn, new Vector2(v.HalfExtents.X, v.HalfExtents.Z).Length() + 0.3f);
         }
 
-        // Seeded from the open ground nearest the middle, not from the middle itself. Three of the
-        // four layouts have a solid structure sitting on the origin — Crossfire's spire, Atrium's
-        // tower — so flooding from (0,0) started inside a block and died before it left it.
-        var region = DrivableRegion(NearestDrivable(Vector3.Zero, radius), radius);
+        // The biggest patch of drivable ground on the map, wherever it happens to be.
+        //
+        // This used to flood from the open ground nearest the middle, which was already a fix for
+        // flooding from the middle itself — three of the four original layouts have a structure
+        // standing on the origin. The Laboratory broke it again and harder: it is a building, so
+        // the ground nearest the origin is INSIDE it, and the flood filled a room and stopped.
+        // The map came out with too few vehicle spawns to park one of each, and OpenDriveways
+        // could not report the problem because it has nothing to check when there are fewer than
+        // two spawns to connect.
+        //
+        // Asking which patch is biggest has no such assumption in it. Nearest-to-something is a
+        // heuristic about where maps put their open ground; largest is the thing actually wanted.
+        var region = LargestDrivableRegion(radius);
 
         VehicleSpawns.Clear();
 
@@ -2014,6 +2086,284 @@ public sealed class Arena
     }
 
     /// <summary>
+    /// The Laboratory — the Vessels' own, where they made John Smith, and which they brought down
+    /// afterwards.
+    ///
+    /// The one arena that is a building rather than a floor. Every other map in the game is a
+    /// plan with a storey over it; this is eight levels stacked to sixty-four metres, which is why
+    /// the wall height had to stop being a constant.
+    ///
+    /// WHAT MAKES IT PLAYABLE RATHER THAN A TOWER OF BOXES. Three things, and they are all the
+    /// same thing seen from different angles:
+    ///
+    /// The blast went up the middle, so there is a shaft through every floor. You can see the
+    /// whole height of the building from the ground, shoot up it, fall down it, and know where
+    /// everyone is. A tall map whose levels cannot see each other is eight small maps stacked up
+    /// with a loading screen between them.
+    ///
+    /// Every floor is missing a quarter, and it is a different quarter each level, rotating. So
+    /// the shaft opens onto a different side as you climb, no floor is a repeat of the one below,
+    /// and the hole you fall through is never the hole you fell through last time.
+    ///
+    /// And nothing is gated behind one route. Two stair cores at opposite corners, a lift up the
+    /// shaft, and launch pads under the holes - four ways up, deliberately more than a map this
+    /// size needs, because being cut off at the bottom of a tower is not a setback, it is the
+    /// rest of the round spent climbing.
+    /// </summary>
+    void BuildLaboratory()
+    {
+        const float TowerX = 44f;        // half extents of the building footprint
+        const float TowerZ = 32f;
+        const float Rise = 7f;           // floor to floor: two ramps' worth, never a jump
+        const int Levels = 8;            // ground, then seven above it
+        const float ShaftHalf = 11f;     // the hole the blast made, all the way up
+        const float Slab = 0.4f;
+
+        var bone = new Color(0.80f, 0.79f, 0.76f);
+        var scorched = new Color(0.34f, 0.32f, 0.31f);
+        var steel = new Color(0.52f, 0.54f, 0.58f);
+
+        // The stair wells: the column of open air above each staircase, cut out of every plate.
+        //
+        // A flight climbing 7m has its lower steps 1.75m under the floor it arrives at, and a
+        // pawn does not fit in 1.75m - so a staircase under a solid slab is not a staircase, it is
+        // a crawlspace, and the navigation graph correctly refuses to route through it. The well
+        // spans the run of the flight and stops short of its top step, which is level with the
+        // landing and wants floor beside it rather than sky.
+        // Written out as coordinates rather than derived, because a well in the wrong place is a
+        // hole somebody falls through for no reason. Each spans the run of one flight and stops
+        // short of its top step, which is level with the landing and wants floor beside it.
+        var wells = new List<Rect2>
+        {
+            new(TowerX - 14f, 15f, 14f, 10f),
+            new(-TowerX, -25f, 14f, 10f),
+        };
+
+        // Level 0 is the arena floor itself, so the loop starts at 1 and builds what stands above.
+        for (int level = 1; level < Levels; level++)
+        {
+            float y = level * Rise;
+
+            // The quarter that is missing on this level. Rotating rather than random: a player
+            // should be able to learn this building, and a ruin that is differently ruined every
+            // time you look at it is noise rather than architecture.
+            int gone = level % 4;
+
+            // North and south bands run the full width; east and west fill between them. Four
+            // bands leaving the shaft open in the middle.
+            if (gone != 0)
+                DeckWithHoles(new Vector3(0f, y, -(ShaftHalf + TowerZ) * 0.5f),
+                              new Vector3(TowerX, Slab, (TowerZ - ShaftHalf) * 0.5f),
+                              wells, bone, SurfaceKind.Concrete);
+
+            if (gone != 1)
+                DeckWithHoles(new Vector3(0f, y, (ShaftHalf + TowerZ) * 0.5f),
+                              new Vector3(TowerX, Slab, (TowerZ - ShaftHalf) * 0.5f),
+                              wells, bone, SurfaceKind.Concrete);
+
+            if (gone != 2)
+                DeckWithHoles(new Vector3(-(ShaftHalf + TowerX) * 0.5f, y, 0f),
+                              new Vector3((TowerX - ShaftHalf) * 0.5f, Slab, ShaftHalf),
+                              wells, bone, SurfaceKind.Concrete);
+
+            if (gone != 3)
+                DeckWithHoles(new Vector3((ShaftHalf + TowerX) * 0.5f, y, 0f),
+                              new Vector3((TowerX - ShaftHalf) * 0.5f, Slab, ShaftHalf),
+                              wells, bone, SurfaceKind.Concrete);
+
+            // The outer skin, in four pieces with the corners left open. Waist high rather than
+            // full height: a parapet you fight over and can be shot across, not a wall that turns
+            // each floor into its own sealed room.
+            foreach (int sz in new[] { -1, 1 })
+                Deck(new Vector3(0f, y + 1.4f, sz * TowerZ), new Vector3(TowerX - 9f, 1.4f, 0.6f),
+                     level % 2 == 0 ? scorched : bone, SurfaceKind.Concrete);
+
+            foreach (int sx in new[] { -1, 1 })
+                Deck(new Vector3(sx * TowerX, y + 1.4f, 0f), new Vector3(0.6f, 1.4f, TowerZ - 9f),
+                     level % 2 == 0 ? scorched : bone, SurfaceKind.Concrete);
+
+            // The stairwells stand whatever else fell.
+            //
+            // Not decoration: the missing quarter rotates, and on the levels where it takes the
+            // band a stair core lands in, the climb simply stopped - the north band is gone on
+            // level 4 and the south on 1 and 5, so each core was severed twice on the way up and
+            // nothing above level 3 could be walked to at all. A landing at every core on every
+            // level is what makes the building one place instead of four.
+            //
+            // It is also what a ruin looks like. The stair core is the strongest part of a
+            // building and routinely the only part left standing.
+            foreach (int corner in new[] { -1, 1 })
+                DeckWithHoles(new Vector3(corner * (TowerX - 7f), y, corner * (TowerZ - 13f)),
+                              new Vector3(6f, Slab, 13f), wells, bone, SurfaceKind.Concrete);
+
+            // Labs, in the band that survived on this level.
+            //
+            // Kept to 4m tall under a floor 7m up. A room the usual 5.2m leaves 1.8m of crawlspace
+            // between its roof and the storey above, and a pawn does not fit in 1.8m - the same
+            // trap that made the staircases unclimbable, which is worth stating twice because
+            // vertical maps invite it everywhere and horizontal ones never do.
+            // Whichever of the two long bands is still standing. North unless the blast took it,
+            // in which case south - and both are never gone at once, because only one quarter goes
+            // per level.
+            float bandZ = gone != 0 ? -(ShaftHalf + TowerZ) * 0.5f : (ShaftHalf + TowerZ) * 0.5f;
+
+            foreach (int sx in new[] { -1, 1 })
+                Room(new Vector3(sx * 22f, y, bandZ), new Vector3(7f, 2f, 5f),
+                     doors: new[] { true, level % 2 == 0, true, level % 2 != 0 },
+                     roofed: true, tint: bone, surface: SurfaceKind.Plaster);
+
+            // Standing partitions, so a floor is a laboratory rather than a slab. Cover at the
+            // height that matters, and they alternate so no two floors read the same.
+            foreach (int sx in new[] { -1, 1 })
+            {
+                float px = sx * (ShaftHalf + 9f);
+                float pz = (level % 2 == 0 ? 1f : -1f) * (ShaftHalf + 7f);
+
+                Deck(new Vector3(px, y + 1.5f, pz), new Vector3(6f, 1.5f, 0.5f), steel);
+                Deck(new Vector3(px + sx * 5.5f, y + 1.5f, pz - MathF.Sign(pz) * 5f),
+                     new Vector3(0.5f, 1.5f, 5f), steel);
+            }
+        }
+
+        // ---- getting up ----
+
+        // Two stair cores, at opposite corners, each climbing every level. Opposite so that
+        // holding one is not holding the building, and inboard of the parapet so the climb is
+        // fought over rather than walked.
+        foreach (int corner in new[] { -1, 1 })
+        {
+            float sx = corner * (TowerX - 7f);
+            float sz = corner * (TowerZ - 7f);
+
+            for (int level = 0; level < Levels - 1; level++)
+                Flight(new Vector3(sx, level * Rise, sz), corner > 0 ? Vector3.Forward : Vector3.Back,
+                       Rise, 4, 3.2f, steel);
+        }
+
+        // The lift, running the full height of the shaft. The fast way up and the exposed one:
+        // there is nothing to hide behind on a platform in the middle of a hole.
+        MovingPlatforms.Add(new MovingPlatformDef(
+            new Vector3(0f, 0.6f, 0f), new Vector3(0f, (Levels - 1) * Rise + 0.6f, 0f),
+            new Vector3(4.5f, 0.35f, 4.5f), period: 16f, dwell: 1.2f));
+
+        // ---- what is left of the place ----
+
+        // The clean room, on the ground, at the bottom of the shaft: where he was made. Roofless,
+        // because the ceiling is eight floors of hole, and the only enclosed space down here.
+        if (Room(new Vector3(0f, 0f, 0f), new Vector3(9f, 2.6f, 9f),
+                 doors: new[] { true, false, true, false }, roofed: false, tint: bone))
+            WeaponSpawns.Add(LastRoomAt with { Y = 1f });
+
+        // Launch pads in the clean room, firing straight up the shaft.
+        //
+        // Here rather than out on the floor plates, and the reason is mechanical before it is
+        // thematic: a pad has to be able to reach its apex or ClearLaunchPadCeilings walks it
+        // somewhere it can, and the only column of open sky in this building is the hole the blast
+        // made. Two pads placed under floor plates were duly relocated and reported as having 6m
+        // of clearance for a 15m throw.
+        //
+        // That it also flings you out of the room he was made in is the sort of thing a level
+        // gets to keep once the geometry has decided it.
+        // Diagonally opposite corners of the room, which is the only part of the shaft with open
+        // sky the whole way up: a shared pass runs a catwalk across the middle at 9.6m, and pads
+        // under it were duly relocated by ClearLaunchPadCeilings and reported as having 6m of
+        // clearance for a 15m throw. Clear of the lift as well, which occupies the centre.
+        foreach (int s in new[] { -1, 1 })
+            Pad(new Vector3(s * 6.5f, 0f, s * 6.5f), 20f);
+
+        // Guns up the building, so height is worth taking rather than merely available.
+        WeaponSpawns.Add(new Vector3(-(ShaftHalf + TowerX) * 0.5f, 3f * Rise + 1f, 0f));
+        WeaponSpawns.Add(new Vector3((ShaftHalf + TowerX) * 0.5f, 5f * Rise + 1f, 0f));
+
+        // Objectives at three heights, so a mode that fights over ground fights over the building.
+        ZoneSpots.Add(new Vector3(0f, 1f, -(ShaftHalf + TowerZ) * 0.5f));
+        ZoneSpots.Add(new Vector3(0f, 2f * Rise + 1f, (ShaftHalf + TowerZ) * 0.5f));
+        ZoneSpots.Add(new Vector3(0f, 4f * Rise + 1f, -(ShaftHalf + TowerZ) * 0.5f));
+        ZoneSpots.Add(new Vector3(0f, 6f * Rise + 1f, (ShaftHalf + TowerZ) * 0.5f));
+    }
+
+    /// <summary>
+    /// A floor plate with holes cut out of it.
+    ///
+    /// Built on the same rectangle subtraction the pits use. It exists because a staircase needs
+    /// an open well above it and nothing else in this file could express one: the first version of
+    /// the Laboratory ran its stairs up under solid floor plates, which left the lower steps with
+    /// 1.75m of headroom, and the navigation graph discards any surface a pawn cannot stand on.
+    /// The building was climbable to the third storey and no further - not because the steps were
+    /// missing, but because they were in a crawlspace.
+    /// </summary>
+    void DeckWithHoles(Vector3 centre, Vector3 half, IEnumerable<Rect2> holes, Color tint,
+                       SurfaceKind surface = SurfaceKind.Panel)
+    {
+        var plates = new List<Rect2>
+        {
+            new(centre.X - half.X, centre.Z - half.Z, half.X * 2f, half.Z * 2f),
+        };
+
+        foreach (var hole in holes)
+        {
+            var next = new List<Rect2>();
+            foreach (var plate in plates) next.AddRange(Subtract(plate, hole));
+            plates = next;
+        }
+
+        foreach (var plate in plates)
+        {
+            // Slivers are not floor, they are a trip hazard the size of a kerb.
+            if (plate.Size.X < 1.2f || plate.Size.Y < 1.2f) continue;
+
+            Deck(new Vector3(plate.GetCenter().X, centre.Y, plate.GetCenter().Y),
+                 new Vector3(plate.Size.X * 0.5f, half.Y, plate.Size.Y * 0.5f), tint, surface);
+        }
+    }
+
+    /// <summary>
+    /// A flight of steps from one floor to the next.
+    ///
+    /// <see cref="Ramp"/> cannot do this: every step it builds stands on the ground, which is
+    /// right for a ramp onto a deck and useless seven storeys up. These steps stand on the floor
+    /// they start from.
+    /// </summary>
+    void Flight(Vector3 from, Vector3 dir, float rise, int steps, float width, Color tint)
+    {
+        for (int i = 1; i <= steps; i++)
+        {
+            float top = from.Y + rise * i / steps;
+
+            // Treads sit ON the navigation lattice, centred on its sample points.
+            //
+            // That grid is 2.5m and four-connected, and a tread has to do two things at once: be
+            // long enough to contain a sample point at all, and not overhang the tread below it.
+            // A riser is solid from the floor to its own tread, so overlapping them puts each step
+            // inside the headroom of the one before - which is how a staircase becomes a
+            // crawlspace the graph refuses to route through. Exactly 2.5m long, centred on the
+            // sample points, satisfies both: every tread holds one node and no tread covers
+            // another.
+            var at = from + dir * (i * NavGraph.CellSize - NavGraph.CellSize * 0.5f);
+
+            // Treads are thin slabs, not solid risers.
+            //
+            // A riser filled from the floor to its own tread is what a staircase looks like, and
+            // it is why this building was unclimbable. The flights stack one above another, so
+            // every flight's risers stand in the headroom of the flight below: tread three sits
+            // exactly 1.75m under the next flight's riser, which is a few centimetres under a
+            // standing pawn, and the navigation graph discards any surface a pawn cannot stand on.
+            // Tread three failed on every flight at every level, which is why nothing done to the
+            // treads themselves ever changed where the climb stopped.
+            //
+            // Thin treads leave seven metres of air above each one. It also happens to be what a
+            // staircase in a building that exploded would look like.
+            const float Riser = 0.25f;
+            const float Tread = NavGraph.CellSize * 0.5f;
+
+            Blocks.Add(new Block(at with { Y = top - Riser },
+                                 new Vector3(MathF.Abs(dir.X) > 0.5f ? Tread : width, Riser,
+                                             MathF.Abs(dir.Z) > 0.5f ? Tread : width),
+                                 tint));
+        }
+    }
+
+    /// <summary>
     /// Gauntlet — three lanes, with the middle one broken by a pit that only a moving platform or
     /// a well-timed launch crosses. The outer lanes are safe and slow; the middle is fast and can
     /// kill you.
@@ -2059,6 +2409,14 @@ public sealed class Arena
             case 0: RoomsReliquary(); break;
             case 1: RoomsFurnace(); break;
             case 2: RoomsGlasshouse(); break;
+
+            // The Laboratory's interior is the building. BuildLaboratory puts eight floors of it
+            // up, and a second interior pass on top of that is not decoration, it is another map
+            // stamped through this one - which is exactly what the default below was quietly
+            // doing: the tower came out carrying all twenty-six of the Thousand Rooms' chambers,
+            // scattered through its floors and filling the shaft.
+            case LaboratoryLayout: break;
+
             default: RoomsThousand(); break;
         }
     }
@@ -2327,6 +2685,15 @@ public sealed class Arena
     /// not have to change when Fairview arrived.
     /// </summary>
     public const int StoryLayouts = 2;
+
+    /// <summary>
+    /// The Vessels' laboratory: the one arena that is a building rather than a floor.
+    ///
+    /// Named rather than left as an index because its height, its palette and its build pass all
+    /// have to agree about which layout it is, and a magic 4 in three files is how they stop
+    /// agreeing.
+    /// </summary>
+    public const int LaboratoryLayout = 4;
 
     /// <summary>Fairview, the town of Act I.</summary>
     public static int FairviewLayout => CombatLayouts;
@@ -3185,7 +3552,7 @@ public sealed class Arena
         if (layout == FairviewLayout || layout == ConvocationLayout || IsPuzzle(layout))
             return Neutral;
 
-        return (layout % 4) switch
+        return layout switch
         {
             // THE RELIQUARY - the Vessels'. Somewhere bodies are kept: pale stone, lead, and dark
             // oiled timber. The coldest and lightest of the four, and the only one that looks
@@ -3215,11 +3582,20 @@ public sealed class Arena
             // THE THOUSAND ROOMS - Ingenuity's. A civilisation that cannot let capacity go unused,
             // building partitions forever: board, ply and breeze block in salvaged paint. The
             // drabbest of the four on purpose - it is the one closest to a camp.
-            _ => new Palette(
+            3 => new Palette(
                 SurfaceKind.Concrete, new Color(0.56f, 0.54f, 0.50f),
                 SurfaceKind.Timber,   new Color(0.66f, 0.56f, 0.42f),
                 SurfaceKind.Timber,   new Color(0.86f, 0.50f, 0.34f),
                 SurfaceKind.Tarmac,   new Color(0.50f, 0.49f, 0.47f)),
+
+            // THE LABORATORY - the Vessels' again, and the same bone white as the Reliquary
+            // because it is the same people, but everything here is soot-stained and cold. Where
+            // the ossuary is kept clean, this was left exactly as it was found.
+            _ => new Palette(
+                SurfaceKind.Concrete, new Color(0.60f, 0.59f, 0.57f),
+                SurfaceKind.Plaster,  new Color(0.70f, 0.69f, 0.66f),
+                SurfaceKind.Timber,   new Color(0.30f, 0.28f, 0.27f),
+                SurfaceKind.Tarmac,   new Color(0.46f, 0.45f, 0.44f)),
         };
     }
 

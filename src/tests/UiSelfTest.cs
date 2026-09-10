@@ -1045,6 +1045,7 @@ public static class UiSelfTest
                 Check(nav.AreConnected(arena.SpawnPoints[0], z),
                       $"{arena.Name}: capture zone {z} is reachable");
 
+
             // A route must never be laid across a hole.
             var route = new List<Vector3>();
             bool found = nav.TryFindPath(arena.SpawnPoints[0], arena.SpawnPoints[1], route);
@@ -1214,7 +1215,6 @@ public static class UiSelfTest
               "the muzzle convention is a convention, not a list of exceptions");
     }
 
-
     static void TestNeedler()
     {
         TestLog.Line("- the needler is worth nothing until it is worth everything");
@@ -1265,7 +1265,6 @@ public static class UiSelfTest
 
         pawn.Free();
     }
-
 
     static void TestChildhoodMission()
     {
@@ -1330,7 +1329,6 @@ public static class UiSelfTest
         TestLog.Line($"    the walk spans {furthest:0}m of Fairview");
         Check(furthest > 40f, $"the walk crosses the town ({furthest:0}m)");
     }
-
 
 
     /// <summary>
@@ -1734,7 +1732,6 @@ public static class UiSelfTest
         Check(allPanel, "the arenas still ask for the plating they were built with");
     }
 
-
     static void TestStoryScript()
     {
         TestLog.Line("- the story script is wired to the acts");
@@ -1787,7 +1784,6 @@ public static class UiSelfTest
         Check(onlyHarvested.PlaysFor(HarvestChoice.Harvested), "a marked beat plays on its own side");
         Check(!onlyHarvested.PlaysFor(HarvestChoice.Waited), "and not on the other");
     }
-
 
     static void TestFairview()
     {
@@ -1868,7 +1864,6 @@ public static class UiSelfTest
         }
     }
 
-
     static void TestCampaignState()
     {
         TestLog.Line("- the campaign runs in order and remembers one choice");
@@ -1945,7 +1940,6 @@ public static class UiSelfTest
         Check(Mathf.Abs(loaded.Affinity - saved.Affinity) < 0.001f, "and her where she was");
     }
 
-
     static void TestModeLimitsMakeSense()
     {
         TestLog.Line("- score limits suit their modes");
@@ -2001,7 +1995,7 @@ public static class UiSelfTest
         Check(!arena.InPlay(new Vector3(0f, 200f, 0f)), "far above the world is not");
 
         // A jetpack has to be able to climb without the boundary killing the player using it.
-        Check(arena.InPlay(new Vector3(0f, Arena.WallHeight + 8f, 0f)),
+        Check(arena.InPlay(new Vector3(0f, arena.WallHeight + 8f, 0f)),
               "there is headroom above the walls for a jetpack");
     }
 
@@ -2047,7 +2041,6 @@ public static class UiSelfTest
 
             TestLog.Line($"    {arena.Name}: seed {seed}, {drivable} drivable cells, "
                      + $"{arena.VehicleSpawns.Count} vehicle spawns");
-
 
             foreach (var spawn in arena.VehicleSpawns)
             {

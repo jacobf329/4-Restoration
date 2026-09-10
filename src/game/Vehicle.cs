@@ -288,10 +288,19 @@ public partial class Vehicle : CharacterBody3D
     /// rather than bounced: an arena boundary should feel like the end of the map, not like
     /// hitting something.
     /// </summary>
+    /// <summary>
+    /// How high this hull's arena stands, set when it is parked.
+    ///
+    /// Carried rather than looked up because a Vehicle has no arena reference and never needed
+    /// one while every map was the same height. Defaulted to the ordinary height so a hull built
+    /// outside a match - as the harness does - still behaves.
+    /// </summary>
+    public float ArenaCeiling = Arena.StandardWallHeight;
+
     void HoldInsideArena()
     {
         const float Margin = 3f;
-        float ceiling = Arena.WallHeight - 1.5f;
+        float ceiling = ArenaCeiling - 1.5f;
 
         var p = GlobalPosition;
         var v = Velocity;

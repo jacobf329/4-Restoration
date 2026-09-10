@@ -128,7 +128,7 @@ public sealed class NavGraph
             float top = b.Centre.Y + b.HalfExtents.Y;
 
             // The perimeter walls have tops, but nothing should ever route along them.
-            if (top >= Arena.WallHeight - 0.5f) continue;
+            if (top >= arena.WallHeight - 0.5f) continue;
 
             into.Add(top);
             support.Add(bi);

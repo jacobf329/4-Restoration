@@ -1,0 +1,14 @@
+[
+  {
+    "name": "john_smith",
+    "kind": "tpose",
+    "size": "1024x1536",
+    "prompt": "Full-body character reference sheet of a young man in a strict T-pose, photographed straight on. SUBJECT: eighteen years old, slight build, not athletic, average height. Plain unremarkable face, mid-brown hair cut short and slightly untidy, light stubble he is not old enough to grow properly, pale skin, brown eyes, neutral expression, mouth closed. He looks like an ordinary teenager rather than a hero or a soldier. CLOTHING: a plain grey short-sleeved cotton t-shirt, ordinary dark canvas work trousers, scuffed everyday trainers. No armour, no uniform, no insignia, no technology, no props, nothing in his hands. POSE, which must be exact: arms held straight out horizontally to both sides at shoulder height forming a perfect T, elbows locked straight, palms facing down, fingers together and straight. Legs straight and vertical, feet shoulder width apart, both feet flat on the ground and pointing forward. Body facing the camera directly, head level and facing forward. Symmetrical, no twist, no contrapposto, no perspective foreshortening. FRAMING: the entire figure from the top of the head to the soles of the feet is inside the frame with a small margin. Orthographic front view, camera at chest height. LIGHTING: flat, even, neutral studio lighting from the front, no cast shadows, no rim light, no dramatic contrast. BACKGROUND: completely plain and empty. Photorealistic, natural human proportions, high detail on face and clothing."
+  },
+  {
+    "name": "john_smith",
+    "kind": "portrait",
+    "size": "1024x1024",
+    "prompt": "Head and shoulders portrait of a young man, facing the camera directly. SUBJECT: eighteen years old, slight build, plain unremarkable face, mid-brown hair cut short and slightly untidy, light stubble he is not old enough to grow properly, pale skin, brown eyes. Neutral expression, mouth closed, looking straight at the viewer. He looks like an ordinary teenager rather than a hero or a soldier: guarded, tired, a little wary, but not hardened. CLOTHING: the collar of a plain grey cotton t-shirt. No armour, no uniform, no insignia, no technology. FRAMING: head and the top of the shoulders, centred, head fully inside the frame with margin above the hair. Camera at eye level, no tilt. LIGHTING: soft even frontal light, gentle falloff, no harsh shadows across the face, no coloured light. BACKGROUND: completely plain and empty. Photorealistic, natural skin texture, sharp focus on the eyes."
+  }
+]

@@ -49,6 +49,15 @@ public static class Devices
         foreach (var d in All) d.Poll(dt);
     }
 
+    /// <summary>
+    /// Lowers every device's latched gameplay edges. Called by the match once per physics step,
+    /// which is the only thing that consumes them - see <see cref="InputDevice.UseLatched"/>.
+    /// </summary>
+    public static void ConsumeGameplayEdges()
+    {
+        foreach (var d in All) d.ConsumeGameplayEdges();
+    }
+
     static void RefreshConnected()
     {
         JustConnected.Clear();

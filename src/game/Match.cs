@@ -281,7 +281,10 @@ public partial class Match : Node3D
 
     public override void _PhysicsProcess(double delta)
     {
-        if (Finished || Paused) return;
+        // A press made while paused or after the final whistle is dropped, not banked. Without
+        // this the latch survives the pause and is spent on the frame play resumes, which is a
+        // vehicle boarded by a button pressed a minute ago.
+        if (Finished || Paused) { Devices.ConsumeGameplayEdges(); return; }
 
         float dt = (float)delta;
         Elapsed += dt;
@@ -412,6 +415,12 @@ public partial class Match : Node3D
         StepBarriers(dt);
         if (Settings.Mode == GameMode.Juggernaut) TickJuggernaut(dt);
         CheckWin();
+
+        // Every press this step was offered has now been acted on or declined, so the latches come
+        // down. This is the only place they do: input is raised on the render clock and read on
+        // the physics clock, and holding a press until the simulation has actually seen it is what
+        // makes one tap mean one action at any frame rate. See <see cref="InputDevice.UseLatched"/>.
+        Devices.ConsumeGameplayEdges();
     }
 
     // ---- King of the Hill ----

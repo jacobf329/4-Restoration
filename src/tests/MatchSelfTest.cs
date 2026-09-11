@@ -379,6 +379,7 @@ public static class MatchSelfTest
         Once(CheckGrapple);
         Once(CheckJetpack);
         Once(CheckLeavingAVehicleUnderWay);
+        Once(CheckTheMatchConsumesInputLatches);
         Once(CheckButterTrail);
         Once(CheckSeeker);
         BeginPushWallProbe();
@@ -394,6 +395,40 @@ public static class MatchSelfTest
     /// produced eleven unrelated failures across the vehicles, the bots and the eject placement,
     /// none of which were real. Diagnosing that cost more than writing this.
     /// </summary>
+
+    /// <summary>
+    /// A live match lowers the input latches every physics step.
+    ///
+    /// The rate sweep in the UI suite proves that one press is one action when something consumes
+    /// the latch each step. This is the check that something does. Without it the latch stays up
+    /// after the first step and every subsequent step reads the same press again - which on a
+    /// vehicle is boarding and leaving it over and over, the below-sixty half of the same bug.
+    ///
+    /// Deferred by a frame deliberately. Godot does not order <c>_PhysicsProcess</c> between
+    /// sibling nodes, so a latch raised during this suite's own step may be consumed by the match
+    /// before or after this code runs. Asserting on the following frame removes the race: by then
+    /// the match has certainly had its step.
+    /// </summary>
+    static void CheckTheMatchConsumesInputLatches()
+    {
+        var probe = new ScriptedDevice("latch-probe");
+        Devices.Register(probe);
+
+        probe.HoldUse = true;
+        probe.HoldJump = true;
+        probe.Poll(1f / 60f);
+
+        Check(probe.UseLatched && probe.JumpLatched,
+              "a tap raises the input latches");
+
+        NextFrame(() =>
+        {
+            Check(!probe.UseLatched && !probe.JumpLatched,
+                  "a live match lowers the input latches within a physics step");
+            probe.Release();
+            Devices.Unregister(probe);
+        });
+    }
 
     /// <summary>
     /// The butter trail: crossing one takes your feet out from under you for a second.

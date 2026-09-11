@@ -95,6 +95,44 @@ public abstract class InputDevice
     /// <summary>Menu navigation, already rate-limited. Non-zero only on the frames a step should fire.</summary>
     public int NavX, NavY;
 
+    // ---- Gameplay edges, latched until the simulation consumes them ----
+
+    /// <summary>
+    /// The press edges above, held until <see cref="ConsumeGameplayEdges"/> clears them.
+    ///
+    /// Polling happens in <c>_Process</c>, once per rendered frame. The match runs in
+    /// <c>_PhysicsProcess</c>, at a fixed sixty steps a second. Those are two different clocks,
+    /// and the plain edges above live for exactly one poll - so on any machine that does not
+    /// render at exactly sixty frames a second, a press and the step that should act on it are
+    /// only sometimes the same moment.
+    ///
+    /// On a 144Hz display there are 2.4 rendered frames per physics step. An edge raised on one
+    /// of them is gone by the next, and a step lands inside that window less than half the time:
+    /// most presses were being dropped before the game ever saw them. Below sixty the fault
+    /// inverts - two steps read one press and a vehicle was boarded and left again on the same
+    /// tap, which looks identical from the player's side.
+    ///
+    /// That is why boarding failed about half the time and why holding the button longer seemed
+    /// to help. It was never the vehicle code: every earlier fix went looking at the hull, and the
+    /// press had already been lost upstream.
+    ///
+    /// Latching makes the contract "one press, one action" independent of frame rate. A poll can
+    /// only ever raise a latch; only the simulation lowers it, and it lowers it having acted.
+    /// </summary>
+    public bool UseLatched, JumpLatched, DashLatched, MeleeLatched;
+    public bool ClassAbilityLatched, SpecialLatched, CrouchLatched, SwapLatched;
+
+    /// <summary>
+    /// Clears the latched edges. Called by the simulation once per physics step, after it has had
+    /// its look at them - and on the steps it declines to run, so a press made during a pause is
+    /// dropped rather than banked and spent the instant play resumes.
+    /// </summary>
+    public void ConsumeGameplayEdges()
+    {
+        UseLatched = JumpLatched = DashLatched = MeleeLatched = false;
+        ClassAbilityLatched = SpecialLatched = CrouchLatched = SwapLatched = false;
+    }
+
     /// <summary>Any button a player would naturally mash to claim a slot.</summary>
     public bool JoinPressed => ConfirmPressed || AttackPressed || StartPressed;
 
@@ -159,6 +197,16 @@ public abstract class InputDevice
         ConfirmPressed = s.Confirm && !pConfirm;
         CancelPressed = s.Cancel && !pCancel;
 
+        // Raised here, lowered only by the simulation. See the latched fields.
+        UseLatched |= UsePressed;
+        JumpLatched |= JumpPressed;
+        DashLatched |= DashPressed;
+        MeleeLatched |= MeleePressed;
+        ClassAbilityLatched |= ClassAbilityPressed;
+        SpecialLatched |= SpecialPressed;
+        CrouchLatched |= CrouchPressed;
+        SwapLatched |= SwapPressed;
+
         pAttack = s.Attack; pSpecial = s.Special; pDash = s.Dash;
         pStart = s.Start; pBack = s.Back;
         pJump = s.Jump; pCrouch = s.Crouch; pUse = s.Use; pSwap = s.Swap;
@@ -183,6 +231,7 @@ public abstract class InputDevice
         pMelee = pConfirm = pClass = pCancel = false;
         UsePressed = UseHeld = SwapPressed = MeleePressed = ConfirmPressed = false;
         ClassAbilityPressed = CancelPressed = false;
+        ConsumeGameplayEdges();
         NavX = NavY = 0;
         lastNavX = lastNavY = 0;
         repeatTimer = 0f;

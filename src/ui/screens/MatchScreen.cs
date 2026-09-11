@@ -201,6 +201,11 @@ public sealed class MatchScreen : UiScreen
         match.Build(simParent, settings, roster, visuals: true);
         match.InputSource = ResolveInput;
 
+        // Whatever was being pressed on the way out of the menus does not carry into the arena.
+        // Without this the latch raised by the last lobby frame is spent on the match's first
+        // physics step, which is a jump, or a boarding, nobody asked for.
+        Devices.ConsumeGameplayEdges();
+
         foreach (var v in views)
         {
             v.Yaw = match.Pawns[v.PawnIndex].Facing;
@@ -854,11 +859,15 @@ public sealed class MatchScreen : UiScreen
         {
             Move = d.Move; Look = d.Look;
             Attack = d.AttackHeld; Ads = d.AdsHeld;
-            Dash = d.DashPressed; Melee = d.MeleePressed;
-            ClassAbility = d.ClassAbilityPressed; Special = d.SpecialPressed;
-            Jump = d.JumpPressed; JumpHeld = d.JumpHeld;
-            Sprint = d.SprintHeld; Crouch = d.CrouchHeld; CrouchPressed = d.CrouchPressed;
-            Use = d.UsePressed; UseHeld = d.UseHeld; Swap = d.SwapPressed; Start = d.StartPressed;
+            // Gameplay presses come off the latched edges, not the per-poll ones. This struct is
+            // built during the physics step, which runs on a different clock from the polling, so
+            // a plain edge is only sometimes still standing when the match asks. Start stays on
+            // the plain edge: pausing is handled up in the render frame, where that edge lives.
+            Dash = d.DashLatched; Melee = d.MeleeLatched;
+            ClassAbility = d.ClassAbilityLatched; Special = d.SpecialLatched;
+            Jump = d.JumpLatched; JumpHeld = d.JumpHeld;
+            Sprint = d.SprintHeld; Crouch = d.CrouchHeld; CrouchPressed = d.CrouchLatched;
+            Use = d.UseLatched; UseHeld = d.UseHeld; Swap = d.SwapLatched; Start = d.StartPressed;
         }
 
         Controls(Controls a, Controls b)

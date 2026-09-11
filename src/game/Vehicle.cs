@@ -607,7 +607,34 @@ public partial class Vehicle : CharacterBody3D
         var lifted = GlobalPosition + Vector3.Up * (roof + DropIn);
         if (InsideWalls(lifted) && Fits(p, lifted)) return lifted;
 
-        return GlobalPosition + Vector3.Up * roof;
+        // Flush, and checked. It used to be returned unconditionally, which meant the one case
+        // this whole method exists to handle - a hull parked somewhere with no headroom - fell
+        // through to a spot nobody had measured. The comment above said the roof "still is not
+        // under the tracks", which is true and beside the point: a roof inside a ceiling is
+        // exactly the state that leaves you unable to move.
+        var flush = GlobalPosition + Vector3.Up * roof;
+        if (InsideWalls(flush) && Fits(p, flush)) return flush;
+
+        // Both roof heights blocked, so the hull is somewhere genuinely tight. Only now is the
+        // ground worth looking at - and the objection to it (a spot beside a hull is clear until
+        // the hull moves) is a poor second to being left inside a ceiling. Sides first, then nose
+        // and tail, at a stride clear of the hull's own box.
+        float outX = Def.HalfExtents.X + Pawn.Radius + 0.35f;
+        float outZ = Def.HalfExtents.Z + Pawn.Radius + 0.35f;
+        var right = new Vector3(-MathF.Sin(Facing), 0f, MathF.Cos(Facing));
+        var ahead = new Vector3(MathF.Cos(Facing), 0f, MathF.Sin(Facing));
+
+        foreach (var door in new[]
+                 { right * outZ, right * -outZ, ahead * outX, ahead * -outX })
+        {
+            var at = GlobalPosition + door;
+            if (InsideWalls(at) && Fits(p, at)) return at;
+        }
+
+        // Nothing measured clear. The roof is still the least bad of them: it is the one place the
+        // hull cannot drive over, and a pawn overlapping a ceiling is recoverable where a pawn
+        // under the tracks is not.
+        return flush;
     }
 
     /// <summary>How far above the roof a driver is let go of, in metres.</summary>

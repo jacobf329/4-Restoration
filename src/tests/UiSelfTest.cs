@@ -49,6 +49,7 @@ public static class UiSelfTest
         TestTeamsAreDistinguishable();
         TestNavigationGraph();
         TestVehiclesAndJetpack();
+        TestOnePressSurvivesEveryFrameRate();
 
         TestLog.Line($"=== {checks - failures}/{checks} checks passed ===");
         if (failures > 0) TestLog.Fail($"{failures} check(s) FAILED");
@@ -2155,6 +2156,108 @@ public static class UiSelfTest
 
         reached = seen.Count;
         return core;
+    }
+
+    /// <summary>
+    /// One tap is one action, whatever the display is doing.
+    ///
+    /// This is the check that should have existed four vehicle fixes ago. Every earlier test of
+    /// boarding called <c>Match.ToggleVehicle</c> or <c>Vehicle.Board</c> directly, so the whole
+    /// input path - the part that was actually broken - was never once exercised. The hull was
+    /// interrogated repeatedly and the hull was fine.
+    ///
+    /// Polling runs in <c>_Process</c>, once per rendered frame. The match runs in
+    /// <c>_PhysicsProcess</c>, at a fixed sixty steps a second. A press edge that lives for one
+    /// poll is therefore only sometimes standing when a step arrives to read it: above sixty
+    /// frames a second most presses are dropped, and below it the same press is read twice, which
+    /// boards a vehicle and leaves it again on one tap. Both look to a player like the button not
+    /// working, which is what "I get stuck 50% of the time" was.
+    ///
+    /// So the rates here are not decoration. 144 and 165 are what the fault was reported on, 30
+    /// and 50 are the other side of it, and 60 is the only one that ever worked.
+    /// </summary>
+    static void TestOnePressSurvivesEveryFrameRate()
+    {
+        const float PhysicsHz = 60f;
+
+        foreach (float displayHz in new[] { 30f, 50f, 59.94f, 60f, 75f, 100f, 120f, 144f, 165f, 240f })
+        {
+            Check(TapsSeen(displayHz, PhysicsHz, taps: 1) == 1,
+                  $"one tap boards once at {displayHz:0.##}Hz against a {PhysicsHz:0}Hz simulation");
+
+            Check(TapsSeen(displayHz, PhysicsHz, taps: 3) == 3,
+                  $"three taps are three actions at {displayHz:0.##}Hz");
+
+            Check(HoldSeen(displayHz, PhysicsHz) == 1,
+                  $"holding the button down is still one action at {displayHz:0.##}Hz");
+        }
+    }
+
+    /// <summary>
+    /// Runs the two clocks against each other and counts what the simulation actually saw.
+    ///
+    /// The device is polled on the display clock and read on the physics clock, exactly as the
+    /// game does it, with no shortcut between them: this drives the real <see cref="InputDevice"/>
+    /// edge and latch code rather than a model of it.
+    /// </summary>
+    static int TapsSeen(float displayHz, float physicsHz, int taps)
+    {
+        var d = new ScriptedDevice("rate");
+        float renderDt = 1f / displayHz, physicsDt = 1f / physicsHz;
+
+        int seen = 0, tapped = 0;
+        float nextPhysics = physicsDt, nextTap = 0.05f, releaseAt = -1f;
+
+        for (float t = 0f; t < 0.05f + taps * 0.30f + 0.30f; t += renderDt)
+        {
+            // Press for exactly one rendered frame, then let go - a real tap, not a hold.
+            if (tapped < taps && t >= nextTap)
+            {
+                d.HoldUse = true;
+                releaseAt = t + renderDt * 0.5f;
+                nextTap = t + 0.30f;
+                tapped++;
+            }
+            else if (releaseAt >= 0f && t > releaseAt)
+            {
+                d.HoldUse = false;
+                releaseAt = -1f;
+            }
+
+            d.Poll(renderDt);
+
+            while (nextPhysics <= t + renderDt)
+            {
+                if (d.UseLatched) seen++;
+                d.ConsumeGameplayEdges();
+                nextPhysics += physicsDt;
+            }
+        }
+        return seen;
+    }
+
+    /// <summary>The same rig, with the button simply held down. One action, not a stream of them.</summary>
+    static int HoldSeen(float displayHz, float physicsHz)
+    {
+        var d = new ScriptedDevice("rate-hold");
+        float renderDt = 1f / displayHz, physicsDt = 1f / physicsHz;
+
+        int seen = 0;
+        float nextPhysics = physicsDt;
+
+        for (float t = 0f; t < 0.6f; t += renderDt)
+        {
+            d.HoldUse = t >= 0.05f;
+            d.Poll(renderDt);
+
+            while (nextPhysics <= t + renderDt)
+            {
+                if (d.UseLatched) seen++;
+                d.ConsumeGameplayEdges();
+                nextPhysics += physicsDt;
+            }
+        }
+        return seen;
     }
 
     static void TestVehiclesAndJetpack()

@@ -182,8 +182,32 @@ public sealed class Arena
     // gap, step rise and ledge spacing in the core is tuned against the pawn's actual apex, and
     // multiplying the coordinates would have turned all of them into gaps nobody can cross. The
     // core is untouched and the new floor became new districts around it.
-    public const float HalfWidth = 139f;
-    public const float HalfDepth = 103f;
+    public const float StandardHalfWidth = 139f;
+    public const float StandardHalfDepth = 103f;
+
+    /// <summary>
+    /// The footprint of one arena, which is no longer the same for all of them.
+    ///
+    /// Coldstore is a siege across open ground and the open ground is the map. At the shared
+    /// footprint its plain was ninety metres deep, which a tank crosses in six seconds - that is
+    /// a courtyard with snow on it, not an approach. The thing being copied is a long walk under
+    /// fire, and a long walk has to actually be long.
+    ///
+    /// Per-layout rather than global for the same reason wall height is: one map needs a
+    /// different number and every other map is tuned against the one it has. See HeightFor.
+    /// </summary>
+    public static float HalfWidthFor(int layout)
+        => layout == ColdstoreLayout ? 250f : StandardHalfWidth;
+
+    public static float HalfDepthFor(int layout)
+        => layout == ColdstoreLayout ? 330f : StandardHalfDepth;
+
+    /// <summary>The largest any arena gets, for anything that has to bound all of them.</summary>
+    public static float LargestHalfWidth => 250f;
+    public static float LargestHalfDepth => 330f;
+
+    public float HalfWidth => HalfWidthFor(Layout);
+    public float HalfDepth => HalfDepthFor(Layout);
     /// <summary>
     /// How high the outer wall stands on an ordinary arena, and the height the game was built
     /// around: a jump apex of 3.2m, a jetpack ceiling of 33m, an upper storey at 6.4m.
@@ -214,6 +238,15 @@ public sealed class Arena
     /// Where the original arena ended. Everything inside this is the tuned core; everything beyond
     /// it is the outer districts, which are free to use a coarser, more open grain.
     /// </summary>
+    /// <summary>
+    /// The middle of the map, as a fraction of it rather than a fixed box.
+    ///
+    /// Bots rally here and the rule is "the middle, not the far corners" - which is a statement
+    /// about proportion. At the standard footprint these are the same 62 by 46 they always were.
+    /// </summary>
+    public float CoreHalfWidth => CoreX * HalfWidth / StandardHalfWidth;
+    public float CoreHalfDepth => CoreZ * HalfDepth / StandardHalfDepth;
+
     const float CoreX = 62f;
     const float CoreZ = 46f;
 
@@ -430,9 +463,17 @@ public sealed class Arena
             default: BuildGauntlet(); break;
         }
 
-        AddOuterRing();
-        AddVerticality();
-        AddOuterDistricts();
+        // The outer band is the one part of the shared construction that is authored in absolute
+        // coordinates - corner decks at 52 by 38, citadels at 104 by 76, scatter between them.
+        // On a map two and a half times as wide that is not an outer band, it is a cluster in the
+        // middle with empty snow around it. Coldstore builds its own at its own scale.
+        if (Layout != ColdstoreLayout)
+        {
+            AddOuterRing();
+            AddVerticality();
+            AddOuterDistricts();
+        }
+        else ColdstoreLoot();
 
         // Before the interiors rather than after, which is the one ordering that works: a hull
         // needs a long clear run to park on, the rooms are the only thing on the map that can take
@@ -467,14 +508,30 @@ public sealed class Arena
         // On top of the four corner decks, facing the middle. Spawning up high gives you a second
         // to read the arena before dropping into it, and keeps spawns off the routes people run.
         foreach (var spot in ZoneSpots)
-            if (MathF.Abs(spot.X) <= CoreX && MathF.Abs(spot.Z) <= CoreZ)
+            if (MathF.Abs(spot.X) <= CoreHalfWidth && MathF.Abs(spot.Z) <= CoreHalfDepth)
                 RallySpots.Add(spot);
 
-        const float DeckTop = 5.3f;
-        SpawnPoints.Add(new Vector3(-OuterX, DeckTop, -OuterZ));
-        SpawnPoints.Add(new Vector3(OuterX, DeckTop, OuterZ));
-        SpawnPoints.Add(new Vector3(OuterX, DeckTop, -OuterZ));
-        SpawnPoints.Add(new Vector3(-OuterX, DeckTop, OuterZ));
+        // The four guaranteed spawns sit on the corner decks AddOuterRing builds. An arena that
+        // does not run that pass has no decks to stand on, and four spawns hanging five metres
+        // over open snow is four players falling on the first frame.
+        if (Layout == ColdstoreLayout)
+        {
+            // Two at each end, on the ground, facing down the approach - which is also what makes
+            // the map read as two sides of a siege rather than four corners of a box.
+            foreach (int sx in new[] { -1, 1 })
+            {
+                SpawnPoints.Add(new Vector3(sx * 70f, 1f, StagingZ + 40f));
+                SpawnPoints.Add(new Vector3(sx * 70f, 1f, HangarZ + 70f));
+            }
+        }
+        else
+        {
+            const float DeckTop = 5.3f;
+            SpawnPoints.Add(new Vector3(-OuterX, DeckTop, -OuterZ));
+            SpawnPoints.Add(new Vector3(OuterX, DeckTop, OuterZ));
+            SpawnPoints.Add(new Vector3(OuterX, DeckTop, -OuterZ));
+            SpawnPoints.Add(new Vector3(-OuterX, DeckTop, OuterZ));
+        }
 
         AddGroundSpawns();
     }
@@ -648,11 +705,6 @@ public sealed class Arena
             // vertical does not want a second storey adding to it, and the ascent pass runs
             // catwalks straight through the shaft.
             case LaboratoryLayout: break;
-
-            // Coldstore builds its own height - the trench, the mezzanine, the ridge shelf - and
-            // the generic ascent catwalks would stand in the middle of the plain, which is the one
-            // part of this map that has to stay empty.
-            case ColdstoreLayout: break;
 
             default: VerticalAscent(); break;
         }
@@ -1369,6 +1421,17 @@ public sealed class Arena
     public const int HealthCrateTarget = 34;
 
     /// <summary>
+    /// Med kits for THIS arena, scaled by floor area.
+    ///
+    /// A fixed thirty-four was right while every map was the same size. On a floor five times
+    /// larger the same thirty-four spread to eighty-two metres from the nearest kit, which the
+    /// harness caught immediately: the number that matters is the longest walk to health, and
+    /// that is a property of area, not of a constant.
+    /// </summary>
+    public int HealthCrates => Mathf.RoundToInt(
+        HealthCrateTarget * (HalfWidth * HalfDepth) / (StandardHalfWidth * StandardHalfDepth));
+
+    /// <summary>
     /// Lay med kits over the whole floor.
     ///
     /// They used to be every fourth weapon crate, which on a map this size meant three of them, all
@@ -1422,7 +1485,7 @@ public sealed class Arena
         // does it without caring what shape the layout is.
         HealthSpawns.Add(candidates[0]);
 
-        while (HealthSpawns.Count < HealthCrateTarget && HealthSpawns.Count < candidates.Count)
+        while (HealthSpawns.Count < HealthCrates && HealthSpawns.Count < candidates.Count)
         {
             Vector3 best = candidates[0];
             float bestGap = -1f;
@@ -2433,29 +2496,29 @@ public sealed class Arena
     /// </summary>
     void BuildColdstore()
     {
-        foreach (int sz in new[] { -1, 1 })
-        {
-            TrenchLine(sz);
-            Hangar(sz);
-            Generator(sz);
-        }
-
-        IceRidges();
-        PlainScatter();
+        // The approach runs south to north. The attacker's ground is at -Z, the base at +Z, and
+        // the two hundred metres between them is the map.
+        ImperialStaging();
+        TheApproach();
+        OuterTrench();
+        InnerTrench();
+        EchoBase();
+        ShieldGenerator();
+        CanyonWalls();
         Crevasses();
+        Lifts();
     }
 
-    /// <summary>Where the dug line stands, as a distance from the middle.</summary>
-    const float TrenchZ = 52f;
-
-    /// <summary>Where the hangars stand. Far enough back that losing the line is not losing the base.</summary>
-    const float HangarZ = 76f;
-
-    /// <summary>How far out the flank ridges run.</summary>
-    const float RidgeX = 118f;
-
-    /// <summary>Half-width of the open ground, which is nearly the whole map.</summary>
-    const float PlainX = 100f;
+    // Landmarks along the approach axis, south to north. Written as named distances rather than
+    // as numbers at the call sites, because the whole design is the spacing between them: shorten
+    // any one of these and the map stops being a siege and becomes a courtyard again.
+    const float StagingZ = -270f;      // where the attack forms up
+    const float ApproachStart = -210f; // the last cover before open ground
+    const float OuterTrenchZ = -60f;   // the first line, facing the open
+    const float InnerTrenchZ = 20f;    // the fallback line
+    const float HangarZ = 130f;        // the base itself
+    const float GeneratorZ = 250f;     // the thing being defended
+    const float CanyonX = 205f;        // the walls down both flanks
 
     Color SnowTint => new(0.95f, 0.96f, 0.98f);
     Color IceTint => new(0.70f, 0.82f, 0.92f);
@@ -2463,67 +2526,324 @@ public sealed class Arena
     Color GirderTint => new(0.24f, 0.26f, 0.30f);
 
     /// <summary>
-    /// One side's trench: a low parapet facing the plain, a higher back wall, and a walkway between.
-    ///
-    /// The cut-throughs matter as much as the walls. Four gaps per line, wide enough to drive a
-    /// hull through, so the line is something to be broken at a place rather than a fence. They are
-    /// also the only way a fighter on foot gets from the plain into the trench, which is what makes
-    /// holding one worth doing.
+    /// The attacker's end: a shelf of hard standing with wind breaks, and nothing to hide behind
+    /// once you leave it. Deliberately thin. It is a start line, not a fortress - the whole point
+    /// of this map is that the side with the ground has to cross it.
     /// </summary>
-    void TrenchLine(int sz)
+    void ImperialStaging()
     {
-        const float Front = 2.0f;     // parapet: shoot over it standing, take cover crouched
-        const float Back = 3.4f;      // the back wall, which you cannot see over from the plain
-        const float Walk = 4.5f;      // the floor of the trench, in metres across
-
-        float front = sz * (TrenchZ - Walk * 0.5f);
-        float back = sz * (TrenchZ + Walk * 0.5f);
-
-        // The gaps, as spans in X. Mirrored, so neither side has an easier line to break.
-        var gaps = new List<(float Lo, float Hi)>
+        foreach (int sx in new[] { -1, 1 })
         {
-            (-78f, -66f), (-40f, -28f), (-6f, 6f), (28f, 40f), (66f, 78f),
-        };
+            // Wind breaks at an angle, so the staging area reads as sheltered rather than walled.
+            for (int i = 0; i < 3; i++)
+                Blocks.Add(new Block(new Vector3(sx * (60f + i * 34f), 2.6f, StagingZ - i * 16f),
+                                     new Vector3(16f, 2.6f, 1.4f), SnowTint, false, SurfaceKind.Snow));
 
-        WallWithGaps(front, Front, 1.1f, gaps, SnowTint, SurfaceKind.Snow);
-        WallWithGaps(back, Back, 1.3f, gaps, SnowTint, SurfaceKind.Snow);
+            // Two loading ramps: raised platforms a hull can sit on and a fighter can shoot from.
+            Deck(new Vector3(sx * 96f, 2.2f, StagingZ + 30f), new Vector3(20f, 2.2f, 13f),
+                 SteelTint, SurfaceKind.Panel);
+            // Seven steps of 0.63m, landing the last one on the deck's front edge. Ramp spaces
+            // its steps 2.4m apart whatever else you ask, so reaching a 4.4m deck without
+            // exceeding NavGraph.StepUp takes seven of them and 16.8m of run.
+            // Starts 16.8m clear of the deck's front edge (z = StagingZ + 17) and climbs toward
+            // it, so the last step lands ON that edge. Started nearer, the whole staircase is
+            // inside the deck it is meant to reach - which is what the first attempt did.
+            Ramp(new Vector3(sx * 96f, 0f, StagingZ + 59.8f), Vector3.Forward, 4.4f, 7, 7f);
 
-        // Firing bays: short spurs pushed out into the plain, so the line is not one flat face.
-        // Standing in one you can be shot at from three sides, which is the bargain for being able
-        // to see along the front of your own trench.
-        foreach (float bx in new[] { -92f, -54f, -16f, 16f, 54f, 92f })
-        {
-            float nose = sz * (TrenchZ - Walk * 0.5f - 6f);
-            Blocks.Add(new Block(new Vector3(bx, Front * 0.5f, nose),
-                                 new Vector3(5f, Front * 0.5f, 1.1f), SnowTint,
-                                 false, SurfaceKind.Snow));
-
-            foreach (int side in new[] { -1, 1 })
-                Blocks.Add(new Block(new Vector3(bx + side * 5f, Front * 0.5f,
-                                                 sz * (TrenchZ - Walk * 0.5f - 3f)),
-                                     new Vector3(1.1f, Front * 0.5f, 3.2f), SnowTint,
-                                     false, SurfaceKind.Snow));
+            // On the deck's top surface. At y=3 it was inside a block four and a half metres
+            // thick, which the graph reports as unreachable because it is.
+            WeaponSpawns.Add(new Vector3(sx * 96f, 4.8f, StagingZ + 30f));
         }
 
-        // A step up onto the back wall at each end, so the trench connects upward instead of being
-        // a corridor with two exits. Without it the line is a trap once somebody gets behind it.
+        ZoneSpots.Add(new Vector3(0f, 1f, StagingZ + 20f));
+    }
+
+    /// <summary>
+    /// A hundred and fifty metres of open snow, which is the entire idea.
+    ///
+    /// This is the part that was missing. The first version of this arena had ninety metres
+    /// between the trench and the far wall and called it a plain; a tank crosses ninety metres in
+    /// six seconds. What makes the original work is that the walk is long enough to be a decision
+    /// and long enough to be shot at for the whole of it, so the cover out here is sparse, low,
+    /// and far apart - enough to plan a run between, never enough to be safe.
+    /// </summary>
+    void TheApproach()
+    {
+        // Ice outcrops, thinning as you get closer to the line. A run across is a sequence of
+        // shorter and shorter sprints between worse and worse cover.
+        for (int row = 0; row < 6; row++)
+        {
+            float z = ApproachStart + row * 28f;
+            int count = 5 - row / 2;                       // fewer the further north you get
+            float height = 4.5f - row * 0.45f;             // and lower
+
+            for (int i = 0; i < count; i++)
+            {
+                // Offset each row so no two line up into a corridor.
+                float x = (i - (count - 1) * 0.5f) * 74f + (row % 2 == 0 ? 26f : -26f);
+                if (MathF.Abs(x) > 190f) continue;
+
+                Blocks.Add(new Block(new Vector3(x, height * 0.5f, z),
+                                     new Vector3(9f, height * 0.5f, 6f), IceTint,
+                                     false, SurfaceKind.Ice));
+            }
+        }
+
+        // Two downed hulls, the landmarks people will name the ground after.
         foreach (int sx in new[] { -1, 1 })
-            Ramp(new Vector3(sx * 84f, 0f, sz * (TrenchZ + Walk)), sz > 0 ? Vector3.Back : Vector3.Forward,
-                 Back, 3, 3f);
+        {
+            float x = sx * 120f, z = -130f + sx * 40f;
+
+            Blocks.Add(new Block(new Vector3(x, 2.6f, z), new Vector3(22f, 2.6f, 5f),
+                                 GirderTint, false, SurfaceKind.Panel));
+            Blocks.Add(new Block(new Vector3(x + sx * 13f, 5.6f, z), new Vector3(7f, 3f, 4.4f),
+                                 SteelTint, false, SurfaceKind.Panel));
+
+            WeaponSpawns.Add(new Vector3(x, 1f, z + 9f));
+            ZoneSpots.Add(new Vector3(x, 1f, z - 9f));
+        }
+
+        ZoneSpots.Add(new Vector3(0f, 1f, -120f));
+    }
+
+    /// <summary>
+    /// The first line: a dug position facing the open ground, with emplacements at intervals.
+    ///
+    /// Berms rather than an excavation, because this engine's arenas are a flat floor with boxes
+    /// on it and there is no digging. Two parallel walls with a walkway between read from inside
+    /// exactly as a trench does, and a front parapet lower than the back wall is what lets you
+    /// fire out of it without being seen through it.
+    /// </summary>
+    void OuterTrench() => TrenchLine(OuterTrenchZ, emplacements: true);
+
+    /// <summary>The fallback line, closer in and without the gun positions. Losing the first
+    /// line is meant to cost ground, not the match.</summary>
+    void InnerTrench() => TrenchLine(InnerTrenchZ, emplacements: false);
+
+    void TrenchLine(float z, bool emplacements)
+    {
+        const float Front = 2.0f, Back = 3.4f, Walk = 5f;
+
+        // Wide enough to drive a hull through, spaced so breaking the line is a decision about
+        // WHERE rather than whether.
+        var gaps = new List<(float, float)>
+        {
+            (-176f, -160f), (-118f, -102f), (-52f, -36f), (36f, 52f), (102f, 118f), (160f, 176f),
+        };
+
+        WallWithGaps(z - Walk * 0.5f, Front, 1.2f, gaps, SnowTint, SurfaceKind.Snow);
+        WallWithGaps(z + Walk * 0.5f, Back, 1.4f, gaps, SnowTint, SurfaceKind.Snow);
+
+        if (!emplacements) return;
+
+        // Gun positions pushed out into the open, so the line is not one flat face and standing
+        // in one means being shot at from three sides.
+        foreach (float bx in new[] { -195f, -140f, -84f, 0f, 84f, 140f, 195f })
+        {
+            Blocks.Add(new Block(new Vector3(bx, 1.3f, z - Walk * 0.5f - 9f),
+                                 new Vector3(9f, 1.3f, 1.2f), SnowTint, false, SurfaceKind.Snow));
+
+            foreach (int side in new[] { -1, 1 })
+                Blocks.Add(new Block(new Vector3(bx + side * 9f, 1.3f, z - Walk * 0.5f - 5f),
+                                     new Vector3(1.2f, 1.3f, 4.5f), SnowTint, false, SurfaceKind.Snow));
+
+            Deck(new Vector3(bx, 2.4f, z - Walk * 0.5f - 7f), new Vector3(4f, 0.4f, 3f),
+                 SteelTint, SurfaceKind.Panel);
+        }
+
+        foreach (float bx in new[] { -140f, 0f, 140f })
+            WeaponSpawns.Add(new Vector3(bx, 1f, z + Walk));
+
+        ZoneSpots.Add(new Vector3(-70f, 1f, z + Walk));
+        ZoneSpots.Add(new Vector3(70f, 1f, z + Walk));
+    }
+
+    /// <summary>
+    /// Echo Base: a hangar you can fly a plane into, with a mezzanine and side bays.
+    ///
+    /// Far larger than the shed this used to be, because at this scale a twenty-six metre shed is
+    /// a hut. The mouth faces the approach on purpose - it is the thing the attack is walking
+    /// toward, and it should be visible from the trench line.
+    /// </summary>
+    void EchoBase()
+    {
+        const float HalfX = 78f, HalfZ = 40f, Roof = 22f, Mezz = 7f;
+
+        float mouth = HangarZ - HalfZ, rear = HangarZ + HalfZ;
+
+        foreach (int sx in new[] { -1, 1 })
+            Blocks.Add(new Block(new Vector3(sx * HalfX, Roof * 0.5f, HangarZ),
+                                 new Vector3(2f, Roof * 0.5f, HalfZ), SteelTint,
+                                 false, SurfaceKind.Panel));
+
+        // Back wall with a door through to the generator yard.
+        foreach (int sx in new[] { -1, 1 })
+            Blocks.Add(new Block(new Vector3(sx * 47f, Roof * 0.5f, rear),
+                                 new Vector3(31f, Roof * 0.5f, 2f), SteelTint,
+                                 false, SurfaceKind.Panel));
+
+        Deck(new Vector3(0f, Roof, HangarZ), new Vector3(HalfX, 1f, HalfZ),
+             GirderTint, SurfaceKind.Panel);
+
+        // The lintel over the mouth, so it reads as a doorway rather than a missing wall.
+        Blocks.Add(new Block(new Vector3(0f, Roof - 3f, mouth), new Vector3(HalfX, 3f, 2f),
+                             GirderTint, false, SurfaceKind.Panel));
+
+        // Mezzanine down both long sides, reached from inside. Firing down into your own hangar
+        // is the whole reason to hold it after the line goes.
+        foreach (int sx in new[] { -1, 1 })
+        {
+            Deck(new Vector3(sx * 60f, Mezz, HangarZ), new Vector3(16f, 0.6f, HalfZ - 3f),
+                 SteelTint, SurfaceKind.Panel);
+
+            // In two pieces with a gap in the middle, because the ramp arrives at exactly this
+            // edge: an unbroken parapet stands in the headroom above the top step, and the graph
+            // correctly refuses to route into a railing.
+            foreach (int sz in new[] { -1, 1 })
+                Blocks.Add(new Block(new Vector3(sx * 44f, Mezz + 1.4f, HangarZ + sz * 23f),
+                                     new Vector3(0.8f, 1.4f, 14f), GirderTint,
+                                     false, SurfaceKind.Panel));
+
+            // Climbs outward along X to the mezzanine's inboard edge. Running it along Z put the
+            // whole staircase underneath the deck it was meant to reach, which is the third time
+            // that mistake has been made on this map and the reason it is spelled out here.
+            Ramp(new Vector3(sx * 17.6f, 0f, HangarZ), sx > 0 ? Vector3.Right : Vector3.Left,
+                 Mezz + 0.6f, 11, 7f);
+
+            WeaponSpawns.Add(new Vector3(sx * 60f, Mezz + 1f, HangarZ + 14f));
+
+            // Side bays off the hangar floor: rooms with a doorway, the close quarters this map
+            // otherwise has none of.
+            foreach (int sz in new[] { -1, 1 })
+                Room(new Vector3(sx * 40f, 0f, HangarZ + sz * 24f), new Vector3(14f, 4f, 10f),
+                     doors: new[] { true, true, true, true }, tint: SteelTint,
+                     surface: SurfaceKind.Panel);
+        }
+
+        ZoneSpots.Add(new Vector3(0f, 1f, HangarZ));
+        WeaponSpawns.Add(new Vector3(0f, 1f, HangarZ - 20f));
+    }
+
+    /// <summary>
+    /// The shield generator behind the base: a drum in a walled yard, and the deepest thing on the
+    /// map. Open to the sky, so holding it is a commitment rather than a corner to hide in.
+    /// </summary>
+    void ShieldGenerator()
+    {
+        Blocks.Add(new Block(new Vector3(0f, 7f, GeneratorZ), new Vector3(20f, 7f, 20f),
+                             SteelTint, false, SurfaceKind.Panel));
+        Blocks.Add(new Block(new Vector3(0f, 15.5f, GeneratorZ), new Vector3(13f, 1.5f, 13f),
+                             IceTint, false, SurfaceKind.Ice));
+
+        foreach (int sx in new[] { -1, 1 })
+        {
+            Blocks.Add(new Block(new Vector3(sx * 46f, 1.6f, GeneratorZ),
+                                 new Vector3(1.4f, 1.6f, 44f), SnowTint, false, SurfaceKind.Snow));
+
+            WeaponSpawns.Add(new Vector3(sx * 32f, 1f, GeneratorZ + 30f));
+        }
+
+        Blocks.Add(new Block(new Vector3(0f, 1.6f, GeneratorZ + 44f), new Vector3(46f, 1.6f, 1.4f),
+                             SnowTint, false, SurfaceKind.Snow));
+
+        // Beside the drum, not on it. The drum is forty metres across and fourteen tall, so a
+        // zone at its centre is a zone inside a block - the same fault this map had at the old
+        // scale, made bigger.
+        ZoneSpots.Add(new Vector3(32f, 1f, GeneratorZ));
+        ZoneSpots.Add(new Vector3(-32f, 1f, GeneratorZ - 34f));
+    }
+
+    /// <summary>
+    /// Ice walls down both flanks with passes through them, so the open ground is a choice.
+    /// Without these the approach is the only route and the map is one shooting gallery.
+    /// </summary>
+    void CanyonWalls()
+    {
+        foreach (int sx in new[] { -1, 1 })
+        {
+            for (int i = 0; i < 11; i++)
+            {
+                float z = -300f + i * 58f;
+                if (i == 3 || i == 7) continue;            // the two passes
+
+                float h = 12f + (i % 3) * 6f;
+                Blocks.Add(new Block(new Vector3(sx * CanyonX, h * 0.5f, z),
+                                     new Vector3(26f, h * 0.5f, 24f), IceTint,
+                                     false, SurfaceKind.Ice));
+            }
+
+            // A shelf inside each pass, looking back along the flank.
+            foreach (float pz in new[] { -126f, 106f })
+            {
+                Deck(new Vector3(sx * (CanyonX - 30f), 4.2f, pz), new Vector3(9f, 0.6f, 15f),
+                     IceTint, SurfaceKind.Ice);
+
+                Ramp(new Vector3(sx * (CanyonX - 58.2f), 0f, pz),
+                     sx > 0 ? Vector3.Right : Vector3.Left, 4.8f, 8, 7f);
+
+                WeaponSpawns.Add(new Vector3(sx * (CanyonX - 30f), 5.2f, pz));
+            }
+        }
+    }
+
+    /// <summary>Crevasses out on the flanks of the approach, each with a slab grinding along it.
+    /// This is the arena's push wall, kept clear of the centre so the long run stays drivable.</summary>
+    void Crevasses()
+    {
+        foreach (int sx in new[] { -1, 1 })
+        foreach (float z in new[] { -170f, -40f })
+        {
+            float x = sx * 155f;
+
+            Carve(new Rect2(x - 11f, z - 14f, 22f, 28f));
+
+            foreach (int end in new[] { -1, 1 })
+                Deck(new Vector3(x, 0.6f, z + end * 17f), new Vector3(12f, 0.6f, 3f),
+                     IceTint, SurfaceKind.Ice);
+
+            MovingPlatforms.Add(new MovingPlatformDef(
+                new Vector3(x, 1.6f, z - 12f),
+                new Vector3(x, 1.6f, z + 12f),
+                new Vector3(10f, 1.6f, 1.4f), period: 8f, dwell: 0.15f, pushes: true));
+        }
+    }
+
+    /// <summary>
+    /// Four lifts, because the arena needs them and the corner citadels that used to supply them
+    /// are not built here.
+    ///
+    /// Two carry the hangar floor to its roof, which is the highest ground on the map and looks
+    /// down the whole approach. Two more climb the canyon walls. Each dwells at both ends: a lift
+    /// that does not wait to be boarded is a timing puzzle, not a lift.
+    /// </summary>
+    void Lifts()
+    {
+        foreach (int sx in new[] { -1, 1 })
+        {
+            MovingPlatforms.Add(new MovingPlatformDef(
+                new Vector3(sx * 70f, 1.2f, HangarZ + 34f),
+                new Vector3(sx * 70f, 23f, HangarZ + 34f),
+                new Vector3(5f, 0.6f, 5f), period: 11f, dwell: 0.8f));
+
+            MovingPlatforms.Add(new MovingPlatformDef(
+                new Vector3(sx * (CanyonX - 30f), 1.2f, -10f),
+                new Vector3(sx * (CanyonX - 30f), 16f, -10f),
+                new Vector3(5f, 0.6f, 5f), period: 10f, dwell: 0.8f));
+        }
     }
 
     /// <summary>A wall running along X at a fixed Z, with spans left out of it.</summary>
     void WallWithGaps(float z, float height, float thick,
                       List<(float Lo, float Hi)> gaps, Color tint, SurfaceKind surface)
     {
-        float at = -PlainX;
+        float at = -HalfWidth + 10f;
 
         foreach (var (lo, hi) in gaps)
         {
             if (lo > at) Span(at, lo);
             at = MathF.Max(at, hi);
         }
-        Span(at, PlainX);
+        Span(at, HalfWidth - 10f);
 
         void Span(float lo, float hi)
         {
@@ -2535,251 +2855,19 @@ public sealed class Arena
     }
 
     /// <summary>
-    /// The hangar: an open-fronted shed with a mezzanine down its back wall.
+    /// Coldstore's own loot pass, replacing the outer-district one it opts out of.
     ///
-    /// Open toward the plain on purpose. A shed you can only enter from behind is a room, and the
-    /// point of this one is that it is the thing the trench falls back into - you should be able to
-    /// be driven into it, and shot at while you are in it.
+    /// Spread along the approach axis rather than clustered in four corners, because that is the
+    /// shape of this map: a crate every eighty metres down the length of it is what makes the long
+    /// walk worth taking rather than a stretch of nothing.
     /// </summary>
-    void Hangar(int sz)
+    void ColdstoreLoot()
     {
-        const float HalfX = 26f;
-        const float HalfZ = 12f;
-        const float Roof = 9f;
-        const float Mezz = 4.6f;
-
-        float mouth = sz * (HangarZ - HalfZ);      // the open face, toward the plain
-        float rear = sz * (HangarZ + HalfZ);
-
-        // Side walls, full height.
+        foreach (float z in new[] { -240f, -170f, -100f, -30f, 60f, 170f, 280f })
         foreach (int sx in new[] { -1, 1 })
-            Blocks.Add(new Block(new Vector3(sx * HalfX, Roof * 0.5f, sz * HangarZ),
-                                 new Vector3(1.2f, Roof * 0.5f, HalfZ), SteelTint,
-                                 false, SurfaceKind.Panel));
-
-        // Back wall, with a door in the middle so the generator behind is reachable from inside.
-        foreach (int sx in new[] { -1, 1 })
-            Blocks.Add(new Block(new Vector3(sx * 16f, Roof * 0.5f, rear),
-                                 new Vector3(10f, Roof * 0.5f, 1.2f), SteelTint,
-                                 false, SurfaceKind.Panel));
-
-        // Roof, which also makes the hangar the one place on this map with a ceiling over it.
-        Deck(new Vector3(0f, Roof, sz * HangarZ), new Vector3(HalfX, 0.5f, HalfZ),
-             GirderTint, SurfaceKind.Panel);
-
-        // The mouth's lintel: a header beam across the open face, so it reads as a doorway rather
-        // than as a missing wall, and so the roof has something to sit on.
-        Blocks.Add(new Block(new Vector3(0f, Roof - 1.2f, mouth),
-                             new Vector3(HalfX, 1.2f, 1.2f), GirderTint, false, SurfaceKind.Panel));
-
-        // Mezzanine along the back, reached by a ramp up the inside of each side wall. Firing down
-        // into your own hangar is the whole reason to hold it after the line goes.
-        Deck(new Vector3(0f, Mezz, sz * (HangarZ + 4f)), new Vector3(HalfX - 2f, 0.4f, 7f),
-             SteelTint, SurfaceKind.Panel);
-
-        // The ramp has to arrive ON the mezzanine, not under it. The first version started at
-        // z = HangarZ - 8 and climbed four steps of 2.4m, which put its top step three metres
-        // inside the deck it was meant to reach: the nav graph saw a staircase into a ceiling and
-        // correctly refused to route up it, so the weapon on the mezzanine was unreachable.
-        // Starting twelve metres out lands the last step at the deck's leading edge instead, and
-        // the climb finishes at the deck's TOP surface rather than at its underside.
-        foreach (int sx in new[] { -1, 1 })
-            Ramp(new Vector3(sx * (HalfX - 6f), 0f, sz * (HangarZ - 12f)),
-                 sz > 0 ? Vector3.Back : Vector3.Forward, Mezz + 0.4f, 4, 3f);
-
-        // A parapet on the mezzanine, so standing on it is cover rather than a silhouette.
-        Blocks.Add(new Block(new Vector3(0f, Mezz + 0.9f, sz * (HangarZ - 0.5f)),
-                             new Vector3(HalfX - 2f, 0.9f, 0.5f), GirderTint, false, SurfaceKind.Panel));
-
-        WeaponSpawns.Add(new Vector3(0f, Mezz + 0.6f, sz * (HangarZ + 4f)));
-        WeaponSpawns.Add(new Vector3(sz * 0f, 1f, sz * (HangarZ - 6f)));
-        ZoneSpots.Add(new Vector3(0f, 1f, sz * HangarZ));
+            WeaponSpawns.Add(new Vector3(sx * 168f, 1f, z));
     }
 
-    /// <summary>
-    /// The generator behind each hangar: a drum in a yard, and the thing on this map most worth
-    /// standing next to. Open to the sky and walled on three sides, so holding it is a real
-    /// commitment rather than a corner to hide in.
-    /// </summary>
-    void Generator(int sz)
-    {
-        float z = sz * 95f;
-
-        // The drum, as a stepped stack - a cylinder made of two boxes reads round enough at this
-        // size and costs two blocks instead of twenty.
-        Blocks.Add(new Block(new Vector3(0f, 2.4f, z), new Vector3(7f, 2.4f, 7f),
-                             SteelTint, false, SurfaceKind.Panel));
-        Blocks.Add(new Block(new Vector3(0f, 5.6f, z), new Vector3(5f, 0.8f, 5f),
-                             IceTint, false, SurfaceKind.Ice));
-
-        // The yard wall, three sides, waist high.
-        foreach (int sx in new[] { -1, 1 })
-            Blocks.Add(new Block(new Vector3(sx * 17f, 1.3f, z), new Vector3(1f, 1.3f, 15f),
-                                 SnowTint, false, SurfaceKind.Snow));
-
-        Blocks.Add(new Block(new Vector3(0f, 1.3f, sz * 109f), new Vector3(17f, 1.3f, 1f),
-                             SnowTint, false, SurfaceKind.Snow));
-
-        // Beside the drum, not on it. The drum is seven metres across and a zone in the middle of
-        // it is a zone inside a block.
-        ZoneSpots.Add(new Vector3(-11f, 1f, z));
-        WeaponSpawns.Add(new Vector3(11f, 1f, z));
-    }
-
-    /// <summary>
-    /// The flank ridges: ice walls down both sides of the plain with one pass through each.
-    ///
-    /// They exist so that crossing the open ground is a decision. Without them the plain is the
-    /// only route and the map is one long shooting gallery; with them there is a slow way round
-    /// that trades time for not being seen, and a defender has two places to worry about.
-    /// </summary>
-    void IceRidges()
-    {
-        foreach (int sx in new[] { -1, 1 })
-        {
-            // Broken into slabs at staggered heights rather than one wall, because a single flat
-            // face at this length reads as the edge of the level rather than as terrain.
-            for (int i = 0; i < 7; i++)
-            {
-                float z = -78f + i * 26f;
-                float h = 7f + (i % 3) * 3.5f;
-
-                // The pass: the middle slab is left out on each side.
-                if (i == 3) continue;
-
-                Blocks.Add(new Block(new Vector3(sx * RidgeX, h * 0.5f, z),
-                                     new Vector3(9f, h * 0.5f, 11f), IceTint,
-                                     false, SurfaceKind.Ice));
-            }
-
-            // A shelf beside the pass, reachable from the plain, that looks along the ridge line.
-            // The reward for taking the long way is seeing who else did.
-            //
-            // The climb runs along X, across the ridge, rather than along Z toward it. That is not
-            // a shaping decision, it is the only direction that survives: OpenDriveways carves a
-            // vehicle road the full width of the map at z = +/-12.5, ten metres across, and it
-            // removes whatever is standing in it. A ramp climbing northward into that corridor had
-            // its top two steps deleted and its third trimmed back to the road's edge, so the run
-            // simply stopped three metres short of the shelf with nothing to show why.
-            //
-            // Three guesses went into that before it was measured - the steps were buried, then
-            // they were too tall, then they were clipping the ridge - and all three were wrong.
-            // Dumping the blocks in the cell is what found it: the cell was empty.
-            //
-            // So the shelf sits in the clear band between the two roads (z = -6 to 6) and the ramp
-            // comes at it from the plain side, ending at the deck's leading edge rather than under
-            // it. Five steps of 0.64m, which is inside NavGraph.StepUp.
-            Deck(new Vector3(sx * (RidgeX - 13f), 2.8f, 0f), new Vector3(4f, 0.4f, 6f),
-                 IceTint, SurfaceKind.Ice);
-
-            Ramp(new Vector3(sx * 88f, 0f, 0f), sx > 0 ? Vector3.Right : Vector3.Left,
-                 3.2f, 5, 3.5f);
-
-            WeaponSpawns.Add(new Vector3(sx * (RidgeX - 13f), 3.4f, 0f));
-        }
-    }
-
-    /// <summary>
-    /// Two crevasses out on the flanks of the plain, each with a slab of ice grinding along it.
-    ///
-    /// This is Coldstore's push wall, and it exists because the map needs one. The generic gauntlet
-    /// carves its far-end pit at z = +/-84, which on this arena is underneath the hangars, so the
-    /// map opts out of it - and a mechanic that five arenas have and the sixth does not is one
-    /// people stop expecting. The harness agrees, and says so twice: it requires every arena to
-    /// have a push wall, and requires every push wall to sweep over something worth being pushed
-    /// into. A door across the hangar mouth satisfied neither, which is how that idea died.
-    ///
-    /// On the flanks rather than the middle, so the centre of the plain stays drivable end to end -
-    /// the open run is the whole point of the place and a hole across it would take that away.
-    /// </summary>
-    void Crevasses()
-    {
-        // Two out on the plain, running with the fight.
-        foreach (int sx in new[] { -1, 1 })
-        {
-            float x = sx * 78f;
-
-            Carve(new Rect2(x - 9f, -12f, 18f, 24f));
-
-            // Safe ice at both ends of the sweep, so the crevasse is something to time rather than
-            // a coin toss - the same bargain the gauntlets make on the other maps.
-            foreach (int sz in new[] { -1, 1 })
-                Deck(new Vector3(x, 0.6f, sz * 15f), new Vector3(10f, 0.6f, 3f),
-                     IceTint, SurfaceKind.Ice);
-
-            MovingPlatforms.Add(new MovingPlatformDef(
-                new Vector3(x, 1.6f, -10f),
-                new Vector3(x, 1.6f, 10f),
-                new Vector3(9f, 1.6f, 1.2f), period: 8f, dwell: 0.15f, pushes: true));
-        }
-
-        // And four beside the bases, in the gap between each hangar and its outbuilding. Four
-        // rather than two because the harness wants at least four push walls on an arena and two
-        // is not four - but they earn their place as well as their count: they say the base was
-        // put up on a shelf that is coming apart, and they make flanking a hangar a thing you time
-        // rather than a thing you simply do.
-        foreach (int sx in new[] { -1, 1 })
-        foreach (int sz in new[] { -1, 1 })
-        {
-            float x = sx * 37f;
-            float z = sz * 82f;
-
-            Carve(new Rect2(x - 6f, z - 9f, 12f, 18f));
-
-            foreach (int end in new[] { -1, 1 })
-                Deck(new Vector3(x, 0.6f, z + end * 12f), new Vector3(7f, 0.6f, 3f),
-                     IceTint, SurfaceKind.Ice);
-
-            MovingPlatforms.Add(new MovingPlatformDef(
-                new Vector3(x, 1.6f, z - 7f),
-                new Vector3(x, 1.6f, z + 7f),
-                new Vector3(5f, 1.6f, 1.2f), period: 7f, dwell: 0.15f, pushes: true));
-        }
-    }
-
-    /// <summary>
-    /// What is out on the open ground: ice boulders and the odd wreck.
-    ///
-    /// Deliberately sparse and deliberately not a grid. The plain has to stay crossable by a
-    /// vehicle and has to stay frightening on foot, and both of those break if it fills up with
-    /// cover. What is here is enough to break a sightline if you plan your run, and not enough to
-    /// walk across without planning one.
-    /// </summary>
-    void PlainScatter()
-    {
-        // Boulders, in a pattern that is mirrored about both axes so neither side is favoured.
-        var boulders = new[]
-        {
-            new Vector3(-84f, 0f, -20f), new Vector3(-62f, 0f, 12f), new Vector3(-38f, 0f, -30f),
-            new Vector3(-20f, 0f, 22f), new Vector3(0f, 0f, -8f), new Vector3(24f, 0f, -34f),
-        };
-
-        foreach (var at in boulders)
-            foreach (int sx in new[] { -1, 1 })
-                foreach (int sz in new[] { -1, 1 })
-                {
-                    float h = 2.2f + MathF.Abs(at.X + at.Z) % 2.4f;
-                    Blocks.Add(new Block(new Vector3(sx * at.X, h * 0.5f, sz * at.Z),
-                                         new Vector3(3.2f, h * 0.5f, 2.6f), IceTint,
-                                         false, SurfaceKind.Ice));
-                }
-
-        // Two downed hulls out on the ice, long enough to run the length of behind. The only
-        // man-made thing on the plain, and the landmark people will name the ground after.
-        foreach (int sx in new[] { -1, 1 })
-        {
-            Blocks.Add(new Block(new Vector3(sx * 46f, 1.8f, sx * 4f),
-                                 new Vector3(11f, 1.8f, 3f), GirderTint, false, SurfaceKind.Panel));
-            Blocks.Add(new Block(new Vector3(sx * 52f, 3.6f, sx * 4f),
-                                 new Vector3(3.5f, 1.8f, 2.6f), SteelTint, false, SurfaceKind.Panel));
-
-            WeaponSpawns.Add(new Vector3(sx * 46f, 1f, sx * 9f));
-        }
-
-        ZoneSpots.Add(new Vector3(0f, 1f, 0f));
-        ZoneSpots.Add(new Vector3(-46f, 1f, -14f));
-        ZoneSpots.Add(new Vector3(46f, 1f, 14f));
-    }
 
     /// <summary>
     /// Gauntlet — three lanes, with the middle one broken by a pit that only a moving platform or

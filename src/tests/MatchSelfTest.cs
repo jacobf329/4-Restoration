@@ -615,8 +615,8 @@ public static class MatchSelfTest
 
         foreach (var outside in new[]
         {
-            new Vector3(Arena.HalfWidth + 12f, 2f, 0f),
-            new Vector3(0f, 2f, -Arena.HalfDepth - 12f),
+            new Vector3(m.Arena.HalfWidth + 12f, 2f, 0f),
+            new Vector3(0f, 2f, -m.Arena.HalfDepth - 12f),
             new Vector3(0f, 260f, 0f),
         })
         {
@@ -2631,7 +2631,9 @@ public static class MatchSelfTest
 
         // Eight at once in the Thousand Rooms, so the circle has to be a fraction of the floor.
         float circle = MathF.PI * Match.DecoyBlastRadius * Match.DecoyBlastRadius;
-        float floor = Arena.HalfWidth * 2f * Arena.HalfDepth * 2f;
+        // Against the standard footprint: a decoy that is a seventh of an ordinary map is the
+        // thing under test, and measuring it against the largest map would flatter it.
+        float floor = Arena.StandardHalfWidth * 2f * Arena.StandardHalfDepth * 2f;
         Check(circle / floor < 0.02f,
               $"one decoy covers {100f * circle / floor:0.0}% of the arena, not seven");
     }
@@ -4105,7 +4107,7 @@ public static class MatchSelfTest
         // ends of a shortcut can be, so the bar is the map: a gate you can only put down within
         // sight of the last one is not a shortcut. Half the arena's long axis is the least that
         // means anything on a floor 278 metres across.
-        float longAxis = Arena.HalfWidth * 2f;
+        float longAxis = Arena.StandardHalfWidth * 2f;
 
         TestLog.Line($"    portal gun reaches {gun.Range:0}m on a {longAxis:0}m arena, "
                      + $"about {gun.Range / gun.ProjectileSpeed:0.0}s to the far end");
@@ -4999,7 +5001,7 @@ public static class MatchSelfTest
         // point of raising the cap, so it is measured rather than assumed.
         if (scenarioIndex == crowdScenario)
         {
-            float perFighter = Arena.HalfWidth * 2f * Arena.HalfDepth * 2f / current.Pawns.Count;
+            float perFighter = current.Arena.HalfWidth * 2f * current.Arena.HalfDepth * 2f / current.Pawns.Count;
 
             TestLog.Line($"    {current.Pawns.Count} fighters, {perFighter:0} m² each, "
                          + $"{current.DamageDealt / MathF.Max(1f, elapsed):0.0} damage/s");

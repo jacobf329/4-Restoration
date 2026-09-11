@@ -61,8 +61,8 @@ public sealed class NavGraph
 
     void BuildNodes()
     {
-        int minX = CellX(-Arena.HalfWidth), maxX = CellX(Arena.HalfWidth);
-        int minZ = CellZ(-Arena.HalfDepth), maxZ = CellZ(Arena.HalfDepth);
+        int minX = CellX(-arena.HalfWidth), maxX = CellX(arena.HalfWidth);
+        int minZ = CellZ(-arena.HalfDepth), maxZ = CellZ(arena.HalfDepth);
 
         var surfaces = new List<float>();
 

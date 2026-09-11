@@ -482,8 +482,8 @@ public static class UiSelfTest
         var worstAt = Vector3.Zero;
         int samples = 0;
 
-        for (float z = -Arena.HalfDepth + 8f; z <= Arena.HalfDepth - 8f; z += 12f)
-        for (float x = -Arena.HalfWidth + 8f; x <= Arena.HalfWidth - 8f; x += 12f)
+        for (float z = -arena.HalfDepth + 8f; z <= arena.HalfDepth - 8f; z += 12f)
+        for (float x = -arena.HalfWidth + 8f; x <= arena.HalfWidth - 8f; x += 12f)
         {
             var at = new Vector3(x, 1f, z);
             if (!arena.IsClearOfBlocks(new Vector3(x, 0.6f, z), Pawn.Radius, Pawn.Height)) continue;
@@ -591,7 +591,7 @@ public static class UiSelfTest
             // Negative control: the check has to be capable of failing. Outside the arena there
             // is nowhere to walk, so a confined point really does report as confined — without
             // this, "every spawn is connected" could be a function that always says yes.
-            Check(!arena.IsConnected(new Vector3(Arena.HalfWidth + 40f, 1f, 0f)),
+            Check(!arena.IsConnected(new Vector3(arena.HalfWidth + 40f, 1f, 0f)),
                   $"{arena.Name}: the connectivity check can tell when there is nowhere to go");
 
             foreach (var sp in arena.SpawnPoints)
@@ -2003,8 +2003,8 @@ public static class UiSelfTest
             Check(arena.InPlay(v), $"vehicle spawn {v} is in play");
 
         // Just inside the wall is fine; well outside it is not.
-        Check(arena.InPlay(new Vector3(Arena.HalfWidth - 1f, 1f, 0f)), "hugging the wall is in play");
-        Check(!arena.InPlay(new Vector3(Arena.HalfWidth + 6f, 1f, 0f)), "through the wall is not");
+        Check(arena.InPlay(new Vector3(arena.HalfWidth - 1f, 1f, 0f)), "hugging the wall is in play");
+        Check(!arena.InPlay(new Vector3(arena.HalfWidth + 6f, 1f, 0f)), "through the wall is not");
         Check(!arena.InPlay(new Vector3(0f, Arena.KillPlaneY - 4f, 0f)), "below the world is not");
         Check(!arena.InPlay(new Vector3(0f, 200f, 0f)), "far above the world is not");
 
@@ -2160,7 +2160,7 @@ public static class UiSelfTest
 
                 float nx = next.Item1 * Cell, nz = next.Item2 * Cell;
 
-                if (MathF.Abs(nx) > Arena.HalfWidth - 2f || MathF.Abs(nz) > Arena.HalfDepth - 2f) continue;
+                if (MathF.Abs(nx) > arena.HalfWidth - 2f || MathF.Abs(nz) > arena.HalfDepth - 2f) continue;
                 if (!Drivable(arena, new Vector3(nx, 0f, nz), radius)) continue;
 
                 queue.Enqueue(next);
@@ -2424,8 +2424,11 @@ public static class UiSelfTest
 
         // Five times the floor of the box before it. Checked as a ratio against the recorded old
         // size rather than against the constants, so a later resize has to come here and say so.
+        //
+        // The STANDARD footprint, now that arenas are not all one size. Coldstore is deliberately
+        // much larger and measuring it here would say the whole game had grown when one map did.
         const float OldArea = 124f * 92f;
-        float width = Arena.HalfWidth * 2f, depth = Arena.HalfDepth * 2f;
+        float width = Arena.StandardHalfWidth * 2f, depth = Arena.StandardHalfDepth * 2f;
         float area = width * depth;
 
         TestLog.Line($"    arena floor {width:0}x{depth:0}m, {area / OldArea:0.00} times the old area");
@@ -2473,8 +2476,12 @@ public static class UiSelfTest
             Check(pushers >= 4, $"{arena.Name} has push walls");
             Check(arena.RallySpots.Count > 0, $"{arena.Name} keeps rally points in the core");
 
+            // Against the arena's own core rather than a hardcoded box. The rule is that bots
+            // rally in the middle, which is a proportion of the map - and the map is no longer
+            // always the same size.
             foreach (var spot in arena.RallySpots)
-                Check(MathF.Abs(spot.X) <= 62f && MathF.Abs(spot.Z) <= 46f,
+                Check(MathF.Abs(spot.X) <= arena.CoreHalfWidth
+                      && MathF.Abs(spot.Z) <= arena.CoreHalfDepth,
                       $"{arena.Name}: bots rally in the core, not the far corners");
         }
 
@@ -2541,8 +2548,8 @@ public static class UiSelfTest
 
                 // Everything else that survived the pass has to be paint: flush with the floor,
                 // with nothing standing proud of it to knock down.
-                bool perimeter = MathF.Abs(b.Centre.X) > Arena.HalfWidth
-                                 || MathF.Abs(b.Centre.Z) > Arena.HalfDepth;
+                bool perimeter = MathF.Abs(b.Centre.X) > arena.HalfWidth
+                                 || MathF.Abs(b.Centre.Z) > arena.HalfDepth;
 
                 Check(perimeter || b.Centre.Y + b.HalfExtents.Y <= 0.5f,
                       $"{arena.Name}: the only permanent blocks are the wall and the floor markings");

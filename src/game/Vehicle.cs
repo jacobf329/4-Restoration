@@ -295,6 +295,14 @@ public partial class Vehicle : CharacterBody3D
     /// one while every map was the same height. Defaulted to the ordinary height so a hull built
     /// outside a match - as the harness does - still behaves.
     /// </summary>
+    /// <summary>
+    /// The arena's footprint, handed over at spawn alongside the ceiling. Arenas are no longer all
+    /// the same size, and a hull that clamps itself against the wrong wall either stops in open
+    /// snow or drives through the real one.
+    /// </summary>
+    public float ArenaHalfWidth = Arena.StandardHalfWidth;
+    public float ArenaHalfDepth = Arena.StandardHalfDepth;
+
     public float ArenaCeiling = Arena.StandardWallHeight;
 
     void HoldInsideArena()
@@ -305,7 +313,7 @@ public partial class Vehicle : CharacterBody3D
         var p = GlobalPosition;
         var v = Velocity;
 
-        float lx = Arena.HalfWidth - Margin, lz = Arena.HalfDepth - Margin;
+        float lx = ArenaHalfWidth - Margin, lz = ArenaHalfDepth - Margin;
 
         if (p.X < -lx) { p.X = -lx; v.X = MathF.Max(v.X, 0f); }
         if (p.X > lx) { p.X = lx; v.X = MathF.Min(v.X, 0f); }
@@ -645,8 +653,8 @@ public partial class Vehicle : CharacterBody3D
     /// empty space and would pass the fit test happily, and ejecting into it is a death sentence
     /// under the out-of-bounds rule.
     /// </summary>
-    static bool InsideWalls(Vector3 p)
-        => MathF.Abs(p.X) <= Arena.HalfWidth && MathF.Abs(p.Z) <= Arena.HalfDepth
+    bool InsideWalls(Vector3 p)
+        => MathF.Abs(p.X) <= ArenaHalfWidth && MathF.Abs(p.Z) <= ArenaHalfDepth
            && p.Y > Arena.KillPlaneY;
 
     /// <summary>Whether a standing pawn placed at <paramref name="at"/> would be inside anything.</summary>

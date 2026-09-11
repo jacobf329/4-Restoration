@@ -165,6 +165,28 @@ public static class WeaponModels
     /// </summary>
     const float MuzzleConvention = -1f;
 
+    // Why two blades carry WeaponDef.MuzzleFlip and no gun does.
+    //
+    // The convention above was measured on guns, and every gun is modelled lying down: its long
+    // axis is X, and the muzzle is at -X on all of them. Blades are not. All three are modelled
+    // standing up, so Build measures their long axis as Y, and the same -1 is then
+    // applied to a different axis entirely - which the convention never claimed to cover.
+    //
+    // Worse, the blades do not even agree with each other. Rendered and looked at rather than
+    // reasoned about:
+    //
+    //     sword       tip at +Y, pommel at -Y   - correct under the convention
+    //     saber       pommel at +Y, tip at -Y   - inverted
+    //     prop_blade  pommel at +Y, tip at -Y   - inverted
+    //
+    // So there is no single blade convention to write down either, and the two odd ones out get a
+    // flag each. That is the trade this file already chose for guns and it holds here: a stale
+    // flag is one visible thing to fix.
+    //
+    // The reason this survived so long is that a blade pointing backwards is a subtle read at the
+    // bottom of a splitscreen quarter - you see a hilt where a tip should be and it registers as
+    // "the sword looks wrong" rather than as an axis being inverted.
+
     /// <summary>Union of every mesh's bounds, in the scene's own space.</summary>
     static Aabb Bounds(Node3D scene)
     {

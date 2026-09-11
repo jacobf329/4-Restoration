@@ -39,6 +39,16 @@ public sealed class MatchScreen : UiScreen
         /// </summary>
         public float Boom = 1f;
 
+        /// <summary>
+        /// Third person on foot. Off by default: this is a first-person shooter and the aim model
+        /// assumes the view is the aim. The toggle exists because seeing your own character is
+        /// most of the point of having spent the art budget on one.
+        /// </summary>
+        public bool ThirdPerson;
+
+        /// <summary>The on-foot boom, kept apart from the vehicle's so neither yanks the other.</summary>
+        public float FootBoom = 1f;
+
         /// <summary>Which spawn card the cursor is on while dead.</summary>
         public int SpawnPick;
 
@@ -308,6 +318,18 @@ public sealed class MatchScreen : UiScreen
             v.LastKillBanner = pawnForRumble.KillBanner;
 
             if (!pawn.Alive && d != null) StepSpawnChoice(v, pawn, d);
+
+            // Down on the d-pad flips this view between first and third person. Per view, not per
+            // match: in splitscreen one player wanting to see their character is no reason for
+            // anyone else's camera to move.
+            if (c.CameraToggle && !pawn.InVehicle)
+            {
+                v.ThirdPerson = !v.ThirdPerson;
+                v.Camera.CullMask = v.ThirdPerson
+                    ? Pawn.ThirdPersonCullMask
+                    : Pawn.FirstPersonCullMask(v.PawnIndex);
+                v.FootBoom = 1f;
+            }
 
             if (c.Start) { Pause(); return; }
         }
@@ -762,6 +784,15 @@ public sealed class MatchScreen : UiScreen
     const float BoomReturnRate = 1.1f;
 
     /// <summary>
+    /// How far behind the head the on-foot chase camera sits, in metres.
+    ///
+    /// Short. A pawn is under two metres and the arenas are full of two-metre doorways, so a long
+    /// boom spends most of a match pulled in against something anyway - and a camera that is
+    /// constantly retracting reads worse than one that was never far out.
+    /// </summary>
+    const float FootBoomLength = 4.2f;
+
+    /// <summary>
     /// Where the chase camera actually sits: along its own boom, at a length that changes smoothly.
     ///
     /// The old version had three separate ways of teleporting the view, and driving near a wall hit
@@ -780,7 +811,8 @@ public sealed class MatchScreen : UiScreen
     {
         Vector3 want = focus + back * (ride.Def.HalfExtents.Length() + 6f) + Vector3.Up * 3f;
 
-        float clear = MathF.Max(ClearFraction(ride, focus, want), MinBoom);
+        float clear = MathF.Max(
+            ClearFraction(focus, want, ride.GetRid(), ride.Driver!.GetRid()), MinBoom);
 
         v.Boom = clear < v.Boom ? clear : Mathf.MoveToward(v.Boom, clear, BoomReturnRate * dt);
 
@@ -797,7 +829,7 @@ public sealed class MatchScreen : UiScreen
     /// cannot, which shows up as the wall flickering in and out of view rather than as a clean
     /// pull-in.
     /// </summary>
-    float ClearFraction(Vehicle ride, Vector3 focus, Vector3 want)
+    float ClearFraction(Vector3 focus, Vector3 want, params Rid[] ignore)
     {
         var space = match.GetWorld3D().DirectSpaceState;
 
@@ -807,9 +839,9 @@ public sealed class MatchScreen : UiScreen
             Transform = new Transform3D(Basis.Identity, focus),
             Motion = want - focus,
 
-            // The vehicle and its driver are behind the camera, not in front of it — colliding
-            // with the thing you are looking at would jam the boom at zero length.
-            Exclude = new Godot.Collections.Array<Rid> { ride.GetRid(), ride.Driver!.GetRid() },
+            // Whatever the camera belongs to is behind it, not in front of it — colliding with
+            // the thing you are looking at would jam the boom at zero length.
+            Exclude = new Godot.Collections.Array<Rid>(ignore),
         };
 
         // CastMotion returns {safe, unsafe} as fractions of the motion. Backed off slightly from
@@ -853,7 +885,7 @@ public sealed class MatchScreen : UiScreen
         public readonly Vector2 Move, Look;
         public readonly bool Attack, Ads, Dash, Melee, ClassAbility, Special;
         public readonly bool Jump, JumpHeld, Sprint, Crouch, CrouchPressed;
-        public readonly bool Use, UseHeld, Swap, Start;
+        public readonly bool Use, UseHeld, Swap, Start, CameraToggle;
 
         public Controls(InputDevice d)
         {
@@ -868,6 +900,7 @@ public sealed class MatchScreen : UiScreen
             Jump = d.JumpLatched; JumpHeld = d.JumpHeld;
             Sprint = d.SprintHeld; Crouch = d.CrouchHeld; CrouchPressed = d.CrouchLatched;
             Use = d.UseLatched; UseHeld = d.UseHeld; Swap = d.SwapLatched; Start = d.StartPressed;
+            CameraToggle = d.CameraTogglePressed;   // see InputDevice: not latched, on purpose
         }
 
         Controls(Controls a, Controls b)
@@ -886,6 +919,7 @@ public sealed class MatchScreen : UiScreen
             CrouchPressed = a.CrouchPressed | b.CrouchPressed;
             Use = a.Use | b.Use; UseHeld = a.UseHeld | b.UseHeld;
             Swap = a.Swap | b.Swap; Start = a.Start | b.Start;
+            CameraToggle = a.CameraToggle | b.CameraToggle;
         }
 
         public static Controls Merge(Controls a, Controls b) => new(a, b);
@@ -1045,8 +1079,32 @@ public sealed class MatchScreen : UiScreen
                 continue;
             }
 
-            v.Camera.GlobalPosition = eye;
-            v.Camera.LookAt(eye + forward, Vector3.Up);
+            if (v.ThirdPerson && pawn.Alive)
+            {
+                // Over the shoulder, on the same boom machinery the vehicle camera uses: it pulls
+                // in hard against anything behind you and eases back out, which is what keeps a
+                // chase camera from clipping through walls in rooms this tight.
+                //
+                // Aim is unchanged - the pawn still faces and shoots along v.Yaw and the pitch
+                // above. The camera moved; where you are pointing did not. That matters, because
+                // every weapon in the game fires from the pawn's eye along its aim, not from the
+                // camera, so a shot goes where the crosshair is in both modes.
+                Vector3 focus = pawn.GlobalPosition + Vector3.Up * (pawn.CurrentEyeHeight + 0.25f);
+                Vector3 want = focus - forward * FootBoomLength + Vector3.Up * 0.65f;
+
+                float clear = MathF.Max(ClearFraction(focus, want, pawn.GetRid()), MinBoom);
+                v.FootBoom = clear < v.FootBoom
+                    ? clear
+                    : Mathf.MoveToward(v.FootBoom, clear, BoomReturnRate * dt);
+
+                v.Camera.GlobalPosition = focus + (want - focus) * v.FootBoom;
+                v.Camera.LookAt(focus + forward * 8f, Vector3.Up);
+            }
+            else
+            {
+                v.Camera.GlobalPosition = eye;
+                v.Camera.LookAt(eye + forward, Vector3.Up);
+            }
 
             // Field of view answers to the stance: aiming pulls in to the class's sight picture,
             // Focus pulls in further still. Eased rather than snapped, so raising a scope reads as
@@ -1068,7 +1126,11 @@ public sealed class MatchScreen : UiScreen
                 // Hidden behind a scope, where a rifle across the screen would cover the sight
                 // picture — but never during a swing, which is the one thing melee has to show.
                 bool scopedAway = pawn.Ads && pawn.Weapon.HasScope && pawn.MeleeSwing <= 0f;
-                pawn.ViewModel.Visible = pawn.Alive && !scopedAway;
+
+                // The third-person cull mask already hides every view model from this camera, so
+                // this is belt and braces - but it also keeps the node from being drawn into any
+                // other player's viewport during splitscreen.
+                pawn.ViewModel.Visible = pawn.Alive && !scopedAway && !v.ThirdPerson;
             }
 
             // In first person the view *is* the aim, so the pawn is kept in lockstep with it

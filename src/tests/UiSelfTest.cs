@@ -811,21 +811,33 @@ public static class UiSelfTest
 
         Check(PadBindings.DefaultsFor(PadAction.Start).Count > 0, "Start is bound");
 
-        // The d-pad carries exactly one action: the class ability, on Up.
+        // The d-pad carries exactly two actions: the class ability on Up, the camera toggle on Down.
         //
-        // It used to carry none, and that was the right rule while there was nothing that needed a
-        // seat. A second ability had nowhere else to go — every trigger, bumper, face button and
-        // stick click was taken — so the rule is now "one, deliberately, and Up" rather than
-        // "none", which is still a rule that catches something creeping back onto the other three.
+        // It used to carry none, then one. Each addition was a thing with nowhere else to go —
+        // every trigger, bumper, face button and stick click is taken — and each was a deliberate
+        // decision rather than a drift. The rule is the list below, and the point of the list is
+        // that Left and Right are still spoken for by nothing, so something creeping onto them
+        // still fails here.
+        //
+        // The camera toggle earns a seat on a vertical axis for the reason it is a vertical
+        // choice: down pulls the camera back out of your head, up would push it in.
+        var dpad = new Dictionary<JoyButton, PadAction>
+        {
+            [JoyButton.DpadUp] = PadAction.ClassAbility,
+            [JoyButton.DpadDown] = PadAction.CameraToggle,
+        };
+
         Check(PadBindings.DefaultsFor(PadAction.ClassAbility)[0].Equals(new PadBinding(JoyButton.DpadUp)),
               "the class ability is on d-pad up");
+        Check(PadBindings.DefaultsFor(PadAction.CameraToggle)[0].Equals(new PadBinding(JoyButton.DpadDown)),
+              "first/third person is on d-pad down");
 
         foreach (var a in PadBindings.Actions)
             foreach (var b in PadBindings.DefaultsFor(a))
                 foreach (var pad in new[] { JoyButton.DpadUp, JoyButton.DpadDown,
                                             JoyButton.DpadLeft, JoyButton.DpadRight })
                 {
-                    if (a == PadAction.ClassAbility && pad == JoyButton.DpadUp) continue;
+                    if (dpad.TryGetValue(pad, out var owner) && a == owner) continue;
                     Check(!b.Equals(new PadBinding(pad)), $"{a} is not on the d-pad");
                 }
 

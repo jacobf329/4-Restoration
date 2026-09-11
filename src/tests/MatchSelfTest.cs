@@ -369,6 +369,9 @@ public static class MatchSelfTest
         Once(CheckGrenadeLauncher);
         Once(CheckFlamethrower);
         Once(CheckPortalKills);
+        Once(CheckPortalsPairByOwner);
+        Once(CheckBladesSwing);
+        Once(CheckDecoyIsARoomNotADistrict);
         Once(CheckGrappleHauls);
         Once(CheckPushWallShoves);
         Once(CheckTankShellFollowsTheCrosshair);
@@ -2478,6 +2481,159 @@ public static class MatchSelfTest
         }
 
         Check(f.Ammo > 60, "with enough fuel to hold a doorway");
+    }
+
+    /// <summary>
+    /// A gate is linked to its owner's other gate, and to nothing else.
+    ///
+    /// This used to be a flat cap of two gates across the whole match, so the first two standing
+    /// were linked whoever planted them. The report was "someone else shoots a portal and mine
+    /// takes me through theirs", and it was exactly right: with a portal gun each, two players
+    /// planting one gate apiece got a shared pair neither of them had built.
+    /// </summary>
+    static void CheckPortalsPairByOwner()
+    {
+        var m = current!;
+        var mine = m.Pawns[0];
+        var theirs = m.Pawns[1];
+
+        m.ClearPortalsForTest();
+
+        // One gate each, far apart: a stranger's gate is never my exit.
+        m.PlantPortalForTest(m.Arena.SpawnPoints[0] + Vector3.Up, Vector3.Up, mine);
+        m.PlantPortalForTest(m.Arena.SpawnPoints[2] + Vector3.Up, Vector3.Up, theirs);
+
+        Check(m.PortalCount == 2, "one gate each is two gates standing");
+
+        var traveller = m.Pawns[2];
+        traveller.Respawn(m.PortalSpot(0));
+        traveller.ClearSpawnProtectionForTest();
+
+        int before = m.PortalTrips;
+        m.StepPortalsForTest(1f / 60f);
+        Check(m.PortalTrips == before,
+              "two gates with different owners are not a pair and carry nobody");
+
+        // Give the owner their second gate and the pair works.
+        m.PlantPortalForTest(m.Arena.SpawnPoints[3] + Vector3.Up, Vector3.Up, mine);
+
+        traveller.Respawn(m.PortalSpot(0));
+        traveller.ClearSpawnProtectionForTest();
+
+        before = m.PortalTrips;
+        m.StepPortalsForTest(1f / 60f);
+        Check(m.PortalTrips > before, "a gate carries you to its owner's other gate");
+
+        // And planting somebody else's gate never closes yours.
+        m.ClearPortalsForTest();
+        m.PlantPortalForTest(m.Arena.SpawnPoints[0] + Vector3.Up, Vector3.Up, mine);
+        m.PlantPortalForTest(m.Arena.SpawnPoints[1] + Vector3.Up, Vector3.Up, mine);
+
+        int held = m.PortalCount;
+        for (int i = 0; i < 4; i++)
+            m.PlantPortalForTest(m.Arena.SpawnPoints[2] + Vector3.Up * (1f + i), Vector3.Up, theirs);
+
+        Check(m.PortalCount >= held,
+              $"a stranger planting gates never closes yours ({m.PortalCount} standing, was {held})");
+
+        m.ClearPortalsForTest();
+    }
+
+    /// <summary>
+    /// A sword connects with what the edge passes through, rather than firing three fast bullets.
+    ///
+    /// It was built as "a very short-ranged shot that reads as a swing" and it did not read as one:
+    /// the rounds travelled, so they could miss between each other and be dodged sideways.
+    /// </summary>
+    static void CheckBladesSwing()
+    {
+        var m = current!;
+
+        Check(Weapons.Sword.Swings, "the sword swings");
+        Check(Weapons.Saber.Swings, "the saber swings");
+        Check(!Weapons.Railgun.Swings, "a gun does not");
+
+        var swinger = m.Pawns[0];
+        var target = m.Pawns[1];
+
+        if (swinger.InVehicle) m.ToggleVehicle(swinger);
+        if (target.InVehicle) m.ToggleVehicle(target);
+
+        swinger.Respawn(m.Arena.SpawnPoints[0]);
+        swinger.ClearSpawnProtectionForTest();
+        swinger.ResetLoadout();
+        swinger.TakeWeapon(Weapons.Sword);
+
+        // Directly in front, well inside the sword's reach.
+        var dir = MathU.FromAngle(swinger.Facing);
+        target.Respawn(swinger.GlobalPosition + new Vector3(dir.X, 0f, dir.Y) * 1.6f);
+        target.ClearSpawnProtectionForTest();
+        swinger.Pitch = 0f;
+
+        float health = target.Health;
+        int shotsBefore = m.ShotsFired;
+
+        m.WeaponSwing(swinger, Weapons.Sword);
+
+        Check(target.Health < health,
+              $"a swing lands on somebody standing in front of it ({health:0} -> {target.Health:0})");
+        Check(m.ShotsFired == shotsBefore, "and fires nothing while doing it");
+
+        // Behind is behind. The arc is a cone, not a sphere.
+        target.Respawn(swinger.GlobalPosition - new Vector3(dir.X, 0f, dir.Y) * 1.6f);
+        target.ClearSpawnProtectionForTest();
+
+        health = target.Health;
+        m.WeaponSwing(swinger, Weapons.Sword);
+        Check(Mathf.IsEqualApprox(target.Health, health), "and misses somebody stood behind you");
+
+        // Out of reach is out of reach.
+        target.Respawn(swinger.GlobalPosition
+                       + new Vector3(dir.X, 0f, dir.Y) * (Weapons.Sword.Range + 6f));
+        target.ClearSpawnProtectionForTest();
+
+        health = target.Health;
+        m.WeaponSwing(swinger, Weapons.Sword);
+        Check(Mathf.IsEqualApprox(target.Health, health),
+              $"and does not reach {Weapons.Sword.Range + 6f:0} metres");
+    }
+
+    /// <summary>
+    /// The exploding decoy threatens a room, not a postcode.
+    ///
+    /// It was 600 damage across 36 metres. Blast falls off linearly and tests no line of sight, so
+    /// that killed the toughest class in the game through walls out to 28.8m, over a circle
+    /// covering seven percent of the arena - and the Thousand leaves eight of them at once.
+    /// </summary>
+    static void CheckDecoyIsARoomNotADistrict()
+    {
+        float toughest = 0f;
+        foreach (var cl in Classes.All) toughest = MathF.Max(toughest, cl.Health);
+
+        // Still the heaviest thing in the game, by a clear margin.
+        float biggestGun = 0f;
+        foreach (var w in Weapons.Pickups) biggestGun = MathF.Max(biggestGun, w.BlastRadius);
+
+        Check(Match.DecoyBlastRadius > biggestGun,
+              $"a decoy still outweighs every weapon ({Match.DecoyBlastRadius:0.#}m vs {biggestGun:0.#}m)");
+
+        Check(Match.DecoyBlastDamage > toughest,
+              $"and still kills anyone it goes off next to ({Match.DecoyBlastDamage:0} vs {toughest:0})");
+
+        // But its lethal reach is a room. Linear falloff, so this is where damage drops below the
+        // toughest class's health.
+        float lethal = Match.DecoyBlastRadius * (1f - toughest / Match.DecoyBlastDamage);
+        Check(lethal < 10f,
+              $"a decoy kills a {toughest:0}-health class out to {lethal:0.0}m, which is a room");
+
+        Check(Match.DecoyBlastRadius < biggestGun * 2.5f,
+              $"and its radius stays in the same conversation as a rocket ({Match.DecoyBlastRadius:0.#}m)");
+
+        // Eight at once in the Thousand Rooms, so the circle has to be a fraction of the floor.
+        float circle = MathF.PI * Match.DecoyBlastRadius * Match.DecoyBlastRadius;
+        float floor = Arena.HalfWidth * 2f * Arena.HalfDepth * 2f;
+        Check(circle / floor < 0.02f,
+              $"one decoy covers {100f * circle / floor:0.0}% of the arena, not seven");
     }
 
     /// <summary>

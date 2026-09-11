@@ -2861,12 +2861,37 @@ public partial class Match : Node3D
     /// as broken, and the alternative was explaining why.
     /// </summary>
     public void MeleeStrike(Pawn swinger)
+        => ArcStrike(swinger, MeleeDamage, MeleeRange, MeleeHalfAngle);
+
+    /// <summary>
+    /// A blade's attack: the same arc, with the weapon's own reach and weight.
+    ///
+    /// The sword used to be three very fast, very short projectiles - "a shot that reads as a
+    /// swing", which it did not. You could see the rounds leave, they travelled, they could miss
+    /// between each other, and at 55 metres a second against a strafing target the thing behaved
+    /// like a bad shotgun. A sword should connect with what the edge passes through, so now it
+    /// does: one arc, resolved instantly, everything inside it hit.
+    ///
+    /// Damage is the old volley kept whole - damage times pellets - so a clean hit is worth what
+    /// landing every pellet was worth before, and the arc is the old spread read as a half angle,
+    /// which keeps the saber's wider sweep wider.
+    /// </summary>
+    public void WeaponSwing(Pawn swinger, WeaponDef blade)
+    {
+        ArcStrike(swinger,
+                  blade.Damage * MathF.Max(blade.Pellets, 1),
+                  blade.Range,
+                  Mathf.DegToRad(blade.SpreadDeg));
+    }
+
+    /// <summary>Everything inside a cone in front of <paramref name="swinger"/> takes a hit.</summary>
+    void ArcStrike(Pawn swinger, float damage, float range, float halfAngle)
     {
         if (!swinger.Alive || swinger.InVehicle) return;
 
         Vector3 origin = swinger.GlobalPosition + Vector3.Up * swinger.CurrentEyeHeight;
         Vector3 dir = swinger.AimDir;
-        float cosLimit = MathF.Cos(MeleeHalfAngle);
+        float cosLimit = MathF.Cos(halfAngle);
 
         bool connected = false;
 
@@ -2879,7 +2904,7 @@ public partial class Match : Node3D
             // right in front of you points below the cone.
             Vector3 to = other.GlobalPosition + Vector3.Up * (other.CurrentHeight * 0.5f) - origin;
             float dist = to.Length();
-            if (dist > MeleeRange + Pawn.Radius) continue;
+            if (dist > range + Pawn.Radius) continue;
             if (dist > 0.01f && to.Normalized().Dot(dir) < cosLimit) continue;
 
             Vector3 away = to.LengthSquared() < 0.01f ? dir : to.Normalized();
@@ -2891,7 +2916,7 @@ public partial class Match : Node3D
             other.ApplyKnockback(away * 11f + Vector3.Up * 3.5f);
 
             float before = other.Health;
-            bool killed = other.TakeDamage(MeleeDamage);
+            bool killed = other.TakeDamage(damage);
             DamageDealt += before - other.Health;
             connected = true;
 
@@ -2921,11 +2946,11 @@ public partial class Match : Node3D
                                           rig.Def.HalfExtents, origin);
             Vector3 to = near - origin;
             float dist = to.Length();
-            if (dist > MeleeRange) continue;
+            if (dist > range) continue;
             if (dist > 0.01f && to.Normalized().Dot(dir) < cosLimit) continue;
 
             float before = rig.Health;
-            bool wrecked = rig.TakeDamage(MeleeDamage);
+            bool wrecked = rig.TakeDamage(damage);
             DamageDealt += before - rig.Health;
             connected = true;
 
@@ -3416,14 +3441,21 @@ public partial class Match : Node3D
     /// reads it simply steps away. The payoff has to justify being ignorable.
     /// </summary>
     ///
-    /// Four times over, both halves. At 150 in a nine-metre circle the payoff still did not
-    /// justify how ignorable the thing is — reading a decoy and stepping away cost one sidestep,
-    /// so the bomb half of the bluff was never a real threat and Ingenuity were back to owning a
-    /// lie nobody had to respect. At 600 across thirty-six metres, walking away is a commitment:
-    /// the radius is most of a room, so "step aside" becomes "leave", and leaving is exactly the
-    /// concession the ability is asking a player to make.
-    public const float DecoyBlastDamage = 600f;
-    public const float DecoyBlastRadius = 36f;
+    /// Six hundred across thirty-six metres went too far, and the arithmetic says how far. Blast
+    /// falls off linearly and checks no line of sight, so 600 over 36m killed the toughest class
+    /// in the game - 120 health - through walls, out to 28.8 metres. The circle covered 4,071
+    /// square metres of a 57,268 square metre arena: one decoy threatened seven percent of the
+    /// map, and the Thousand Rooms leaves eight of them at once. That is not "step aside becomes
+    /// leave", it is "there was nowhere to be".
+    ///
+    /// 260 over 14m keeps the ability's whole point and takes back the map. It is still by some
+    /// way the heaviest explosive in the game - the rocket launcher is 7m and the biggest weapon
+    /// blast is 8.5m - so a decoy going off beside you is still the worst thing that can happen.
+    /// It kills a 120-health class out to 7.5 metres and anything on a direct hit. What it no
+    /// longer does is reach across a district, and its circle is now one percent of the arena
+    /// rather than seven, which is the difference between a room and a postcode.
+    public const float DecoyBlastDamage = 260f;
+    public const float DecoyBlastRadius = 14f;
 
     /// <summary>Rounds that passed through a phasing Custodian. Reported by the harness.</summary>
     public int PhasedShots;
@@ -3551,7 +3583,7 @@ public partial class Match : Node3D
     /// </summary>
     const float PortalCooldown = 1.1f;
 
-    /// <summary>Gates currently standing. Never more than two.</summary>
+    /// <summary>Gates currently standing. Never more than two per owner.</summary>
     public int PortalCount => portals.Count;
 
     /// <summary>Trips through a gate. Exists so the harness can prove they actually carry anyone.</summary>
@@ -3586,12 +3618,19 @@ public partial class Match : Node3D
             return;
         }
 
-        // Two at a time. A third closes the oldest, which is also how you move a gate: shoot a new
-        // one and the one you have finished with goes.
-        while (portals.Count >= 2)
+        // Two at a time PER OWNER. A third of your own closes your oldest, which is also how you
+        // move a gate: shoot a new one and the one you have finished with goes.
+        //
+        // This used to be a flat cap of two across the whole match, and that single line is the
+        // whole of "someone else shot a portal and mine took me through theirs". With one global
+        // pair, the first two gates standing were linked no matter who planted them - so your gate
+        // and a stranger's became each other's exit - and a third plant closed *their* gate rather
+        // than yours. In a four-player match with a portal gun each, the mode barely worked.
+        while (CountOwnedBy(owner) >= 2)
         {
-            ClosePortal(portals[0]);
-            portals.RemoveAt(0);
+            int oldest = portals.FindIndex(q => q.Owner == owner);
+            ClosePortal(portals[oldest]);
+            portals.RemoveAt(oldest);
         }
 
         var portal = new Portal { At = at2, Out = normal, Owner = owner };
@@ -3673,11 +3712,9 @@ public partial class Match : Node3D
         }
 
         // A gate on its own does nothing. This is deliberate: the first shot is a commitment you
-        // can be punished for, and the pair is the payoff.
+        // can be punished for, and the pair is the payoff. A pair means two gates with the SAME
+        // owner - a gate is never linked to a stranger's.
         if (portals.Count < 2) return;
-
-        var a = portals[0];
-        var b = portals[1];
 
         foreach (var pawn in Pawns)
         {
@@ -3690,17 +3727,49 @@ public partial class Match : Node3D
             // catches someone walking into it at chest height.
             Vector3 mid = pawn.GlobalPosition + Vector3.Up * (pawn.CurrentHeight * 0.5f);
 
-            Portal? entered = null;
-            if (mid.DistanceTo(a.At) < PortalReach) entered = a;
-            else if (mid.DistanceTo(b.At) < PortalReach) entered = b;
-
-            if (entered == null) continue;
-
-            var exit = entered == a ? b : a;
+            if (ExitFor(mid) is not { } exit) continue;
             if (!PawnFitsAt(exit.At)) continue;
 
             TakeThroughPortal(pawn, exit);
         }
+    }
+
+    /// <summary>Gates standing that belong to <paramref name="owner"/>.</summary>
+    int CountOwnedBy(Pawn? owner)
+    {
+        int n = 0;
+        foreach (var q in portals) if (q.Owner == owner) n++;
+        return n;
+    }
+
+    /// <summary>
+    /// The gate a pawn standing at <paramref name="mid"/> would come out of, or null.
+    ///
+    /// The pairing rule lives here and nowhere else: a gate sends you to its owner's *other* gate.
+    /// Anyone may walk through anyone's pair - a gate is a feature of the map once it is up, and
+    /// using someone else's is a fair piece of play - but which gate it lets out at is decided by
+    /// who planted it, never by who else happens to have shot one recently.
+    ///
+    /// Nearest wins when two gates overlap, so a pile of gates in one doorway still behaves.
+    /// </summary>
+    Portal? ExitFor(Vector3 mid)
+    {
+        Portal? entered = null;
+        float best = PortalReach;
+
+        foreach (var q in portals)
+        {
+            float d = mid.DistanceTo(q.At);
+            if (d < best) { best = d; entered = q; }
+        }
+
+        if (entered == null) return null;
+
+        // Its owner's other gate. An unpaired gate carries nobody, however many others stand.
+        foreach (var q in portals)
+            if (q != entered && q.Owner == entered.Owner) return q;
+
+        return null;
     }
 
     /// <summary>
@@ -3737,6 +3806,10 @@ public partial class Match : Node3D
     // harness cannot arrange reliably — the round has to actually hit something, and where it hits
     // depends on the geometry in front of whichever spawn the probe happened to start on.
     public void PlantPortalForTest(Vector3 where, Vector3 normal) => PlantPortal(where, normal, Pawns[0]);
+
+    /// <summary>Plant a gate belonging to somebody in particular, so pairing can be tested.</summary>
+    public void PlantPortalForTest(Vector3 where, Vector3 normal, Pawn owner)
+        => PlantPortal(where, normal, owner);
     public void StepPortalsForTest(float dt) => StepPortals(dt);
 
     /// <summary>Advance rounds in flight, for the harness. Deflection lives inside this sweep.</summary>

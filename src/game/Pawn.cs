@@ -1452,7 +1452,23 @@ public partial class Pawn : CharacterBody3D
 
         if (input.Fire && fireCooldown <= 0f && CanFire)
         {
-            match.FireWeapon(this);
+            // A blade is swung, not fired. It borrows the melee swing's animation and counter,
+            // which is what the view model is already built to play - a sword that connects
+            // instantly and never shows an arc would read as nothing happening at all.
+            if (Weapon.Swings)
+            {
+                // Read before OnFired, for the same reason FireWeapon does: spending the last
+                // round reverts a pickup to the class weapon, and the swing that spent it should
+                // still be the sword's swing.
+                var blade = Weapon;
+
+                MeleeSwing = MeleeSwingTime;
+                MeleeCounter++;
+                OnFired();
+                match.WeaponSwing(this, blade);
+            }
+            else match.FireWeapon(this);
+
             fireCooldown = EffectiveFireInterval;
         }
 
@@ -2429,4 +2445,13 @@ public partial class Pawn : CharacterBody3D
     /// </summary>
     public static uint FirstPersonCullMask(int viewIndex)
         => (AllLayers & ~VisualLayerFor(viewIndex) & ~AllViewModelLayers) | ViewModelLayerFor(viewIndex);
+
+    /// <summary>
+    /// Cull mask for a third-person camera: the exact opposite trade.
+    ///
+    /// The body this camera belongs to is now the thing you are looking at, so it comes back in;
+    /// every view model goes, including this view's own, because a held gun drawn at the camera
+    /// would hang in space in front of a character who is also holding one.
+    /// </summary>
+    public static uint ThirdPersonCullMask => AllLayers & ~AllViewModelLayers;
 }

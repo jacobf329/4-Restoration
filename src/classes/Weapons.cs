@@ -118,6 +118,15 @@ public sealed class WeaponDef
     public bool MuzzleFlip;
 
     /// <summary>
+    /// Whether pulling the trigger swings this rather than firing it.
+    ///
+    /// Derived from the silhouette rather than set per weapon, so a blade added later swings
+    /// without anyone having to remember a flag - and so "it looks like a sword" and "it behaves
+    /// like a sword" cannot drift apart.
+    /// </summary>
+    public bool Swings => Silhouette == WeaponSilhouette.Blade;
+
+    /// <summary>
     /// Whether rounds stick in whoever they hit and detonate together once enough of them have.
     ///
     /// A flag rather than a weapon subclass, like Bounces and Grapples above it, because the whole
@@ -476,6 +485,11 @@ public static class Weapons
     {
         Name = "Saber",
         Model = "saber",
+
+        // Pommel at +Y, tip at -Y - the opposite way up from the pickup sword, which puts its tip
+        // at +Y. Both were rendered to check rather than reasoned about. See
+        // WeaponModels.MuzzleConvention for why blades need this and guns do not.
+        MuzzleFlip = true,
         Silhouette = WeaponSilhouette.Blade,
         Damage = 80f,
         FireInterval = 0.55f,

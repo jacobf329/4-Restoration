@@ -5,7 +5,7 @@ using Godot;
 namespace HitboxClone;
 
 /// <summary>The remappable gamepad actions. Sticks are not remappable — see <see cref="PadBindings"/>.</summary>
-public enum PadAction { Attack, Ads, Jump, Sprint, Crouch, Special, ClassAbility, Dash, Melee, Use, SwapWeapon, Start, Back }
+public enum PadAction { Attack, Ads, Jump, Sprint, Crouch, Special, ClassAbility, Dash, Melee, Use, SwapWeapon, CameraToggle, Start, Back }
 
 /// <summary>
 /// One physical input: either a button, or a trigger treated as a button past its threshold.
@@ -120,7 +120,7 @@ public static class PadBindings
     {
         PadAction.Attack, PadAction.Ads, PadAction.Jump, PadAction.Sprint, PadAction.Crouch,
         PadAction.Special, PadAction.ClassAbility, PadAction.Dash, PadAction.Melee,
-        PadAction.Use, PadAction.SwapWeapon,
+        PadAction.Use, PadAction.SwapWeapon, PadAction.CameraToggle,
         PadAction.Start, PadAction.Back,
     };
 
@@ -137,6 +137,7 @@ public static class PadBindings
         PadAction.Melee => "Melee",
         PadAction.Use => "Interact / enter vehicle",
         PadAction.SwapWeapon => "Swap weapon",
+        PadAction.CameraToggle => "First / third person",
         PadAction.Start => "Start / Pause",
         _ => "Back / Cancel",
     };
@@ -179,6 +180,10 @@ public static class PadBindings
         [PadAction.Melee] = new() { new(JoyButton.RightStick) },
         [PadAction.Use] = new() { new(JoyButton.X) },
         [PadAction.SwapWeapon] = new() { new(JoyButton.Y) },
+
+        // The other half of the d-pad. ClassAbility already owns up, and nothing in a match reads
+        // down - menu nav is the only other consumer and no menu is open while you are playing.
+        [PadAction.CameraToggle] = new() { new(JoyButton.DpadDown) },
         [PadAction.Start] = new() { new(JoyButton.Start), new(JoyButton.Guide) },
         [PadAction.Back] = new() { new(JoyButton.Back) },
     };

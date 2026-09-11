@@ -127,6 +127,7 @@ public sealed class GamepadDevice : InputDevice
         s.Swap = ActionHeld(PadAction.SwapWeapon);
         s.Melee = ActionHeld(PadAction.Melee);
         s.ClassAbility = ActionHeld(PadAction.ClassAbility);
+        s.CameraToggle = ActionHeld(PadAction.CameraToggle);
 
         // Menus confirm on whatever Jump is bound to, which is A out of the box. Every prompt in
         // the game already said A; only the code disagreed.

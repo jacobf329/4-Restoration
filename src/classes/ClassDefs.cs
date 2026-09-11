@@ -107,6 +107,9 @@ public sealed class ClassDef
     /// <summary>Model base name for this class's own gun. See <see cref="WeaponDef.Model"/>.</summary>
     public string WeaponModel = "";
 
+    /// <summary>Same meaning as <see cref="WeaponDef.MuzzleFlip"/>: this model faces the other way.</summary>
+    public bool MuzzleFlip;
+
     /// <summary>
     /// Whether this class can sprint at all.
     ///
@@ -156,6 +159,7 @@ public sealed class ClassDef
         HasScope = HasScope,
         HealsFriendlies = HealsFriendlies,
         Model = WeaponModel,
+        MuzzleFlip = MuzzleFlip,
         Ammo = 0,
     };
 }
@@ -554,6 +558,7 @@ public static class SpecialClasses
     {
         Name = "The Tragedian",
         WeaponModel = "prop_blade",
+        MuzzleFlip = true,      // hilt at +Y, tip at -Y. See WeaponModels.MuzzleConvention.
         Silhouette = WeaponSilhouette.Blade,
         Role = "Duellist",
         WeaponName = "Prop Blade",

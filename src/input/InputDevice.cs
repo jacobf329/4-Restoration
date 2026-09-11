@@ -92,6 +92,17 @@ public abstract class InputDevice
     /// <summary>Switch to the other weapon slot.</summary>
     public bool SwapPressed;
 
+    /// <summary>
+    /// Flip between first and third person.
+    ///
+    /// Deliberately NOT latched, unlike the gameplay edges. The camera mode is owned by the screen
+    /// and flipped in the render frame, on the same clock this edge is raised on - exactly like
+    /// pause. Latching it would mean the flag stayed up across several rendered frames until a
+    /// physics step cleared it, and the screen would toggle once per frame for the whole of that:
+    /// one press, three or four flips, landing wherever the arithmetic left it.
+    /// </summary>
+    public bool CameraTogglePressed;
+
     /// <summary>Menu navigation, already rate-limited. Non-zero only on the frames a step should fire.</summary>
     public int NavX, NavY;
 
@@ -148,6 +159,9 @@ public abstract class InputDevice
         public bool Attack, Special, Dash, Start, Back;
         public bool Ads, Jump, Sprint, Crouch, Use, Swap, Melee, ClassAbility;
 
+        /// <summary>Toggle between the first- and third-person camera.</summary>
+        public bool CameraToggle;
+
         /// <summary>Menu back. Separate from the pad's Back button — see <see cref="CancelPressed"/>.</summary>
         public bool Cancel;
 
@@ -160,6 +174,7 @@ public abstract class InputDevice
     protected abstract bool TrySample(float dt, out Sample s);
 
     bool pAttack, pSpecial, pDash, pStart, pBack, pJump, pCrouch, pUse, pSwap, pMelee, pConfirm, pClass, pCancel;
+    bool pCamera;
     float repeatTimer;
     int lastNavX, lastNavY;
 
@@ -192,6 +207,7 @@ public abstract class InputDevice
         UsePressed = s.Use && !pUse;
         UseHeld = s.Use;
         SwapPressed = s.Swap && !pSwap;
+        CameraTogglePressed = s.CameraToggle && !pCamera;
         MeleePressed = s.Melee && !pMelee;
         ClassAbilityPressed = s.ClassAbility && !pClass;
         ConfirmPressed = s.Confirm && !pConfirm;
@@ -210,6 +226,7 @@ public abstract class InputDevice
         pAttack = s.Attack; pSpecial = s.Special; pDash = s.Dash;
         pStart = s.Start; pBack = s.Back;
         pJump = s.Jump; pCrouch = s.Crouch; pUse = s.Use; pSwap = s.Swap;
+        pCamera = s.CameraToggle;
         pMelee = s.Melee; pConfirm = s.Confirm; pClass = s.ClassAbility; pCancel = s.Cancel;
 
         UpdateNav(s.RawNavX, s.RawNavY, dt);
@@ -228,8 +245,10 @@ public abstract class InputDevice
         JumpPressed = CrouchPressed = false;
         JumpHeld = false;
         pAttack = pSpecial = pDash = pStart = pBack = pJump = pCrouch = pUse = pSwap = false;
+        pCamera = false;
         pMelee = pConfirm = pClass = pCancel = false;
         UsePressed = UseHeld = SwapPressed = MeleePressed = ConfirmPressed = false;
+        CameraTogglePressed = false;
         ClassAbilityPressed = CancelPressed = false;
         ConsumeGameplayEdges();
         NavX = NavY = 0;

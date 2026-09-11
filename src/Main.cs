@@ -226,6 +226,24 @@ public partial class Main : Node
         kSlots[2].IsBot = true; kSlots[2].ClassIndex = 2;
         shots.Add(("06-koth-glasshouse", new MatchScreen(kothSettings, kSlots, this), 260));
 
+        // Coldstore, in Dominion, because the thing worth capturing about this arena is the open
+        // ground - and an objective mode is what puts fighters out on it rather than in the base.
+        var coldSettings = new MatchSettings
+        {
+            Mode = GameMode.Dominion,
+            ArenaIndex = Arena.ColdstoreLayout,
+            ScoreLimit = 50,
+            BotCount = 3,
+            BotSkill = 2,
+        };
+        var cdSlots = new LobbySlot[LobbyScreen.MaxPlayers];
+        for (int i = 0; i < cdSlots.Length; i++) cdSlots[i] = new LobbySlot { FactionIndex = i };
+        cdSlots[0].DeviceId = Devices.Keyboards[0].Id;
+        cdSlots[0].ClassIndex = 2;
+        cdSlots[1].IsBot = true; cdSlots[1].ClassIndex = 0;
+        cdSlots[2].IsBot = true; cdSlots[2].ClassIndex = 3;
+        shots.Add(("06b-coldstore", new MatchScreen(coldSettings, cdSlots, this), 300));
+
         // Team Deathmatch here, so the capture covers team colours as well as the Thousand Rooms
         // layout.
         var gauntlet = new MatchSettings

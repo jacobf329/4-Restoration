@@ -32,6 +32,12 @@ public enum SurfaceKind
     Foliage,
 
     Timber,
+
+    /// <summary>Trodden snow. The brightest thing in the world, and graded to be allowed to be.</summary>
+    Snow,
+
+    /// <summary>Glare ice: fracture planes, and the only surface in the set that is not matt.</summary>
+    Ice,
 }
 
 /// <summary>
@@ -78,6 +84,11 @@ public static class Surfaces
         SurfaceKind.Tarmac => new Spec("tarmac", 4.0f),
         SurfaceKind.Foliage => new Spec("foliage", 1.8f),
         SurfaceKind.Timber => new Spec("timber", 1.4f),
+
+        // Snow tiles large - it is ground, over more ground than any other map has - and ice a
+        // little tighter so its cracks stay readable close up.
+        SurfaceKind.Snow => new Spec("snow", 4.0f),
+        SurfaceKind.Ice => new Spec("ice", 2.6f),
         _ => new Spec("", Graphics.PanelMetres),
     };
 

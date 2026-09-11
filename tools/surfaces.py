@@ -285,6 +285,45 @@ def timber():
 # and this pass decides what the world looks like. It is the same idea as grading a film: shoot
 # the scenes however you must, then put every frame through one look.
 
+def snow():
+    """Trodden snow: soft dunes, a wind crust, and the odd boot-broken patch.
+
+    The hardest thing to get right is that snow is nearly white and almost featureless, so all
+    the readability has to come from the relief - a flat white plane is invisible to play on.
+    Two scales of drift plus a fine crust give it enough shading to judge distance across.
+    """
+    drift = fbm(4, 3, 71)                       # long dunes the wind pushed
+    crust = fbm(6, 14, 72) * 0.35               # the frozen skin on top
+    h = norm(drift * 0.8 + crust)
+
+    # Broken patches where it has been walked through, darker and rougher than the crust.
+    broken = (fbm(3, 9, 73) > 0.72).astype(float)
+    h = norm(h - broken * 0.18)
+
+    # Barely tinted, and very slightly blue in the hollows, which is what sells it as cold.
+    col = tint(h, [0.97, 0.98, 1.00], [0.035, 0.028, 0.018], fbm(3, 5, 74))
+    return col, h, 0.62 + (1.0 - h) * 0.22
+
+
+def ice():
+    """Glare ice: fracture planes, trapped air, and almost no roughness.
+
+    The opposite problem to snow - this one wants to be smooth enough to catch the light, so the
+    relief is all long cracks rather than grain, and the roughness sits far below everything else
+    in the set so it reads as polished against the snow beside it.
+    """
+    # Fracture lines: thin, long and branching. A ridged field at high frequency, taken right at
+    # its crest - a lower frequency or a looser threshold gives broad blotches, which read as
+    # camouflage rather than as cracks. That was the first attempt and it looked like it.
+    veins = 1.0 - np.abs(fbm(4, 16, 81) * 2.0 - 1.0)
+    cracks = np.clip((veins - 0.93) / 0.07, 0.0, 1.0)
+
+    bubbles = (fbm(4, 26, 82) > 0.86).astype(float) * 0.3
+    h = norm(fbm(3, 5, 83) * 0.35 - cracks * 0.9 + bubbles * 0.15)
+
+    col = tint(h, [0.80, 0.88, 0.94], [0.06, 0.05, 0.03], fbm(4, 3, 84))
+    return col, h, 0.18 + norm(h) * 0.16
+
 WORLD_TINT = np.array([1.00, 0.975, 0.94])   # a slightly warm sun, on everything
 
 # Contrast is pulled toward this rather than normalised per material, which matters: normalising
@@ -311,18 +350,42 @@ def world_grime():
     return fbm(5, 6, 90101) * 0.6 + fbm(4, 20, 90102) * 0.4
 
 
-def grade(col, grime):
-    """Desaturate, compress into the shared value range, warm it, then dirty it."""
+def grade(col, grime, ceiling=0.86, grime_scale=1.0, contrast=None, warm=1.0):
+    """Desaturate, compress into the shared value range, warm it, then dirty it.
+
+    `ceiling` and `grime_scale` exist for snow, and only barely. The shared range is what keeps
+    seven materials looking like one world, and raising the roof for a material is a thing to do
+    once with a reason rather than whenever something looks dull.
+
+    The reason is that snow is the brightest surface there is - it is what "white" is measured
+    against - and put through the shared settings it came out at 0.72 and read as poured concrete.
+    A snow map made of concrete is not a snow map.
+
+    Raising the ceiling alone did not fix it, which is worth writing down: the ceiling was never
+    what bound. Compressing toward WORLD_MID at 0.62 takes an input of 0.97 down to 0.75 all by
+    itself, and the clamp at 0.86 never even engages. So snow also relaxes the compression. And it
+    turns down WORLD_TINT, because the shared warm sun on a near-white surface is the difference
+    between snow and sand - at full strength it came out beige.
+    """
     lum = col @ LUMA
     col = lum[..., None] + (col - lum[..., None]) * SATURATION
 
     lum = np.clip(col @ LUMA, 1e-4, None)
-    want = np.clip(WORLD_MID + (lum - WORLD_MID) * WORLD_CONTRAST, 0.04, 0.86)
+    k = WORLD_CONTRAST if contrast is None else contrast
+    want = np.clip(WORLD_MID + (lum - WORLD_MID) * k, 0.04, ceiling)
     col = col * (want / lum)[..., None]
 
-    col = col * WORLD_TINT[None, None, :]
-    col = col * (1.0 - GRIME * (1.0 - grime)[..., None])
+    col = col * (1.0 + (WORLD_TINT - 1.0) * warm)[None, None, :]
+    col = col * (1.0 - GRIME * grime_scale * (1.0 - grime)[..., None])
     return col
+
+
+# Materials that sit above the shared ceiling, and how much of the shared dirt they take.
+# Everything not named here uses the defaults, which is the whole set except these two.
+GRADE = {
+    "snow": dict(ceiling=0.985, grime_scale=0.30, contrast=0.95, warm=0.25),
+    "ice":  dict(ceiling=0.94,  grime_scale=0.55, contrast=0.80, warm=0.35),
+}
 
 
 # Roughness lives in one band too. A world where one surface is glassy and the next is chalk
@@ -344,6 +407,8 @@ MATERIALS = {
     "tarmac": tarmac,
     "foliage": foliage,
     "timber": timber,
+    "snow": snow,
+    "ice": ice,
 }
 
 # How pronounced each material's relief is. Brick and tile are real geometry being faked and
@@ -354,6 +419,10 @@ MATERIALS = {
 STRENGTH = {
     "brick": 5.0, "roof_tile": 7.0, "plaster": 1.4, "concrete": 2.2,
     "tarmac": 1.0, "foliage": 3.5, "timber": 2.6,
+
+    # Snow is all relief and no colour, so it gets more than it looks like it should. Ice is the
+    # other way about: nearly flat, and what shape it has is cracks.
+    "snow": 3.2, "ice": 1.6,
 }
 
 
@@ -371,7 +440,7 @@ def main():
             rough = np.full((SIZE, SIZE), float(rough))
 
         grime = world_grime()
-        col = grade(col, grime)
+        col = grade(col, grime, **GRADE.get(name, {}))
         rough = grade_rough(rough, grime)
 
         write_png(f"{OUT}/{name}_base_color.png", col)

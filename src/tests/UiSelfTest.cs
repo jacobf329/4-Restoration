@@ -2358,16 +2358,34 @@ public static class UiSelfTest
     {
         TestLog.Line("- vehicles and jetpack are sane");
 
-        // Three distinct vehicles, each usable.
+        // Four distinct vehicles. Three of them drive; the fourth deliberately does not.
         var seen = new HashSet<VehicleKind>();
         foreach (var v in Vehicles.All)
         {
             Check(seen.Add(v.Kind), $"{v.Name} is a distinct kind");
             Check(v.Health > 0f, $"{v.Name} has health");
+
+            // An emplacement is a hull with the driving taken away, which is the whole of what
+            // makes it an emplacement: it trades going anywhere for reach and cover. Asserting it
+            // can move would be asserting it is not the thing it is.
+            if (v.Kind == VehicleKind.Turret)
+            {
+                Check(v.MaxSpeed == 0f && v.Accel == 0f, $"{v.Name} stays where it is put");
+                Check(v.Gun != null, $"{v.Name} is a gun or it is nothing");
+                continue;
+            }
+
             Check(v.MaxSpeed > 0f && v.Accel > 0f, $"{v.Name} can move");
             Check(v.TurnRate > 0f, $"{v.Name} can turn");
         }
-        Check(seen.Count == 3, "car, tank and plane all exist");
+        Check(seen.Count == 4, "car, tank, plane and emplacement all exist");
+
+        // The plane appears only where there is room to fly it. On the standard floor it crosses
+        // the map in under six seconds, which is the reason it sat out of rotation for so long.
+        Check(System.Array.IndexOf(Vehicles.SpawnableFor(0), Vehicles.Plane) < 0,
+              "an ordinary arena parks no plane");
+        Check(System.Array.IndexOf(Vehicles.SpawnableFor(Arena.ColdstoreLayout), Vehicles.Plane) >= 0,
+              "Coldstore is big enough to fly on and parks one");
 
         // The car has to be worth taking over running, and the tank worth its slowness.
         Check(Vehicles.Car.MaxSpeed > Pawn.Speed15(), "the car outruns a sprinting player");

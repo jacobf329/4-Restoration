@@ -2353,6 +2353,33 @@ public sealed class MatchScreen : UiScreen
     /// <summary>How much of the world the minimap shows, as a radius in metres.</summary>
     const float MinimapRange = 55f;
 
+    /// <summary>
+    /// The enemy colour, and nothing else on the minimap may be it.
+    ///
+    /// Reserving a colour only works if it is actually reserved, and it was not: the rocket
+    /// launcher crate is (0.98, 0.34, 0.22) and Ingenuity's salvaged paint is (0.98, 0.45, 0.30),
+    /// so a friendly Ingenuity fighter and a rocket crate both drew as a red dot. See OffRed.
+    /// </summary>
+    static readonly Color EnemyRed = new(1f, 0.17f, 0.17f);
+
+    /// <summary>
+    /// Pushes a marker colour off red, so the reservation above holds against any tint the rest of
+    /// the game invents later.
+    ///
+    /// A red-dominant colour is lifted in green until it reads as amber. Applied to the marker
+    /// only and never to the world: the rocket crate's pillar stays the colour it has always been,
+    /// because out there it is identifying a weapon rather than competing with a threat.
+    ///
+    /// Magenta and pink are left alone deliberately - the Seeker is (0.98, 0.20, 0.62) and the
+    /// test is that BOTH other channels are low, so a colour with real blue in it is not red and
+    /// does not need moving.
+    /// </summary>
+    static Color OffRed(Color c)
+    {
+        bool redDominant = c.R > 0.6f && c.G < c.R * 0.55f && c.B < c.R * 0.55f;
+        return redDominant ? new Color(c.R, MathF.Max(c.G, c.R * 0.62f), c.B, c.A) : c;
+    }
+
     void DrawMinimap(UiPainter p, View v, Pawn self, Rect2 r)
     {
         // Skip it on a slice too small to read one. Four-way splitscreen on a 1080p window gives
@@ -2406,7 +2433,36 @@ public sealed class MatchScreen : UiScreen
         void Dot(Vector3 world, float d, Color col)
         {
             if (Plot(world) is not { } at) return;
-            p.Rect(at.X - d * 0.5f, at.Y - d * 0.5f, d, d, col);
+            p.Rect(at.X - d * 0.5f, at.Y - d * 0.5f, d, d, OffRed(col));
+        }
+
+        // An enemy is a diamond, not a square, because colour alone is not enough to carry this.
+        //
+        // Two reasons it has to be the shape as well. A quarter of a 1080p screen puts these
+        // markers at six or seven pixels, and at that size hue is the first thing to go - against
+        // the snow of Coldstore or the firelight of the Furnace a red dot and an amber one are the
+        // same dot. And roughly one man in twelve cannot separate red from green at all, which on
+        // a map whose whole job is friend-or-foe is not a detail.
+        //
+        // Built from stacked rectangles because the painter draws rectangles and text and nothing
+        // else, which is also why it is a diamond rather than a triangle or a chevron: a diamond
+        // is symmetrical about both axes, so it reads the same however the map has turned.
+        void Diamond(Vector3 world, float d, Color col)
+        {
+            if (Plot(world) is not { } at) return;
+
+            const int Rows = 7;
+            float step = d / Rows;
+
+            for (int i = 0; i < Rows; i++)
+            {
+                // 0 at the middle row, 1 at the tips.
+                float t = MathF.Abs((i + 0.5f) / Rows * 2f - 1f);
+                float w = d * (1f - t);
+                if (w < 1f) continue;
+
+                p.Rect(at.X - w * 0.5f, at.Y - d * 0.5f + i * step, w, step + 0.6f, col);
+            }
         }
 
         foreach (var (at, _, pickTint) in match.AvailablePickups())
@@ -2423,7 +2479,10 @@ public sealed class MatchScreen : UiScreen
             bool friend = settings.Def.Teams && Match.SameTeam(self, other);
             if (!friend && other.RevealedFor <= 0f) continue;
 
-            Dot(other.GlobalPosition, 6f, other.Tint);
+            // Friends keep their faction colour and their square. An enemy is red and a diamond,
+            // and is drawn a little larger: it is the one thing on here you have to see.
+            if (friend) Dot(other.GlobalPosition, 6f, other.Tint);
+            else Diamond(other.GlobalPosition, 11f, EnemyRed);
         }
 
         // You, dead centre and always pointing up, because the map turns and you do not. Three

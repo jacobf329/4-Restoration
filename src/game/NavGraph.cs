@@ -36,6 +36,25 @@ public sealed class NavGraph
     readonly Arena arena;
     readonly AStar3D astar = new();
 
+    /// <summary>
+    /// Block indices bucketed by a coarse XZ grid, so a column only tests blocks near it.
+    ///
+    /// Without this the build is every cell against every block, twice - once to find surfaces and
+    /// once for headroom. On the standard arena that is nine thousand cells against three hundred
+    /// blocks and nobody notices. On Coldstore it is two hundred and eleven thousand against four
+    /// hundred, which is eighty-three million footprint tests per graph before headroom doubles
+    /// it, and the harness builds one of these per arena per scenario.
+    ///
+    /// Twenty metres a bucket rather than the nav cell's 2.5: a canyon slab is a hundred metres
+    /// across and would otherwise be inserted into nine hundred buckets. Coarse enough that a big
+    /// block costs little to file, fine enough that a column reads a handful of blocks instead of
+    /// four hundred.
+    /// </summary>
+    const float BucketSize = 20f;
+
+    readonly Dictionary<long, List<int>> buckets = new();
+    static readonly List<int> NoBlocks = new();
+
     /// <summary>Node ids by column, so neighbours are found without a spatial query.</summary>
     readonly Dictionary<long, List<int>> columns = new();
 
@@ -46,6 +65,7 @@ public sealed class NavGraph
     public NavGraph(Arena arena)
     {
         this.arena = arena;
+        BuildBuckets();
         BuildNodes();
         BuildEdges();
     }
@@ -58,6 +78,33 @@ public sealed class NavGraph
     static float CentreZ(int cz) => (cz + 0.5f) * CellSize;
 
     // ---- construction ----
+
+    /// <summary>Files every block under each bucket its footprint touches.</summary>
+    void BuildBuckets()
+    {
+        for (int bi = 0; bi < arena.Blocks.Count; bi++)
+        {
+            var b = arena.Blocks[bi];
+
+            int x0 = Mathf.FloorToInt((b.Centre.X - b.HalfExtents.X) / BucketSize);
+            int x1 = Mathf.FloorToInt((b.Centre.X + b.HalfExtents.X) / BucketSize);
+            int z0 = Mathf.FloorToInt((b.Centre.Z - b.HalfExtents.Z) / BucketSize);
+            int z1 = Mathf.FloorToInt((b.Centre.Z + b.HalfExtents.Z) / BucketSize);
+
+            for (int bx = x0; bx <= x1; bx++)
+            for (int bz = z0; bz <= z1; bz++)
+            {
+                long key = Key(bx, bz);
+                if (!buckets.TryGetValue(key, out var list)) buckets[key] = list = new List<int>();
+                list.Add(bi);
+            }
+        }
+    }
+
+    /// <summary>The blocks that could possibly cover this point.</summary>
+    List<int> Near(float x, float z)
+        => buckets.TryGetValue(Key(Mathf.FloorToInt(x / BucketSize), Mathf.FloorToInt(z / BucketSize)),
+                               out var list) ? list : NoBlocks;
 
     void BuildNodes()
     {
@@ -119,7 +166,7 @@ public sealed class NavGraph
             break;
         }
 
-        for (int bi = 0; bi < arena.Blocks.Count; bi++)
+        foreach (int bi in Near(x, z))
         {
             var b = arena.Blocks[bi];
             if (MathF.Abs(x - b.Centre.X) > b.HalfExtents.X) continue;
@@ -187,8 +234,9 @@ public sealed class NavGraph
 
     bool HasHeadroom(float x, float z, float y)
     {
-        foreach (var b in arena.Blocks)
+        foreach (int bi in Near(x, z))
         {
+            var b = arena.Blocks[bi];
             if (MathF.Abs(x - b.Centre.X) > b.HalfExtents.X) continue;
             if (MathF.Abs(z - b.Centre.Z) > b.HalfExtents.Z) continue;
 

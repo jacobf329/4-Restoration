@@ -197,14 +197,14 @@ public sealed class Arena
     /// different number and every other map is tuned against the one it has. See HeightFor.
     /// </summary>
     public static float HalfWidthFor(int layout)
-        => layout == ColdstoreLayout ? 250f : StandardHalfWidth;
+        => layout == ColdstoreLayout ? 500f : StandardHalfWidth;
 
     public static float HalfDepthFor(int layout)
-        => layout == ColdstoreLayout ? 330f : StandardHalfDepth;
+        => layout == ColdstoreLayout ? 660f : StandardHalfDepth;
 
     /// <summary>The largest any arena gets, for anything that has to bound all of them.</summary>
-    public static float LargestHalfWidth => 250f;
-    public static float LargestHalfDepth => 330f;
+    public static float LargestHalfWidth => 500f;
+    public static float LargestHalfDepth => 660f;
 
     public float HalfWidth => HalfWidthFor(Layout);
     public float HalfDepth => HalfDepthFor(Layout);
@@ -381,6 +381,17 @@ public sealed class Arena
     public readonly List<Vector3> VehicleSpawns = new();
 
     /// <summary>
+    /// Where emplaced guns stand, with the heading each one faces.
+    ///
+    /// A separate list from VehicleSpawns because the two are chosen in opposite ways. A hull is
+    /// parked wherever the map turns out to have a long clear run, worked out after the geometry
+    /// exists; a turret is part of the architecture and belongs at a place the builder chose on
+    /// purpose - on the trench, facing the open ground. Putting them in one list would also have
+    /// turrets displacing tanks in the ByIndex rotation.
+    /// </summary>
+    public readonly List<(Vector3 At, float Facing)> TurretSpots = new();
+
+    /// <summary>
     /// Where med kits sit. Their own list, derived from the finished map rather than shared with
     /// the weapon crates.
     ///
@@ -520,8 +531,8 @@ public sealed class Arena
             // the map read as two sides of a siege rather than four corners of a box.
             foreach (int sx in new[] { -1, 1 })
             {
-                SpawnPoints.Add(new Vector3(sx * 70f, 1f, StagingZ + 40f));
-                SpawnPoints.Add(new Vector3(sx * 70f, 1f, HangarZ + 70f));
+                SpawnPoints.Add(new Vector3(sx * 130f, 1f, StagingZ + 80f));
+                SpawnPoints.Add(new Vector3(sx * 130f, 1f, HangarZ + 130f));
             }
         }
         else
@@ -1304,7 +1315,7 @@ public sealed class Arena
     {
         float radius = 0f, turn = 0f;
 
-        foreach (var v in Vehicles.Spawnable)
+        foreach (var v in Vehicles.SpawnableFor(Layout))
         {
             if (v.Flies) continue;
             radius = MathF.Max(radius, v.HalfExtents.Z + 0.4f);
@@ -2512,13 +2523,13 @@ public sealed class Arena
     // Landmarks along the approach axis, south to north. Written as named distances rather than
     // as numbers at the call sites, because the whole design is the spacing between them: shorten
     // any one of these and the map stops being a siege and becomes a courtyard again.
-    const float StagingZ = -270f;      // where the attack forms up
-    const float ApproachStart = -210f; // the last cover before open ground
-    const float OuterTrenchZ = -60f;   // the first line, facing the open
-    const float InnerTrenchZ = 20f;    // the fallback line
-    const float HangarZ = 130f;        // the base itself
-    const float GeneratorZ = 250f;     // the thing being defended
-    const float CanyonX = 205f;        // the walls down both flanks
+    const float StagingZ = -560f;      // where the attack forms up
+    const float ApproachStart = -440f; // the last cover before open ground
+    const float OuterTrenchZ = -130f;  // the first line, facing the open
+    const float InnerTrenchZ = 30f;    // the fallback line
+    const float HangarZ = 250f;        // the base itself
+    const float GeneratorZ = 500f;     // the thing being defended
+    const float CanyonX = 415f;        // the walls down both flanks
 
     Color SnowTint => new(0.95f, 0.96f, 0.98f);
     Color IceTint => new(0.70f, 0.82f, 0.92f);
@@ -2536,11 +2547,11 @@ public sealed class Arena
         {
             // Wind breaks at an angle, so the staging area reads as sheltered rather than walled.
             for (int i = 0; i < 3; i++)
-                Blocks.Add(new Block(new Vector3(sx * (60f + i * 34f), 2.6f, StagingZ - i * 16f),
-                                     new Vector3(16f, 2.6f, 1.4f), SnowTint, false, SurfaceKind.Snow));
+                Blocks.Add(new Block(new Vector3(sx * (120f + i * 68f), 2.6f, StagingZ - i * 32f),
+                                     new Vector3(32f, 2.6f, 1.4f), SnowTint, false, SurfaceKind.Snow));
 
             // Two loading ramps: raised platforms a hull can sit on and a fighter can shoot from.
-            Deck(new Vector3(sx * 96f, 2.2f, StagingZ + 30f), new Vector3(20f, 2.2f, 13f),
+            Deck(new Vector3(sx * 192f, 2.2f, StagingZ + 60f), new Vector3(34f, 2.2f, 22f),
                  SteelTint, SurfaceKind.Panel);
             // Seven steps of 0.63m, landing the last one on the deck's front edge. Ramp spaces
             // its steps 2.4m apart whatever else you ask, so reaching a 4.4m deck without
@@ -2548,14 +2559,14 @@ public sealed class Arena
             // Starts 16.8m clear of the deck's front edge (z = StagingZ + 17) and climbs toward
             // it, so the last step lands ON that edge. Started nearer, the whole staircase is
             // inside the deck it is meant to reach - which is what the first attempt did.
-            Ramp(new Vector3(sx * 96f, 0f, StagingZ + 59.8f), Vector3.Forward, 4.4f, 7, 7f);
+            Ramp(new Vector3(sx * 192f, 0f, StagingZ + 98.8f), Vector3.Forward, 4.4f, 7, 7f);
 
             // On the deck's top surface. At y=3 it was inside a block four and a half metres
             // thick, which the graph reports as unreachable because it is.
-            WeaponSpawns.Add(new Vector3(sx * 96f, 4.8f, StagingZ + 30f));
+            WeaponSpawns.Add(new Vector3(sx * 192f, 4.8f, StagingZ + 60f));
         }
 
-        ZoneSpots.Add(new Vector3(0f, 1f, StagingZ + 20f));
+        ZoneSpots.Add(new Vector3(0f, 1f, StagingZ + 40f));
     }
 
     /// <summary>
@@ -2571,20 +2582,20 @@ public sealed class Arena
     {
         // Ice outcrops, thinning as you get closer to the line. A run across is a sequence of
         // shorter and shorter sprints between worse and worse cover.
-        for (int row = 0; row < 6; row++)
+        for (int row = 0; row < 11; row++)
         {
-            float z = ApproachStart + row * 28f;
-            int count = 5 - row / 2;                       // fewer the further north you get
-            float height = 4.5f - row * 0.45f;             // and lower
+            float z = ApproachStart + row * 31f;
+            int count = 7 - row / 3;                       // fewer the further north you get
+            float height = 5.5f - row * 0.32f;             // and lower
 
             for (int i = 0; i < count; i++)
             {
                 // Offset each row so no two line up into a corridor.
-                float x = (i - (count - 1) * 0.5f) * 74f + (row % 2 == 0 ? 26f : -26f);
-                if (MathF.Abs(x) > 190f) continue;
+                float x = (i - (count - 1) * 0.5f) * 118f + (row % 2 == 0 ? 40f : -40f);
+                if (MathF.Abs(x) > 380f) continue;
 
                 Blocks.Add(new Block(new Vector3(x, height * 0.5f, z),
-                                     new Vector3(9f, height * 0.5f, 6f), IceTint,
+                                     new Vector3(14f, height * 0.5f, 10f), IceTint,
                                      false, SurfaceKind.Ice));
             }
         }
@@ -2592,18 +2603,18 @@ public sealed class Arena
         // Two downed hulls, the landmarks people will name the ground after.
         foreach (int sx in new[] { -1, 1 })
         {
-            float x = sx * 120f, z = -130f + sx * 40f;
+            float x = sx * 240f, z = -270f + sx * 80f;
 
-            Blocks.Add(new Block(new Vector3(x, 2.6f, z), new Vector3(22f, 2.6f, 5f),
+            Blocks.Add(new Block(new Vector3(x, 2.6f, z), new Vector3(40f, 2.6f, 8f),
                                  GirderTint, false, SurfaceKind.Panel));
-            Blocks.Add(new Block(new Vector3(x + sx * 13f, 5.6f, z), new Vector3(7f, 3f, 4.4f),
+            Blocks.Add(new Block(new Vector3(x + sx * 24f, 5.6f, z), new Vector3(12f, 3f, 7f),
                                  SteelTint, false, SurfaceKind.Panel));
 
-            WeaponSpawns.Add(new Vector3(x, 1f, z + 9f));
-            ZoneSpots.Add(new Vector3(x, 1f, z - 9f));
+            WeaponSpawns.Add(new Vector3(x, 1f, z + 14f));
+            ZoneSpots.Add(new Vector3(x, 1f, z - 14f));
         }
 
-        ZoneSpots.Add(new Vector3(0f, 1f, -120f));
+        ZoneSpots.Add(new Vector3(0f, 1f, -250f));
     }
 
     /// <summary>
@@ -2628,7 +2639,7 @@ public sealed class Arena
         // WHERE rather than whether.
         var gaps = new List<(float, float)>
         {
-            (-176f, -160f), (-118f, -102f), (-52f, -36f), (36f, 52f), (102f, 118f), (160f, 176f),
+            (-370f, -344f), (-256f, -230f), (-124f, -98f), (98f, 124f), (230f, 256f), (344f, 370f),
         };
 
         WallWithGaps(z - Walk * 0.5f, Front, 1.2f, gaps, SnowTint, SurfaceKind.Snow);
@@ -2638,24 +2649,37 @@ public sealed class Arena
 
         // Gun positions pushed out into the open, so the line is not one flat face and standing
         // in one means being shot at from three sides.
-        foreach (float bx in new[] { -195f, -140f, -84f, 0f, 84f, 140f, 195f })
+        foreach (float bx in new[] { -420f, -300f, -180f, 0f, 180f, 300f, 420f })
         {
             Blocks.Add(new Block(new Vector3(bx, 1.3f, z - Walk * 0.5f - 9f),
-                                 new Vector3(9f, 1.3f, 1.2f), SnowTint, false, SurfaceKind.Snow));
+                                 new Vector3(16f, 1.3f, 1.2f), SnowTint, false, SurfaceKind.Snow));
 
             foreach (int side in new[] { -1, 1 })
-                Blocks.Add(new Block(new Vector3(bx + side * 9f, 1.3f, z - Walk * 0.5f - 5f),
+                Blocks.Add(new Block(new Vector3(bx + side * 16f, 1.3f, z - Walk * 0.5f - 5f),
                                      new Vector3(1.2f, 1.3f, 4.5f), SnowTint, false, SurfaceKind.Snow));
 
-            Deck(new Vector3(bx, 2.4f, z - Walk * 0.5f - 7f), new Vector3(4f, 0.4f, 3f),
+            Deck(new Vector3(bx, 2.4f, z - Walk * 0.5f - 7f), new Vector3(7f, 0.4f, 3f),
                  SteelTint, SurfaceKind.Panel);
         }
 
-        foreach (float bx in new[] { -140f, 0f, 140f })
+        foreach (float bx in new[] { -300f, 0f, 300f })
             WeaponSpawns.Add(new Vector3(bx, 1f, z + Walk));
 
-        ZoneSpots.Add(new Vector3(-70f, 1f, z + Walk));
-        ZoneSpots.Add(new Vector3(70f, 1f, z + Walk));
+        // Emplaced guns in the bays, facing down the approach. Only on the outer line: the point
+        // of the inner one is that it is the position you fall back TO, and a fallback that is
+        // better armed than the line in front of it is not a fallback.
+        //
+        // Facing is -Z, which is out toward the attack. MathU.Angle takes the direction the hull
+        // points, and a turret that spawns facing its own base is a turret somebody has to spend
+        // the first three seconds turning round.
+        foreach (float bx in new[] { -420f, -180f, 180f, 420f })
+            TurretSpots.Add((new Vector3(bx, 0f, z - Walk * 0.5f - 6f),
+                             MathU.Angle(new Vector2(0f, -1f))));
+
+        // Back from the parapet rather than against it: at one Walk the zone sat a metre from the
+        // rear wall, inside the clearance a standing pawn needs.
+        ZoneSpots.Add(new Vector3(-150f, 1f, z + Walk * 3f));
+        ZoneSpots.Add(new Vector3(150f, 1f, z + Walk * 3f));
     }
 
     /// <summary>
@@ -2667,7 +2691,7 @@ public sealed class Arena
     /// </summary>
     void EchoBase()
     {
-        const float HalfX = 78f, HalfZ = 40f, Roof = 22f, Mezz = 7f;
+        const float HalfX = 150f, HalfZ = 76f, Roof = 26f, Mezz = 7f;
 
         float mouth = HangarZ - HalfZ, rear = HangarZ + HalfZ;
 
@@ -2678,8 +2702,8 @@ public sealed class Arena
 
         // Back wall with a door through to the generator yard.
         foreach (int sx in new[] { -1, 1 })
-            Blocks.Add(new Block(new Vector3(sx * 47f, Roof * 0.5f, rear),
-                                 new Vector3(31f, Roof * 0.5f, 2f), SteelTint,
+            Blocks.Add(new Block(new Vector3(sx * 92f, Roof * 0.5f, rear),
+                                 new Vector3(58f, Roof * 0.5f, 2f), SteelTint,
                                  false, SurfaceKind.Panel));
 
         Deck(new Vector3(0f, Roof, HangarZ), new Vector3(HalfX, 1f, HalfZ),
@@ -2693,35 +2717,40 @@ public sealed class Arena
         // is the whole reason to hold it after the line goes.
         foreach (int sx in new[] { -1, 1 })
         {
-            Deck(new Vector3(sx * 60f, Mezz, HangarZ), new Vector3(16f, 0.6f, HalfZ - 3f),
+            Deck(new Vector3(sx * 116f, Mezz, HangarZ), new Vector3(32f, 0.6f, HalfZ - 3f),
                  SteelTint, SurfaceKind.Panel);
 
             // In two pieces with a gap in the middle, because the ramp arrives at exactly this
             // edge: an unbroken parapet stands in the headroom above the top step, and the graph
             // correctly refuses to route into a railing.
             foreach (int sz in new[] { -1, 1 })
-                Blocks.Add(new Block(new Vector3(sx * 44f, Mezz + 1.4f, HangarZ + sz * 23f),
-                                     new Vector3(0.8f, 1.4f, 14f), GirderTint,
+                Blocks.Add(new Block(new Vector3(sx * 84f, Mezz + 1.4f, HangarZ + sz * 44f), 
+                                     new Vector3(0.8f, 1.4f, 26f), GirderTint,
                                      false, SurfaceKind.Panel));
 
             // Climbs outward along X to the mezzanine's inboard edge. Running it along Z put the
             // whole staircase underneath the deck it was meant to reach, which is the third time
             // that mistake has been made on this map and the reason it is spelled out here.
-            Ramp(new Vector3(sx * 17.6f, 0f, HangarZ), sx > 0 ? Vector3.Right : Vector3.Left,
+            Ramp(new Vector3(sx * 57.6f, 0f, HangarZ), sx > 0 ? Vector3.Right : Vector3.Left,
                  Mezz + 0.6f, 11, 7f);
 
-            WeaponSpawns.Add(new Vector3(sx * 60f, Mezz + 1f, HangarZ + 14f));
+            WeaponSpawns.Add(new Vector3(sx * 116f, Mezz + 1f, HangarZ + 26f));
 
             // Side bays off the hangar floor: rooms with a doorway, the close quarters this map
             // otherwise has none of.
             foreach (int sz in new[] { -1, 1 })
-                Room(new Vector3(sx * 40f, 0f, HangarZ + sz * 24f), new Vector3(14f, 4f, 10f),
+                Room(new Vector3(sx * 72f, 0f, HangarZ + sz * 46f), new Vector3(22f, 4f, 16f),
                      doors: new[] { true, true, true, true }, tint: SteelTint,
                      surface: SurfaceKind.Panel);
         }
 
+        // Two covering the mouth from inside, so taking the hangar is not simply walking in.
+        foreach (int sx in new[] { -1, 1 })
+            TurretSpots.Add((new Vector3(sx * 110f, 0f, HangarZ - HalfZ + 14f),
+                             MathU.Angle(new Vector2(0f, -1f))));
+
         ZoneSpots.Add(new Vector3(0f, 1f, HangarZ));
-        WeaponSpawns.Add(new Vector3(0f, 1f, HangarZ - 20f));
+        WeaponSpawns.Add(new Vector3(0f, 1f, HangarZ - 40f));
     }
 
     /// <summary>
@@ -2730,27 +2759,27 @@ public sealed class Arena
     /// </summary>
     void ShieldGenerator()
     {
-        Blocks.Add(new Block(new Vector3(0f, 7f, GeneratorZ), new Vector3(20f, 7f, 20f),
+        Blocks.Add(new Block(new Vector3(0f, 7f, GeneratorZ), new Vector3(36f, 7f, 36f),
                              SteelTint, false, SurfaceKind.Panel));
-        Blocks.Add(new Block(new Vector3(0f, 15.5f, GeneratorZ), new Vector3(13f, 1.5f, 13f),
+        Blocks.Add(new Block(new Vector3(0f, 15.5f, GeneratorZ), new Vector3(24f, 1.5f, 24f),
                              IceTint, false, SurfaceKind.Ice));
 
         foreach (int sx in new[] { -1, 1 })
         {
-            Blocks.Add(new Block(new Vector3(sx * 46f, 1.6f, GeneratorZ),
-                                 new Vector3(1.4f, 1.6f, 44f), SnowTint, false, SurfaceKind.Snow));
+            Blocks.Add(new Block(new Vector3(sx * 86f, 1.6f, GeneratorZ),
+                                 new Vector3(1.4f, 1.6f, 84f), SnowTint, false, SurfaceKind.Snow));
 
-            WeaponSpawns.Add(new Vector3(sx * 32f, 1f, GeneratorZ + 30f));
+            WeaponSpawns.Add(new Vector3(sx * 58f, 1f, GeneratorZ + 56f));
         }
 
-        Blocks.Add(new Block(new Vector3(0f, 1.6f, GeneratorZ + 44f), new Vector3(46f, 1.6f, 1.4f),
+        Blocks.Add(new Block(new Vector3(0f, 1.6f, GeneratorZ + 84f), new Vector3(86f, 1.6f, 1.4f),
                              SnowTint, false, SurfaceKind.Snow));
 
         // Beside the drum, not on it. The drum is forty metres across and fourteen tall, so a
         // zone at its centre is a zone inside a block - the same fault this map had at the old
         // scale, made bigger.
-        ZoneSpots.Add(new Vector3(32f, 1f, GeneratorZ));
-        ZoneSpots.Add(new Vector3(-32f, 1f, GeneratorZ - 34f));
+        ZoneSpots.Add(new Vector3(58f, 1f, GeneratorZ));
+        ZoneSpots.Add(new Vector3(-58f, 1f, GeneratorZ - 62f));
     }
 
     /// <summary>
@@ -2761,27 +2790,32 @@ public sealed class Arena
     {
         foreach (int sx in new[] { -1, 1 })
         {
-            for (int i = 0; i < 11; i++)
+            for (int i = 0; i < 21; i++)
             {
-                float z = -300f + i * 58f;
-                if (i == 3 || i == 7) continue;            // the two passes
+                float z = -610f + i * 61f;
+                if (i == 5 || i == 10 || i == 15) continue;   // the three passes
 
                 float h = 12f + (i % 3) * 6f;
                 Blocks.Add(new Block(new Vector3(sx * CanyonX, h * 0.5f, z),
-                                     new Vector3(26f, h * 0.5f, 24f), IceTint,
+                                     // Half-depth 30.5 against a 61m spacing, so consecutive
+                                     // slabs touch. At 26 the wall had a nine-metre hole between
+                                     // every pair - a picket fence rather than a canyon, and the
+                                     // pockets between them were standable ground the med-kit
+                                     // grid stepped straight over.
+                                     new Vector3(50f, h * 0.5f, 30.5f), IceTint,
                                      false, SurfaceKind.Ice));
             }
 
             // A shelf inside each pass, looking back along the flank.
-            foreach (float pz in new[] { -126f, 106f })
+            foreach (float pz in new[] { -305f, 0f, 305f })
             {
-                Deck(new Vector3(sx * (CanyonX - 30f), 4.2f, pz), new Vector3(9f, 0.6f, 15f),
+                Deck(new Vector3(sx * (CanyonX - 54f), 4.2f, pz), new Vector3(9f, 0.6f, 18f),
                      IceTint, SurfaceKind.Ice);
 
-                Ramp(new Vector3(sx * (CanyonX - 58.2f), 0f, pz),
+                Ramp(new Vector3(sx * (CanyonX - 82.2f), 0f, pz),
                      sx > 0 ? Vector3.Right : Vector3.Left, 4.8f, 8, 7f);
 
-                WeaponSpawns.Add(new Vector3(sx * (CanyonX - 30f), 5.2f, pz));
+                WeaponSpawns.Add(new Vector3(sx * (CanyonX - 54f), 5.2f, pz));
             }
         }
     }
@@ -2791,20 +2825,20 @@ public sealed class Arena
     void Crevasses()
     {
         foreach (int sx in new[] { -1, 1 })
-        foreach (float z in new[] { -170f, -40f })
+        foreach (float z in new[] { -350f, -90f, 160f })
         {
-            float x = sx * 155f;
+            float x = sx * 310f;
 
-            Carve(new Rect2(x - 11f, z - 14f, 22f, 28f));
+            Carve(new Rect2(x - 16f, z - 20f, 32f, 40f));
 
             foreach (int end in new[] { -1, 1 })
-                Deck(new Vector3(x, 0.6f, z + end * 17f), new Vector3(12f, 0.6f, 3f),
+                Deck(new Vector3(x, 0.6f, z + end * 24f), new Vector3(17f, 0.6f, 4f),
                      IceTint, SurfaceKind.Ice);
 
             MovingPlatforms.Add(new MovingPlatformDef(
-                new Vector3(x, 1.6f, z - 12f),
-                new Vector3(x, 1.6f, z + 12f),
-                new Vector3(10f, 1.6f, 1.4f), period: 8f, dwell: 0.15f, pushes: true));
+                new Vector3(x, 1.6f, z - 17f),
+                new Vector3(x, 1.6f, z + 17f),
+                new Vector3(15f, 1.6f, 1.4f), period: 9f, dwell: 0.15f, pushes: true));
         }
     }
 
@@ -2821,13 +2855,13 @@ public sealed class Arena
         foreach (int sx in new[] { -1, 1 })
         {
             MovingPlatforms.Add(new MovingPlatformDef(
-                new Vector3(sx * 70f, 1.2f, HangarZ + 34f),
-                new Vector3(sx * 70f, 23f, HangarZ + 34f),
+                new Vector3(sx * 136f, 1.2f, HangarZ + 66f),
+                new Vector3(sx * 136f, 27f, HangarZ + 66f),
                 new Vector3(5f, 0.6f, 5f), period: 11f, dwell: 0.8f));
 
             MovingPlatforms.Add(new MovingPlatformDef(
-                new Vector3(sx * (CanyonX - 30f), 1.2f, -10f),
-                new Vector3(sx * (CanyonX - 30f), 16f, -10f),
+                new Vector3(sx * (CanyonX - 54f), 1.2f, -20f),
+                new Vector3(sx * (CanyonX - 54f), 16f, -20f),
                 new Vector3(5f, 0.6f, 5f), period: 10f, dwell: 0.8f));
         }
     }
@@ -2863,9 +2897,24 @@ public sealed class Arena
     /// </summary>
     void ColdstoreLoot()
     {
-        foreach (float z in new[] { -240f, -170f, -100f, -30f, 60f, 170f, 280f })
+        // Checked rather than trusted. The approach scatters ice outcrops on a pattern, and a
+        // crate laid on a fixed grid over the top of it lands inside one sooner or later - which
+        // it did, at (-340, 1, -280), and which the harness reported as unreachable because it was
+        // inside a block. Nudged outward along the lane until it is standing on snow.
+        foreach (float z in new[] { -500f, -390f, -280f, -170f, -60f, 60f, 180f, 330f, 470f, 590f })
         foreach (int sx in new[] { -1, 1 })
-            WeaponSpawns.Add(new Vector3(sx * 168f, 1f, z));
+        foreach (float lane in new[] { 150f, 340f })
+        {
+            for (int nudge = 0; nudge < 6; nudge++)
+            {
+                var at = new Vector3(sx * (lane + nudge * 16f), 1f, z);
+                if (MathF.Abs(at.X) > HalfWidth - 30f) break;
+                if (IsOverPit(at) || !IsClearOfBlocks(at, Pawn.Radius + 1f, Pawn.Height)) continue;
+
+                WeaponSpawns.Add(at);
+                break;
+            }
+        }
     }
 
 

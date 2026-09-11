@@ -4,7 +4,7 @@ using Godot;
 
 namespace HitboxClone;
 
-public enum VehicleKind { Car, Tank, Plane }
+public enum VehicleKind { Car, Tank, Plane, Turret }
 
 /// <summary>Everything that differs between the three vehicles. All tuning lives here.</summary>
 public sealed class VehicleDef
@@ -197,26 +197,111 @@ public static class Vehicles
             AdsFov = 50f,
             Ammo = 0,
         },
-        HalfExtents = new Vector3(3.0f, 0.6f, 4.2f),
+        // Matched to the mesh rather than guessed. The model is 1.90 x 0.73 x 1.85 in its own
+        // units and VehicleModels scales it by the X extent, so at a six-metre length it comes out
+        // 6.0 x 2.3 x 5.85 - the old box was 8.4m across the wings and 1.2m tall, which is a
+        // collider a third wider and half the height of the thing you can see.
+        HalfExtents = new Vector3(3.0f, 1.1f, 2.9f),
         Tint = new Color(0.78f, 0.86f, 0.94f),
-        EyeHeight = 1.2f,
+        EyeHeight = 1.4f,
+
+        HullModel = "plane_hull",
+
+        // Nose at -X, the same way round every generated model in this project has come out. The
+        // simulation flies along +X, so it takes the same half turn the buggy does.
+        HullTilt = new Vector3(0f, 180f, 0f),
+    };
+
+    /// <summary>
+    /// An emplaced gun: a vehicle that cannot go anywhere.
+    ///
+    /// Built as a vehicle rather than as its own system on purpose. Boarding, traversing, aiming,
+    /// firing, being shot off it, ejecting, being destroyed and coming back later are all things
+    /// the hull already does, and a turret is exactly a hull with the driving taken away. Setting
+    /// MaxSpeed and Accel to zero is the whole implementation.
+    ///
+    /// The trade it offers is the opposite of every other vehicle's. A tank protects you and moves
+    /// you; this protects you and pins you. It out-ranges everything on foot and covers ground
+    /// nothing else can, and the price is that everybody knows exactly where you are and you
+    /// cannot leave without standing up.
+    /// </summary>
+    public static readonly VehicleDef Turret = new()
+    {
+        Kind = VehicleKind.Turret,
+        Name = "Emplacement",
+
+        // Tougher than a plane and softer than a tank. It has to survive being shot at from the
+        // front for a while - that is what an emplacement is for - without becoming a thing two
+        // people cannot deal with.
+        Health = 320f,
+        MaxSpeed = 0f,
+        Accel = 0f,
+        TurnRate = 0f,
+        RamDamage = 0f,
+
+        // Fast, flat and long. No splash: a turret that lobbed shells would be a tank you cannot
+        // flank, which is the one vehicle in the game that must not exist.
+        Gun = new WeaponDef
+        {
+            Name = "Emplaced Repeater",
+            Damage = 17f,
+            FireInterval = 0.11f,
+            SpreadDeg = 1.6f,
+            Range = 150f,
+            ProjectileSpeed = 190f,
+            Recoil = 0.012f,
+            AdsFov = 38f,
+            Ammo = 0,
+        },
+
+        HalfExtents = new Vector3(1.6f, 1.1f, 1.6f),
+        Tint = new Color(0.52f, 0.56f, 0.60f),
+        EyeHeight = 1.7f,
+
+        // Reuses the tank's turret export as its gun. A mounting box under a real gun reads as an
+        // emplacement immediately, and it is the one model in the set already built to traverse.
+        TurretModel = "tank_turret",
+        TurretTilt = new Vector3(0f, 180f, 0f),
+        TurretHeight = 1.3f,
+        TurretOffset = new Vector3(0f, -0.4f, 0f),
     };
 
     /// <summary>Every vehicle the game knows about, including ones not currently in rotation.</summary>
-    public static readonly VehicleDef[] All = { Car, Tank, Plane };
+    public static readonly VehicleDef[] All = { Car, Tank, Plane, Turret };
 
     /// <summary>
-    /// The vehicles that actually appear on maps.
+    /// The vehicles that appear on an ordinary arena.
     ///
-    /// The plane is held back deliberately. It cruises at forty-eight metres a second, which crosses
-    /// this arena in under six seconds — it needs a map with room to turn around in, and until there
-    /// is one it is a novelty that spends most of its life against a wall. The definition stays so
-    /// nothing has to be rebuilt when that map exists.
+    /// The plane used to be held back from every map with a note saying it needed one with room to
+    /// turn around in. That map now exists - see SpawnableFor.
     /// </summary>
     public static readonly VehicleDef[] Spawnable = { Car, Tank };
 
-    public static VehicleDef ByIndex(int i)
-        => Spawnable[((i % Spawnable.Length) + Spawnable.Length) % Spawnable.Length];
+    /// <summary>
+    /// With the plane, for arenas big enough to fly one on.
+    ///
+    /// It cruises at forty-eight metres a second. On the standard floor that is a full crossing in
+    /// under six seconds and the thing spends its life against a wall; on Coldstore's approach it
+    /// is a strafing run, which is what it was built to be.
+    /// </summary>
+    public static readonly VehicleDef[] SpawnableWithAir = { Car, Tank, Plane };
+
+    /// <summary>
+    /// What a given arena parks. Keyed off the floor rather than off the layout number, so a
+    /// future map wide enough to fly on gets the plane without anybody remembering to add it.
+    /// </summary>
+    public static VehicleDef[] SpawnableFor(int layout)
+        => Arena.HalfWidthFor(layout) * Arena.HalfDepthFor(layout) >= 60000f
+            ? SpawnableWithAir
+            : Spawnable;
+
+    public static VehicleDef ByIndex(int i) => ByIndex(i, 0);
+
+    public static VehicleDef ByIndex(int i, int layout)
+    {
+        var set = SpawnableFor(layout);
+        return set[((i % set.Length) + set.Length) % set.Length];
+    }
 }
 
 /// <summary>

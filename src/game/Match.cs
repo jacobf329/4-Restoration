@@ -2136,7 +2136,7 @@ public partial class Match : Node3D
         // them dominating a spawn.
         for (int i = 0; i < Arena.VehicleSpawns.Count; i++)
         {
-            var def = Vehicles.ByIndex(i);
+            var def = Vehicles.ByIndex(i, Arena.Layout);
             var v = new Vehicle { Name = $"Vehicle{i}" };
             AddChild(v);
             v.Setup(def, Visuals);
@@ -2147,6 +2147,26 @@ public partial class Match : Node3D
             v.GlobalPosition = Arena.VehicleSpawns[i] + Vector3.Up * 0.5f;
             v.Facing = MathU.Angle(new Vector2(-v.GlobalPosition.X, -v.GlobalPosition.Z));
             VehicleList.Add(v);
+        }
+
+        // Emplacements, at the places the builder chose rather than at a parking spot. They go in
+        // the same list as everything else, so they are shot at, wrecked, respawned, boarded and
+        // drawn by machinery that never has to know a turret is different from a tank.
+        for (int i = 0; i < Arena.TurretSpots.Count; i++)
+        {
+            var (at, facing) = Arena.TurretSpots[i];
+
+            var t = new Vehicle { Name = $"Turret{i}" };
+            AddChild(t);
+            t.Setup(Vehicles.Turret, Visuals);
+            t.ArenaCeiling = Arena.WallHeight;
+            t.ArenaHalfWidth = Arena.HalfWidth;
+            t.ArenaHalfDepth = Arena.HalfDepth;
+            t.HomePosition = at;
+            t.GlobalPosition = at + Vector3.Up * 0.5f;
+            t.Facing = facing;
+            t.TurretYaw = facing;
+            VehicleList.Add(t);
         }
     }
 

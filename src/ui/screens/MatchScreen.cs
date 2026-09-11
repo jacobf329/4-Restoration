@@ -15,6 +15,12 @@ public sealed class MatchScreen : UiScreen
 {
     public override string Title => "MATCH";
 
+    /// <summary>
+    /// Driven from UpdateScreen instead, because the cue depends on the arena and on whether
+    /// anyone is wearing the crown. Returning the current one keeps the stack from overriding it.
+    /// </summary>
+    public override string MusicCue => Music.Playing;
+
     /// <summary>One human player's view: their pawn, their device, their camera and their yaw.</summary>
     sealed class View
     {
@@ -262,6 +268,12 @@ public sealed class MatchScreen : UiScreen
     protected override void UpdateScreen(float dt, IReadOnlyList<InputDevice> devices)
     {
         if (match == null) return;
+
+        // Stated every frame rather than started once. Music.Play ignores a cue that is already
+        // playing, so "this screen sounds like this" is a fact about the screen instead of an
+        // event somebody has to remember to fire - and a screen that forgets to stop the music
+        // when it closes becomes impossible.
+        Music.Play(JuggernautCue() ?? match.Arena.MusicCue);
 
         disconnectNote = null;
 
@@ -923,6 +935,32 @@ public sealed class MatchScreen : UiScreen
         }
 
         public static Controls Merge(Controls a, Controls b) => new(a, b);
+    }
+
+    /// <summary>
+    /// The crowned fighter's faction theme, or null when nobody wears the crown.
+    ///
+    /// The juggernaut is the one thing on the map that should change what the match sounds like:
+    /// it is a single fighter everybody else has to deal with, and a bed swapping under you is
+    /// the cheapest possible way of saying so.
+    /// </summary>
+    string? JuggernautCue()
+    {
+        if (match == null || settings.Mode != GameMode.Juggernaut) return null;
+
+        foreach (var p in match.Pawns)
+        {
+            if (!p.IsJuggernaut || !p.Alive) continue;
+
+            return p.Faction.Name switch
+            {
+                "The Vessels" => "mus_12_achilles",
+                "The Custodians" => "mus_13_prometheus",
+                "The Garden" => "mus_14_noah",
+                _ => "mus_15_scheherazade",
+            };
+        }
+        return null;
     }
 
     /// <summary>What is being asked of this view's pawn this frame. See <see cref="Controls"/>.</summary>

@@ -50,6 +50,7 @@ public static class UiSelfTest
         TestNavigationGraph();
         TestVehiclesAndJetpack();
         TestOnePressSurvivesEveryFrameRate();
+        TestGeneratedAudioParses();
 
         TestLog.Line($"=== {checks - failures}/{checks} checks passed ===");
         if (failures > 0) TestLog.Fail($"{failures} check(s) FAILED");
@@ -2168,6 +2169,87 @@ public static class UiSelfTest
 
         reached = seen.Count;
         return core;
+    }
+
+    /// <summary>
+    /// Every generated sound file on disk parses, and at the rate the mixer assumes.
+    ///
+    /// Audio never starts in a headless run, so nothing else in this suite touches the asset
+    /// pipeline at all - a wav written at the wrong sample rate, or truncated by an interrupted
+    /// download, would reach a player's machine and be the first thing they heard. Sfx.Load
+    /// refuses anything that is not 16-bit mono PCM, which is the right behaviour and also a
+    /// silent one: a refused file falls back to synthesis and sounds merely old rather than wrong.
+    /// This is what makes the refusal visible.
+    /// </summary>
+    static void TestGeneratedAudioParses()
+    {
+        TestLog.Line("- generated audio parses");
+
+        var files = Sfx.ExpectedFilesForTest();
+
+        // Two numbers, because they mean different things. The first is how many files the enum
+        // reaches; the second is how many exist at all. Most of the roster is addressed by key
+        // from data - which gun, which surface - so the gap between them is not waste, it is the
+        // part of the library the enum was never going to name.
+        var all = Godot.DirAccess.GetFilesAt(Sfx.Folder);
+        TestLog.Line($"    {files.Count} file(s) reached by name, {all.Length} on disk");
+
+        int shortest = int.MaxValue, longest = 0;
+
+        foreach (var path in files)
+        {
+            bool ok = Sfx.CanLoadForTest(path, out int rate, out int samples);
+            string name = path.Substring(path.LastIndexOf('/') + 1);
+
+            Check(ok, $"{name} parses as 16-bit mono PCM");
+            if (!ok) continue;
+
+            Check(rate == 22050, $"{name} is at the mixer's rate ({rate} Hz)");
+
+            // A file of a few hundred samples is a download that stopped, not a sound.
+            Check(samples > 1000, $"{name} carries real audio ({samples} samples)");
+
+            shortest = System.Math.Min(shortest, samples);
+            longest = System.Math.Max(longest, samples);
+        }
+
+        if (files.Count > 0)
+            TestLog.Line($"    shortest {shortest / 22050f:0.00}s, longest {longest / 22050f:0.00}s");
+
+        // A path that does not exist must come back as "no file" rather than as a broken stream,
+        // because that is the branch the whole fallback depends on.
+        Check(!Sfx.CanLoadForTest($"{Sfx.Folder}/does_not_exist.wav", out _, out _),
+              "a missing sound file falls back rather than failing");
+
+        // Every weapon's report is keyed off its model name, which is the whole convention: a
+        // gun with a mesh and no matching sound is a gun that will quietly keep the synthesised
+        // one forever and nobody will notice which.
+        int voiced = 0;
+        foreach (var w in Weapons.Pickups)
+        {
+            // A blade has no report. It swings, and the swing is played by ArcStrike.
+            if (w.Model.Length == 0 || w.Swings) continue;
+
+            // Either a single take or numbered variants - the loader reads both, so a check that
+            // only looked for the bare name reported the needler as unvoiced when it has two.
+            bool has = Godot.FileAccess.FileExists($"{Sfx.Folder}/w_{w.Model}.wav")
+                       || Godot.FileAccess.FileExists($"{Sfx.Folder}/w_{w.Model}_01.wav");
+
+            if (has) voiced++;
+            else TestLog.Line($"    {w.Name} has no w_{w.Model} sound yet");
+        }
+        TestLog.Line($"    {voiced} pickup weapons have their own report");
+
+        // Every arena names a cue. A missing file is fine and expected while the roster fills up;
+        // a cue that names nothing at all is a map that will be silent forever.
+        for (int layout = 0; layout < Arena.CombatLayouts; layout++)
+        {
+            var a = new Arena(layout);
+            Check(a.MusicCue.Length > 0, $"{a.Name} names a music cue");
+
+            if (!Godot.FileAccess.FileExists($"{Music.Folder}/{a.MusicCue}.mp3"))
+                TestLog.Line($"    {a.Name}: {a.MusicCue}.mp3 not generated yet");
+        }
     }
 
     /// <summary>

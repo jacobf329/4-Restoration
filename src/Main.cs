@@ -48,6 +48,7 @@ public partial class Main : Node
         // Skipped in headless: there is no audio device, and the harness has no use for sound.
         bool headless = DisplayServer.GetName().Contains("headless");
         if (!headless) Sfx.Init(this);
+        if (!headless) Music.Init(this);
 
         // Menu backdrops are the one thing in the project that reads a file. A headless run has no
         // rendering server to build a texture on and never draws a menu anyway.
@@ -89,6 +90,7 @@ public partial class Main : Node
     {
         // Static Godot references have to go before the engine tears down the C# bindings.
         Sfx.Shutdown();
+        Music.Shutdown();
         CharacterModels.Shutdown();
         WeaponModels.Shutdown();
         VehicleModels.Shutdown();
@@ -127,6 +129,7 @@ public partial class Main : Node
         if (shotDir != null) { ProcessShots(); return; }
 
         Chrome.Tick(dt);
+        Music.Tick(dt);
         Devices.PollAll(dt);
         Stack.Update(dt, Devices.All);
 

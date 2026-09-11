@@ -269,6 +269,21 @@ public sealed class Arena
     public readonly int Layout;
     public string Name => Names[Layout];
 
+    /// <summary>
+    /// The music cue for this place. Named from the layout rather than stored per arena, so a new
+    /// map's bed is wired the moment the file lands and is silent until then.
+    /// </summary>
+    public string MusicCue => Layout switch
+    {
+        0 => "mus_06_reliquary",
+        1 => "mus_07_furnace",
+        2 => "mus_08_glasshouse",
+        3 => "mus_09_thousand_rooms",
+        LaboratoryLayout => "mus_10_laboratory",
+        ColdstoreLayout => "mus_11_coldstore",
+        _ => "mus_02_standing_orders",
+    };
+
     public readonly List<Block> Blocks = new();
 
     /// <summary>

@@ -5,6 +5,8 @@ namespace HitboxClone;
 
 public sealed class TitleScreen : UiScreen
 {
+    public override string MusicCue => "mus_01_specification";
+
     public override string Title => "HITBOX";
 
     readonly MatchSettings settings;

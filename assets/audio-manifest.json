@@ -1,0 +1,957 @@
+{
+ "music": [
+  {
+   "key": "mus_01_specification",
+   "title": "The Specification",
+   "where": "Title screen",
+   "prompt": "Slow industrial liturgy, 58 BPM, D minor. Processed male choir holding one sustained vowel, heavily reverbed as if in a stone hall. Bowed metal and a single struck anvil on the downbeat every four bars. Low analogue synth drone underneath. No percussion until halfway, then a slow heavy pulse like a press. Bleak, ceremonial, patient, unresolved. No melody.",
+   "length_ms": 150000,
+   "loop": false
+  },
+  {
+   "key": "mus_02_standing_orders",
+   "title": "Standing Orders",
+   "where": "Menus, options, rebinding",
+   "prompt": "Quiet ambient industrial, 52 BPM, minor key. Low synth pad, distant processed choir far back in the mix, a soft mechanical tick every two bars, occasional bowed cymbal swell. Extremely restrained and repetitive, background music designed to be ignored. No drums, no melody, no build.",
+   "length_ms": 120000,
+   "loop": true
+  },
+  {
+   "key": "mus_03_four_houses",
+   "title": "Four Houses",
+   "where": "Faction and class select",
+   "prompt": "Tense minimal industrial, 72 BPM, minor. A ticking mechanical pulse throughout like a metronome in a metal case, muted pizzicato low strings, a single bell struck every eight bars, cold synth pad. Builds very slightly in density but never releases. Anticipatory, institutional, slightly threatening.",
+   "length_ms": 100000,
+   "loop": true
+  },
+  {
+   "key": "mus_04_the_count",
+   "title": "The Count",
+   "where": "Results and scoreboard",
+   "prompt": "Slow processed choir and low strings, 54 BPM, minor, elegiac rather than triumphant. Sustained female and male voices in close harmony, deep room reverb, sparse struck metal. Ends on an unresolved suspended chord that does not fall home. Funereal, exhausted, dignified. No drums.",
+   "length_ms": 90000,
+   "loop": false
+  },
+  {
+   "key": "mus_05_the_green",
+   "title": "The Green",
+   "where": "Story mode menu",
+   "prompt": "Warm quiet acoustic ambience with something wrong underneath, 56 BPM. Softly picked nylon guitar, dusty upright piano, distant birdsong, tape hiss. Underneath it a barely audible low synth drone and a single detuned note that recurs. Nostalgic and domestic on the surface, unsettling beneath. No percussion.",
+   "length_ms": 130000,
+   "loop": true
+  },
+  {
+   "key": "mus_06_reliquary",
+   "title": "Reliquary",
+   "where": "Arena bed, the Vessels",
+   "prompt": "Cold sacred ambient, 60 BPM, D minor. Bowed vibraphone and bowed cymbal sustaining long tones, sparse wordless choir very distant, deep cathedral reverb, subtle low drone. Almost no rhythm, one soft heartbeat pulse every four bars. Reverent, cold, still, like a room where bodies are kept. Nothing percussive or bright.",
+   "length_ms": 180000,
+   "loop": true
+  },
+  {
+   "key": "mus_07_furnace",
+   "title": "Furnace",
+   "where": "Arena bed, the Custodians",
+   "prompt": "Industrial forge rhythm, 84 BPM, minor. Anvil and sheet metal percussion in a slow hammering pattern, low brass swells, the roar of a furnace as sustained noise underneath, distant chains. Muscular and hot but restrained, a working foundry rather than a battle. No synths, no melody.",
+   "length_ms": 180000,
+   "loop": true
+  },
+  {
+   "key": "mus_08_glasshouse",
+   "title": "Glasshouse",
+   "where": "Arena bed, the Garden",
+   "prompt": "Damp fragile ambient, 66 BPM, unsettled. Glass harmonica and wet fingers on crystal rims, prepared piano with felt on the strings, dripping water, faint insect texture. Airy and humid with a lot of space. Gentle but not comforting. No drums, no bass.",
+   "length_ms": 180000,
+   "loop": true
+  },
+  {
+   "key": "mus_09_thousand_rooms",
+   "title": "Thousand Rooms",
+   "where": "Arena bed, Ingenuity",
+   "prompt": "Restless fractured loop, 96 BPM, phrygian. Hammered santur and oud playing a short figure that never quite repeats the same way, frame drum and finger cymbals, a ticking clock, layered whispering voices low in the mix. Claustrophobic and endlessly deferring, music that refuses to finish its sentence. Dry and close, almost no reverb.",
+   "length_ms": 180000,
+   "loop": true
+  },
+  {
+   "key": "mus_10_laboratory",
+   "title": "Laboratory",
+   "where": "Arena bed, the ruined tower",
+   "prompt": "Decayed machine ambient, 58 BPM, atonal and drifting. Degraded tape loops wobbling in and out of pitch, a broken machine rhythm that stutters and drops beats, pure sine tones like test equipment, distant structural groans, heavy hiss and wow and flutter. Derelict, clinical, faintly organic. No melody, no drums.",
+   "length_ms": 180000,
+   "loop": true
+  },
+  {
+   "key": "mus_11_coldstore",
+   "title": "Coldstore",
+   "where": "Arena bed, the siege",
+   "prompt": "Frozen military ambient, 68 BPM, minor. Distant muffled snare roll under everything, very low brass sustaining, howling wind, creaking ice, a single struck bell far away. Vast, cold and exposed, enormous reverb and empty space. Ominous but patient, no build, no melody.",
+   "length_ms": 180000,
+   "loop": true
+  },
+  {
+   "key": "mus_12_achilles",
+   "title": "ACHILLES / Wrath",
+   "where": "Juggernaut, the Vessels",
+   "prompt": "Enormous slow war drums, 50 BPM, minor. Taiko and bass drum hits with huge space between them, low male choir chanting one syllable, deep brass drone. Every hit is colossal and unhurried. Crushing, inevitable, monumental. No melody, no cymbals.",
+   "length_ms": 50000,
+   "loop": true
+  },
+  {
+   "key": "mus_13_prometheus",
+   "title": "PROMETHEUS / The Fire",
+   "where": "Juggernaut, the Custodians",
+   "prompt": "Rising brass and fire, 76 BPM, minor. French horns and trombones climbing a figure that keeps ascending without arriving, a huge struck bell, roaring flame as a sustained noise floor, rattling chain. Exposed, blazing, relentless upward pressure. No drums beyond a low pulse.",
+   "length_ms": 50000,
+   "loop": true
+  },
+  {
+   "key": "mus_14_noah",
+   "title": "NOAH / The Ark",
+   "where": "Juggernaut, the Garden",
+   "prompt": "Sustained pipe organ drone, 48 BPM, minor. Deep church organ holding a slow chord change, water lapping and dripping, distant creaking timber and rope, a low wordless choir beneath. Sealed, heavy, oppressively calm, the sound of a door being closed from the inside. No percussion, no melody.",
+   "length_ms": 50000,
+   "loop": true
+  },
+  {
+   "key": "mus_15_scheherazade",
+   "title": "SCHEHERAZADE / The Thousand",
+   "where": "Juggernaut, Ingenuity",
+   "prompt": "Frantic tremolo strings, 132 BPM, phrygian. High violins shivering, hammered santur racing underneath, a clock ticking far too fast, many overlapping whispered voices. Desperate, brilliant, running out of time. Thin and bright rather than heavy. No bass drum.",
+   "length_ms": 50000,
+   "loop": true
+  },
+  {
+   "key": "mus_16_fairview",
+   "title": "Fairview",
+   "where": "Story, Act I",
+   "prompt": "Slow pastoral americana with dread underneath, 54 BPM, major with a minor turn. Fingerpicked acoustic guitar, brushed snare, pedal steel held long, a distant upright piano. Beneath it a sub bass drone that grows imperceptibly. Warm, ordinary, and quietly terrible. No build, no climax.",
+   "length_ms": 210000,
+   "loop": false
+  },
+  {
+   "key": "mus_17_convocation",
+   "title": "The Convocation",
+   "where": "Story, Act II",
+   "prompt": "Four voice chamber tension, 64 BPM, minor, contrapuntal. Cello, clarinet, santur and organ each playing an independent line that will not agree, over a static low drone. The lines interrupt and talk over one another. Formal, circular, mounting. Near silence in the middle, then all four at once. No percussion.",
+   "length_ms": 180000,
+   "loop": false
+  },
+  {
+   "key": "mus_18_made",
+   "title": "Made",
+   "where": "Story, laboratory flashback",
+   "prompt": "Clinical minimal horror, 50 BPM, atonal. Sine tones and test equipment beeps in slow sequence, a heart monitor, deep room tone, a single processed voice stretched beyond recognition. Almost silent for long stretches. Sterile, patient, obscene. No drums, no melody.",
+   "length_ms": 140000,
+   "loop": false
+  },
+  {
+   "key": "mus_19_john_smith",
+   "title": "John Smith",
+   "where": "Character theme",
+   "prompt": "A single plain melody, 56 BPM, minor, solo instrument. Unaccompanied cello playing a simple eight note phrase, repeated with tiny variations, close miked with almost no reverb. Occasionally a second voice joins in unison, never in harmony. Human, unadorned, stubborn. No backing, no drums, no production.",
+   "length_ms": 110000,
+   "loop": false
+  },
+  {
+   "key": "mus_20_jane",
+   "title": "Jane",
+   "where": "Character theme",
+   "prompt": "A single plain melody answered, 56 BPM, minor, two instruments. Solo violin playing an eight note phrase, then a cello answering it a fourth below. Close miked, no reverb, no accompaniment. The two lines finally meet in unison at the very end. Tender, restrained, unsentimental. No drums, no production.",
+   "length_ms": 110000,
+   "loop": false
+  },
+  {
+   "key": "mus_21_match_start",
+   "title": "Match start",
+   "where": "Sting, countdown clears",
+   "prompt": "Short dramatic sting. One enormous struck anvil hit with long metallic decay, a low brass stab underneath, processed choir gasp on top. Starts instantly at full force. No intro, no build up.",
+   "length_ms": 10000,
+   "loop": false
+  },
+  {
+   "key": "mus_22_victory",
+   "title": "Victory",
+   "where": "Sting, your side won",
+   "prompt": "Short sting. Low male choir resolving upward onto a major chord that is slightly too dark to feel like a victory, one bell, sustained low brass. Restrained and weary rather than triumphant. Ends clean. No intro, no drums.",
+   "length_ms": 12000,
+   "loop": false
+  },
+  {
+   "key": "mus_23_defeat",
+   "title": "Defeat",
+   "where": "Sting, your side lost",
+   "prompt": "Short sting. Low male choir falling onto a minor chord, one bell struck slightly flat, sustained low brass dying away. Resigned, quiet, final. Ends clean. No intro, no drums.",
+   "length_ms": 12000,
+   "loop": false
+  },
+  {
+   "key": "mus_24_crown",
+   "title": "Crown taken",
+   "where": "Sting, juggernaut crowned",
+   "prompt": "Short sting. A single enormous bell struck once, with a choir swelling underneath it and a low brass note rising into the decay. Ceremonial and ominous, a coronation nobody wanted. Starts immediately, ends clean. No drums.",
+   "length_ms": 10000,
+   "loop": false
+  },
+  {
+   "key": "mus_25_last_stand",
+   "title": "Last stand",
+   "where": "Elimination, one left each side",
+   "prompt": "Tense short loop. High string tremolo held, a heartbeat kick drum slowly accelerating, a ticking mechanism, nothing else. Extremely sparse and airless. No melody, no resolution.",
+   "length_ms": 20000,
+   "loop": true
+  }
+ ],
+ "ambience": [
+  {
+   "key": "amb_01_reliquary",
+   "title": "Reliquary",
+   "prompt": "Field recording ambience, no music. A vast cold stone crypt: deep room tone, very distant dripping, occasional faint settling of masonry, a cold draught. Enormous natural reverb, almost silent. No instruments, no melody.",
+   "length_ms": 120000,
+   "loop": true
+  },
+  {
+   "key": "amb_02_furnace",
+   "title": "Furnace",
+   "prompt": "Field recording ambience, no music. A working foundry: sustained furnace roar, distant hammering on metal, steam release hiss, chains shifting, low machinery hum. Hot, busy, industrial. No instruments, no melody.",
+   "length_ms": 120000,
+   "loop": true
+  },
+  {
+   "key": "amb_03_glasshouse",
+   "title": "Glasshouse",
+   "prompt": "Field recording ambience, no music. A large humid Victorian greenhouse: water dripping onto leaves, faint insect hum, glass panes ticking as they expand, a distant ventilation fan, soft rain on glass overhead. No instruments, no melody.",
+   "length_ms": 120000,
+   "loop": true
+  },
+  {
+   "key": "amb_04_thousand_rooms",
+   "title": "Thousand Rooms",
+   "prompt": "Field recording ambience, no music. A sprawling improvised settlement indoors: distant indistinct voices through thin walls, tarpaulin flapping, a generator running somewhere, footsteps on board, intermittent hammering. Close and dry, no reverb. No instruments, no melody.",
+   "length_ms": 120000,
+   "loop": true
+  },
+  {
+   "key": "amb_05_laboratory",
+   "title": "Laboratory",
+   "prompt": "Field recording ambience, no music. A gutted concrete research building: wind moving through broken floors, loose sheet metal knocking, a failing fluorescent ballast buzzing, distant structural groans, dripping water into a deep stairwell. No instruments, no melody.",
+   "length_ms": 120000,
+   "loop": true
+  },
+  {
+   "key": "amb_06_coldstore",
+   "title": "Coldstore",
+   "prompt": "Field recording ambience, no music. An exposed polar ice field: sustained howling wind over open snow, ice shelf cracking and settling deep below, loose snow hissing across a crust, a distant metal structure creaking in the cold. No instruments, no melody.",
+   "length_ms": 120000,
+   "loop": true
+  }
+ ],
+ "sfx": [
+  {
+   "key": "ui_denied",
+   "prompt": "a short flat electronic buzz cut off abruptly, dry, quiet, no reverb",
+   "duration_s": 0.5,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "ui_claim",
+   "prompt": "a heavy electrical switch being thrown, solid mechanical clunk, close and dry",
+   "duration_s": 0.7,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "ui_ready",
+   "prompt": "a metal bolt sliding home and locking into position, solid and final, dry",
+   "duration_s": 0.9,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "ui_unready",
+   "prompt": "a metal bolt being withdrawn from a lock, softer reverse of a bolt closing, dry",
+   "duration_s": 0.9,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "ui_pause",
+   "prompt": "a heavy steel door closing and muffling everything behind it, low thud with a filtered sweep",
+   "duration_s": 1.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "ui_unpause",
+   "prompt": "a heavy steel door opening, muffled sound returning to full brightness",
+   "duration_s": 1.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_assault_rifle",
+   "prompt": "a single tight mid range rifle crack with a short mechanical bolt clack, dry, close, no reverb",
+   "duration_s": 0.8,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "w_shotgun",
+   "prompt": "a deep wide shotgun boom with a long low tail followed by a pump action racking, dry",
+   "duration_s": 1.6,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_smg",
+   "prompt": "a thin fast submachine gun snap with very little body, almost like a stapler, dry",
+   "duration_s": 0.6,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "w_sniper_rifle",
+   "prompt": "a hard single marksman rifle crack with a distinct distant slapback echo",
+   "duration_s": 1.6,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_repeater",
+   "prompt": "a heavy mechanical thunk and crack with an audible reciprocating action, industrial",
+   "duration_s": 0.9,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_railgun",
+   "prompt": "an electromagnetic charge whining up then a violent discharge snap with ionised hiss",
+   "duration_s": 2.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_longshot",
+   "prompt": "an enormous single rifle report with a long two second canyon echo rolling away",
+   "duration_s": 3.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_minigun_spin",
+   "prompt": "a rotary cannon barrel bundle accelerating from rest, rising mechanical whine",
+   "duration_s": 1.4,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_minigun",
+   "prompt": "a sustained tearing roar of a rotary cannon firing, individual shots barely separable",
+   "duration_s": 2.0,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "w_minigun_down",
+   "prompt": "a rotary cannon spinning down, barrels coasting to a stop with a final clatter",
+   "duration_s": 2.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_scattergun",
+   "prompt": "several overlapping ragged gunshots in one burst, uneven and cheap sounding",
+   "duration_s": 1.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_rocket_launcher",
+   "prompt": "a rocket launcher backblast whoosh and a sustained motor roaring away into the distance",
+   "duration_s": 2.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_grenade_launcher",
+   "prompt": "a hollow low mortar thump launching a grenade, all body and no crack",
+   "duration_s": 0.8,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_grenade_bounce",
+   "prompt": "a metal canister striking concrete and rolling to a stop, dry and close",
+   "duration_s": 0.9,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "w_flamethrower_start",
+   "prompt": "a gas valve opening and igniting with a soft whump",
+   "duration_s": 0.8,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_flamethrower",
+   "prompt": "a sustained roaring jet of burning gas from a flamethrower",
+   "duration_s": 2.0,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "w_flamethrower_stop",
+   "prompt": "a gas valve closing and a flame guttering out with residual burn",
+   "duration_s": 1.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_needler",
+   "prompt": "a sharp pneumatic spit of compressed air with a crystalline chime",
+   "duration_s": 0.6,
+   "variants": 2,
+   "loop": false
+  },
+  {
+   "key": "w_needler_detonate",
+   "prompt": "bright glassy crystal shards detonating together in a sharp burst",
+   "duration_s": 1.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_seeker",
+   "prompt": "a launch tube cough followed by a wavering tracking tone dopplering away",
+   "duration_s": 1.8,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_portal_gun",
+   "prompt": "a soft implosive pop descending in pitch then settling into a held resonant hum",
+   "duration_s": 1.4,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_grapple_gun",
+   "prompt": "a compressed air launch and steel cable paying out fast",
+   "duration_s": 1.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_surgical_beam",
+   "prompt": "a clean sustained medical energy tone with a faint electrical crackle",
+   "duration_s": 2.0,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "w_marking_rifle",
+   "prompt": "a suppressed weapon thup followed by a soft electronic data chirp",
+   "duration_s": 0.8,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_sidearm",
+   "prompt": "a flat dry pistol report, unremarkable, close and dry",
+   "duration_s": 0.6,
+   "variants": 2,
+   "loop": false
+  },
+  {
+   "key": "w_seed_launcher",
+   "prompt": "a wet organic thump of something soft fired through a pipe",
+   "duration_s": 0.8,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_pod_thrower",
+   "prompt": "a heavy spring loaded launch with a seed pod rattling as it flies",
+   "duration_s": 1.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_machine_pistols",
+   "prompt": "two thin pistol cracks slightly out of sync with each other, dry",
+   "duration_s": 0.6,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "w_dry",
+   "prompt": "a firing pin striking an empty chamber, dry metallic click, no shot",
+   "duration_s": 0.5,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_swap",
+   "prompt": "a weapon being stowed and another brought up, fabric and metal and a latch",
+   "duration_s": 1.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "w_pickup",
+   "prompt": "a supply crate opening and a weapon being lifted out of it",
+   "duration_s": 1.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "m_sword_swing",
+   "prompt": "a heavy steel blade cutting through air, low weighted whoosh, not a whip crack",
+   "duration_s": 0.8,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "m_saber_swing",
+   "prompt": "a large two handed blade sweeping through air in a wide arc, slower and deeper",
+   "duration_s": 1.0,
+   "variants": 2,
+   "loop": false
+  },
+  {
+   "key": "m_blade_hit",
+   "prompt": "a sword edge striking a body, wet impact with a metallic ring on top",
+   "duration_s": 0.8,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "m_blade_deflect",
+   "prompt": "a sword turning aside a bullet, hard bright clang with a ricochet whine",
+   "duration_s": 1.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "m_punch",
+   "prompt": "a blunt unarmed impact into a body, dull thud with no metallic ring",
+   "duration_s": 0.5,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "i_flesh",
+   "prompt": "a bullet impacting a body, dull wet close thud",
+   "duration_s": 0.5,
+   "variants": 4,
+   "loop": false
+  },
+  {
+   "key": "i_headshot",
+   "prompt": "a bullet impacting a skull, sharper and higher than a body hit with a bright snap",
+   "duration_s": 0.6,
+   "variants": 2,
+   "loop": false
+  },
+  {
+   "key": "i_concrete",
+   "prompt": "a bullet striking stone, sharp crack with a spray of grit",
+   "duration_s": 0.7,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "i_metal",
+   "prompt": "a bullet striking steel plate, hard ping with a descending ricochet whine",
+   "duration_s": 1.0,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "i_timber",
+   "prompt": "a bullet striking wood, hollow knock with splintering",
+   "duration_s": 0.7,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "i_glass",
+   "prompt": "a bullet passing through a pane of glass, bright shatter and falling shards",
+   "duration_s": 1.4,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "i_snow",
+   "prompt": "a bullet impacting deep snow, soft muffled thud with almost no crack",
+   "duration_s": 0.6,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "i_ice",
+   "prompt": "a bullet striking solid ice, hard crack with a crystalline spray",
+   "duration_s": 0.9,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "i_foliage",
+   "prompt": "a bullet tearing through leaves and breaking stems",
+   "duration_s": 0.7,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "x_small",
+   "prompt": "a grenade detonating, sharp crack with a short body and scattering debris",
+   "duration_s": 2.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "x_large",
+   "prompt": "a large explosion, deep concussive boom with a long rumbling tail",
+   "duration_s": 3.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "x_breakable",
+   "prompt": "a masonry structure collapsing and settling into rubble",
+   "duration_s": 2.5,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "f_concrete",
+   "prompt": "a single boot step on stone, dry and close, no reverb",
+   "duration_s": 0.5,
+   "variants": 4,
+   "loop": false
+  },
+  {
+   "key": "f_metal",
+   "prompt": "a single boot step on steel plate decking with a hollow resonant clang",
+   "duration_s": 0.5,
+   "variants": 4,
+   "loop": false
+  },
+  {
+   "key": "f_timber",
+   "prompt": "a single boot step on a wooden board with a creak",
+   "duration_s": 0.5,
+   "variants": 4,
+   "loop": false
+  },
+  {
+   "key": "f_tarmac",
+   "prompt": "a single boot step on road grit, dry scuff",
+   "duration_s": 0.5,
+   "variants": 4,
+   "loop": false
+  },
+  {
+   "key": "f_foliage",
+   "prompt": "a single boot step through wet planting, soft rustle",
+   "duration_s": 0.5,
+   "variants": 4,
+   "loop": false
+  },
+  {
+   "key": "f_snow",
+   "prompt": "a single boot step into deep snow, compressing squeak and crunch",
+   "duration_s": 0.5,
+   "variants": 4,
+   "loop": false
+  },
+  {
+   "key": "f_ice",
+   "prompt": "a single boot step on hard glare ice, skittering with little give",
+   "duration_s": 0.5,
+   "variants": 4,
+   "loop": false
+  },
+  {
+   "key": "mv_jump",
+   "prompt": "a person pushing off the ground, effort and fabric and gear shifting",
+   "duration_s": 0.6,
+   "variants": 2,
+   "loop": false
+  },
+  {
+   "key": "mv_land_soft",
+   "prompt": "a controlled landing on both feet, absorbed, one step",
+   "duration_s": 0.7,
+   "variants": 2,
+   "loop": false
+  },
+  {
+   "key": "mv_land_hard",
+   "prompt": "a heavy landing from a long fall, hard impact with gear rattle and a grunt",
+   "duration_s": 1.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "mv_slide",
+   "prompt": "a crouched slide across grit slowing to a stop",
+   "duration_s": 1.4,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "mv_slip",
+   "prompt": "feet going out from under someone on a slick surface, a scramble and a fall",
+   "duration_s": 1.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "jp_ignite",
+   "prompt": "a jetpack igniting, valve opening and catching hard",
+   "duration_s": 0.7,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "jp_loop",
+   "prompt": "a sustained rocket thrust from a small jetpack",
+   "duration_s": 2.0,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "jp_cutout",
+   "prompt": "a jetpack running out of fuel, thrust dying mid note with a warning tick",
+   "duration_s": 1.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "gr_reel",
+   "prompt": "a steel cable under heavy load hauling a weight through the air",
+   "duration_s": 2.0,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "gr_release",
+   "prompt": "a grapple hook letting go and the cable snapping back",
+   "duration_s": 0.9,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "po_open",
+   "prompt": "a portal establishing, a low resonant swell rising into a held hum",
+   "duration_s": 1.8,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "po_idle",
+   "prompt": "a standing portal, a quiet unstable drone that beats and wavers slightly",
+   "duration_s": 2.5,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "po_travel",
+   "prompt": "passing through a portal, a brief pressure inversion, everything muffling then returning",
+   "duration_s": 1.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "po_close",
+   "prompt": "a portal collapsing in on itself and its hum stopping dead",
+   "duration_s": 1.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "ab_decoy_spawn",
+   "prompt": "a body materialising, a doubled phase shifted reconstitution sweep",
+   "duration_s": 1.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "ab_decoy_blast",
+   "prompt": "a body sized detonation with an unstable wrong sounding edge to it",
+   "duration_s": 2.5,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "v_buggy_idle",
+   "prompt": "a lumpy untuned open frame buggy engine idling roughly, close to stalling",
+   "duration_s": 2.5,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "v_buggy_drive",
+   "prompt": "an open frame buggy engine under power, revving hard",
+   "duration_s": 2.5,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "v_buggy_skid",
+   "prompt": "buggy tyres losing grip on loose surface and scrabbling back",
+   "duration_s": 1.5,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "v_tank_idle",
+   "prompt": "a heavy diesel tank engine idling, deep and slow",
+   "duration_s": 2.5,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "v_tank_drive",
+   "prompt": "a tank under power with track links slapping and squealing",
+   "duration_s": 2.5,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "v_tank_turret",
+   "prompt": "a tank turret traversing, slow electric whine with gear backlash",
+   "duration_s": 2.0,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "v_tank_cannon",
+   "prompt": "a tank main gun firing, colossal report with a shockwave and a shell casing ejecting",
+   "duration_s": 3.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "v_plane_engine",
+   "prompt": "a propeller aircraft engine under load",
+   "duration_s": 2.5,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "v_plane_guns",
+   "prompt": "wing mounted aircraft cannons firing in pairs",
+   "duration_s": 0.8,
+   "variants": 2,
+   "loop": false
+  },
+  {
+   "key": "v_board",
+   "prompt": "climbing into a vehicle, a hatch opening, a body dropping into a seat, a latch",
+   "duration_s": 1.4,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "v_eject",
+   "prompt": "climbing out of a vehicle fast, hatch and effort",
+   "duration_s": 1.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "v_wreck",
+   "prompt": "a vehicle hull destroyed, deep detonation then tearing metal then fire",
+   "duration_s": 3.5,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "mc_pushwall",
+   "prompt": "a huge stone slab grinding along a track under load, stone on stone",
+   "duration_s": 2.5,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "mc_platform",
+   "prompt": "a hydraulic moving platform running steadily",
+   "duration_s": 2.5,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "mc_platform_stop",
+   "prompt": "a moving platform arriving at the end of travel, clunk and pressure release",
+   "duration_s": 1.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "mc_launchpad",
+   "prompt": "a pneumatic pad slamming and throwing something upward with a rush of air",
+   "duration_s": 1.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "ob_flag_take",
+   "prompt": "a standard being lifted off its mount, metal and cloth",
+   "duration_s": 1.0,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "ob_flag_drop",
+   "prompt": "a heavy standard hitting the ground",
+   "duration_s": 0.9,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "ob_dominion_flip",
+   "prompt": "a heavy mechanical relay throwing over with a solid clunk",
+   "duration_s": 1.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "st_hurt",
+   "prompt": "a short pained breath and a body impact heard from inside the body",
+   "duration_s": 0.6,
+   "variants": 3,
+   "loop": false
+  },
+  {
+   "key": "st_low_health",
+   "prompt": "a slow heavy heartbeat with a high tinnitus ring above it",
+   "duration_s": 2.5,
+   "variants": 1,
+   "loop": true
+  },
+  {
+   "key": "st_heal",
+   "prompt": "a clean rising tone and a breath of relief, medical",
+   "duration_s": 1.2,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "st_death",
+   "prompt": "everything filtering out into a muffled ringing, a body falling",
+   "duration_s": 2.5,
+   "variants": 1,
+   "loop": false
+  },
+  {
+   "key": "st_round_end",
+   "prompt": "a single large gong struck and immediately damped",
+   "duration_s": 3.0,
+   "variants": 1,
+   "loop": false
+  }
+ ]
+}

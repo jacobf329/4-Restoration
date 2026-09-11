@@ -30,6 +30,12 @@ public abstract class UiScreen
     public virtual void OnEnter() { }
     public virtual void OnExit() { }
 
+    /// <summary>
+    /// The cue this screen sounds like. The menu bed unless a screen says otherwise, which is why
+    /// the match screen and the story screen are the only two that override it.
+    /// </summary>
+    public virtual string MusicCue => "mus_02_standing_orders";
+
     public void Update(float dt, IReadOnlyList<InputDevice> devices)
     {
         foreach (var d in devices)
@@ -96,7 +102,14 @@ public sealed class ScreenStack
 
     public void Update(float dt, IReadOnlyList<InputDevice> devices)
     {
-        if (stack.Count > 0) Top.Update(dt, devices);
+        if (stack.Count == 0) return;
+
+        // The screen on top names the music. Asked here rather than in each screen so that a new
+        // screen inherits the menu cue by default instead of inheriting silence - and so a screen
+        // only has to say anything at all when it wants something different.
+        Music.Play(Top.MusicCue);
+
+        Top.Update(dt, devices);
     }
 
     public void Draw(UiPainter p)

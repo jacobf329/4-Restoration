@@ -2009,7 +2009,7 @@ public partial class Match : Node3D
         // One report per trigger pull, not one per pellet — eight overlapping copies of the
         // shotgun sample would just clip.
         if (Visuals)
-            Sfx.PlayAt(Sfx.ShotFor(gun), shooter.Eye, pitch: (float)GD.RandRange(0.94, 1.06));
+            Sfx.Shot(gun, shooter.Eye, (float)GD.RandRange(0.94, 1.06));
     }
 
     // ---- level hazards and machinery ----
@@ -2178,7 +2178,7 @@ public partial class Match : Node3D
             if (v.Alive && v.GlobalPosition.Y < Arena.KillPlaneY)
             {
                 v.TakeDamage(v.Def.Health);
-                if (Visuals) Sfx.PlayAt(Sound.Death, v.GlobalPosition);
+                if (Visuals) Sfx.PlayKeyAt("v_wreck", v.GlobalPosition);
             }
 
             // Wrecks come back. Now that hulls can actually be destroyed, a long match would
@@ -2327,7 +2327,7 @@ public partial class Match : Node3D
             if (!v.CanBoard(p)) continue;
             v.Board(p);
             VehicleBoardings++;
-            if (Visuals) Sfx.PlayAt(Sound.Respawn, v.GlobalPosition, pitch: 0.8f);
+            if (Visuals) Sfx.PlayKeyAt("v_board", v.GlobalPosition);
             return;
         }
     }
@@ -2379,7 +2379,8 @@ public partial class Match : Node3D
             shots.Add(shot);
         }
 
-        if (Visuals) Sfx.PlayAt(Sfx.ShotFor(gun), v.Seat, pitch: 0.75f);
+        if (Visuals) Sfx.PlayAt(Sound.ShotTactician, v.Seat, pitch: 0.75f);
+        if (Visuals) Sfx.PlayKeyAt("v_tank_cannon", v.Seat);
     }
 
     // ---- weapon pickups ----
@@ -2889,6 +2890,16 @@ public partial class Match : Node3D
     {
         if (!swinger.Alive || swinger.InVehicle) return;
 
+        if (Visuals)
+        {
+            // The swing is heard whether or not it lands, which is the point of a sound that
+            // takes a quarter of a second: everybody nearby knows a blade just went past.
+            var blade = swinger.Weapon;
+            Sfx.PlayKeyAt(blade.Swings ? (blade == Weapons.Saber ? "m_saber_swing" : "m_sword_swing")
+                                       : "m_punch",
+                          swinger.GlobalPosition + Vector3.Up * swinger.CurrentEyeHeight);
+        }
+
         Vector3 origin = swinger.GlobalPosition + Vector3.Up * swinger.CurrentEyeHeight;
         Vector3 dir = swinger.AimDir;
         float cosLimit = MathF.Cos(halfAngle);
@@ -2930,7 +2941,8 @@ public partial class Match : Node3D
             if (Visuals)
             {
                 Impact.Hit(this, other.GlobalPosition + Vector3.Up, away, swinger.Tint);
-                Sfx.PlayAt(Sound.Hit, other.GlobalPosition, pitch: 0.65f);
+                if (Sfx.Has("m_blade_hit")) Sfx.PlayKeyAt("m_blade_hit", other.GlobalPosition);
+                else Sfx.PlayAt(Sound.Hit, other.GlobalPosition, pitch: 0.65f);
             }
 
             if (killed) AwardKill(swinger, other);
@@ -4496,6 +4508,10 @@ public partial class Match : Node3D
     void Blast(Pawn owner, Vector3 centre, float damage, float radius, bool hurtSelf,
                float structureScale = 1f)
     {
+        // Split by reach rather than by damage: what tells you how far away to be is how much of
+        // the room the blast filled, and that is the radius.
+        if (Visuals) Sfx.PlayKeyAt(radius >= 10f ? "x_large" : "x_small", centre);
+
         DamageBreakables(centre, damage * structureScale, radius);
 
         // Vehicles catch the blast too. Without this a shell landing against a hull did nothing to

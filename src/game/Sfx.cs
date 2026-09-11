@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 
 namespace HitboxClone;
@@ -26,7 +27,31 @@ public static class Sfx
     const int SampleRate = 22050;
     const int Voices = 16;
 
-    static readonly AudioStreamWav?[] streams = new AudioStreamWav?[Enum.GetValues<Sound>().Length];
+    /// <summary>
+    /// Every take of every sound. More than one take means the game picks between them, which is
+    /// what stops four footsteps a second from turning into a machine gun of the same click.
+    /// </summary>
+    static readonly List<AudioStreamWav>[] banks =
+        new List<AudioStreamWav>[Enum.GetValues<Sound>().Length];
+
+    /// <summary>Where generated audio is looked for. Missing files fall back to synthesis.</summary>
+    public const string Folder = "res://assets/sfx";
+
+    /// <summary>
+    /// Sounds addressed by file name rather than by enum value, loaded the first time they are
+    /// asked for.
+    ///
+    /// The enum stayed at thirteen values while the asset roster went to a hundred and sixty, and
+    /// growing it to match would mean a hundred and sixty enum members, a hundred and sixty
+    /// entries in a mapping table, and a rename every time a sound is renamed. Worse, most of the
+    /// new sounds are chosen at runtime from data - which weapon you are holding, which surface
+    /// you are standing on - so the call site has a string in its hand either way.
+    ///
+    /// So: the enum keeps the sounds the game refers to by name, and everything driven by data is
+    /// addressed by key. A key with no file behind it is silent rather than an error, which is
+    /// what lets a weapon reference its own sound before that sound has been generated.
+    /// </summary>
+    static readonly Dictionary<string, List<AudioStreamWav>> keyed = new();
     static AudioStreamPlayer[] voices = Array.Empty<AudioStreamPlayer>();
     static int nextVoice;
     static bool ready;
@@ -43,6 +68,7 @@ public static class Sfx
         ready = true;
 
         Build();
+        LoadBanks();
 
         voices = new AudioStreamPlayer[Voices];
         for (int i = 0; i < Voices; i++)
@@ -84,7 +110,8 @@ public static class Sfx
         voices = Array.Empty<AudioStreamPlayer>();
         Listeners = Array.Empty<Vector3>();
 
-        for (int i = 0; i < streams.Length; i++) streams[i] = null;
+        for (int i = 0; i < banks.Length; i++) banks[i] = null!;
+        keyed.Clear();
     }
 
     /// <summary>Plays a UI or global sound at full volume.</summary>
@@ -92,13 +119,70 @@ public static class Sfx
     {
         if (!ready) return;
 
+        var bank = banks[(int)s];
+        if (bank == null || bank.Count == 0) return;
+
         var player = voices[nextVoice];
         nextVoice = (nextVoice + 1) % voices.Length;
 
-        player.Stream = streams[(int)s];
+        // A random take, not a rotating one: rotation is itself a pattern, and the ear finds it.
+        player.Stream = bank.Count == 1 ? bank[0] : bank[rng.Next(bank.Count)];
         player.VolumeDb = volumeDb;
         player.PitchScale = pitch;
         player.Play();
+    }
+
+    /// <summary>
+    /// Every take of a key, loaded on first use. An unknown key caches an empty bank, so a miss
+    /// costs one file-system probe for the life of the process rather than one per shot.
+    /// </summary>
+    static List<AudioStreamWav> Bank(string key)
+    {
+        if (keyed.TryGetValue(key, out var hit)) return hit;
+
+        var takes = new List<AudioStreamWav>();
+        if (Load($"{Folder}/{key}.wav") is { } single) takes.Add(single);
+
+        for (int n = 1; n <= 8; n++)
+            if (Load($"{Folder}/{key}_{n:00}.wav") is { } take) takes.Add(take);
+
+        keyed[key] = takes;
+        return takes;
+    }
+
+    /// <summary>Whether any audio exists for a key. Lets a caller fall back to a synthesised one.</summary>
+    public static bool Has(string key) => ready && key.Length > 0 && Bank(key).Count > 0;
+
+    /// <summary>Plays a sound by file name. Silent, not an error, when there is no such file.</summary>
+    public static void PlayKey(string key, float volumeDb = 0f, float pitch = 1f)
+    {
+        if (!ready || key.Length == 0) return;
+
+        var bank = Bank(key);
+        if (bank.Count == 0) return;
+
+        var player = voices[nextVoice];
+        nextVoice = (nextVoice + 1) % voices.Length;
+
+        player.Stream = bank.Count == 1 ? bank[0] : bank[rng.Next(bank.Count)];
+        player.VolumeDb = volumeDb;
+        player.PitchScale = pitch;
+        player.Play();
+    }
+
+    /// <summary>The world-space form of <see cref="PlayKey"/>, attenuated like every world sound.</summary>
+    public static void PlayKeyAt(string key, Vector3 where, float volumeDb = 0f, float pitch = 1f)
+    {
+        if (!ready || key.Length == 0) return;
+        if (Bank(key).Count == 0) return;
+
+        if (Listeners.Length == 0) { PlayKey(key, volumeDb, pitch); return; }
+
+        float nearest = float.PositiveInfinity;
+        foreach (var l in Listeners) nearest = MathF.Min(nearest, l.DistanceTo(where));
+        if (nearest >= MaxAudible) return;
+
+        PlayKey(key, volumeDb - MathU.Clamp01(nearest / MaxAudible) * 26f, pitch);
     }
 
     /// <summary>Plays a world sound, attenuated by distance to the nearest human player.</summary>
@@ -123,6 +207,22 @@ public static class Sfx
     /// Picks a report by the weapon's shape rather than by class name, so a picked-up gun sounds
     /// like what it is: a scattergun booms, a minigun ticks, a railgun cracks.
     /// </summary>
+    /// <summary>
+    /// The report for a weapon: its own recording where one exists, the synthesised shape
+    /// otherwise.
+    ///
+    /// Keyed off the model name, so a weapon's sound and its mesh are the same word and the file
+    /// convention is simply w_&lt;model&gt;. That is what lets twenty-six guns each have their own
+    /// voice without twenty-six entries in a table somewhere - drop w_railgun.wav in and the
+    /// railgun starts using it, exactly as dropping railgun.glb in gave it a shape.
+    /// </summary>
+    public static void Shot(WeaponDef w, Vector3 at, float pitch = 1f)
+    {
+        string key = w.Model.Length > 0 ? "w_" + w.Model : "";
+        if (Has(key)) PlayKeyAt(key, at, 0f, pitch);
+        else PlayAt(ShotFor(w), at, pitch: pitch);
+    }
+
     public static Sound ShotFor(WeaponDef w)
     {
         if (w.Pellets > 1) return Sound.ShotTactician;
@@ -133,7 +233,142 @@ public static class Sfx
 
     // ---- synthesis ----
 
-    static void Set(Sound s, AudioStreamWav w) => streams[(int)s] = w;
+    static void Set(Sound s, AudioStreamWav w) => banks[(int)s] = new List<AudioStreamWav> { w };
+
+    /// <summary>
+    /// The file each sound looks for, without extension. Empty means "synthesised only".
+    ///
+    /// A table rather than the enum's own names, because the two vocabularies are not the same
+    /// and should not be forced to be: the enum is named for what the GAME does (a shot from a
+    /// fast weapon) and the files are named for what the SOUND is (a submachine gun). Renaming
+    /// the enum to match would spread audio-pipeline naming through every call site in the match.
+    /// </summary>
+    static string FileKey(Sound s) => s switch
+    {
+        Sound.ShotTrooper => "w_assault_rifle",
+        Sound.ShotFlanker => "w_smg",
+        Sound.ShotTactician => "w_shotgun",
+        Sound.ShotMarksman => "w_sniper_rifle",
+        Sound.Hit => "i_flesh",
+        Sound.Death => "st_death",
+        Sound.Dash => "mv_slide",
+        Sound.Respawn => "st_heal",
+
+        // The menu blips stay synthesised on purpose. They are forty milliseconds long, they fire
+        // constantly, and the procedural ones are already exactly right - a generated click would
+        // be a larger file doing the same job slightly worse.
+        _ => "",
+    };
+
+    /// <summary>
+    /// Replaces any synthesised bank for which real audio has been generated.
+    ///
+    /// The same bargain the weapon models, the character models and the surface textures all run
+    /// on, and for the same reason: a hundred and ninety audio files arrive over days, and each
+    /// one has to start working the moment it lands without a code change and without the ones
+    /// that have not arrived yet sounding broken in the meantime. Synthesis is the floor, not a
+    /// placeholder to be torn out.
+    /// </summary>
+    static void LoadBanks()
+    {
+        foreach (var s in Enum.GetValues<Sound>())
+        {
+            string key = FileKey(s);
+            if (key.Length == 0) continue;
+
+            var takes = new List<AudioStreamWav>();
+
+            // A bare name is one take; numbered files are variants of the same sound.
+            if (Load($"{Folder}/{key}.wav") is { } single) takes.Add(single);
+
+            for (int n = 1; n <= 8; n++)
+                if (Load($"{Folder}/{key}_{n:00}.wav") is { } take) takes.Add(take);
+
+            if (takes.Count > 0) banks[(int)s] = takes;
+        }
+    }
+
+    /// <summary>
+    /// Parse one file, for the harness. Audio never initialises in a headless run - there is no
+    /// mixer to build players on - so this is the only way the asset pipeline gets checked at all.
+    /// </summary>
+    public static bool CanLoadForTest(string path, out int rate, out int samples)
+    {
+        var w = Load(path);
+        rate = w?.MixRate ?? 0;
+        samples = (w?.Data?.Length ?? 0) / 2;
+        return w != null;
+    }
+
+    /// <summary>Every file a sound would look for, so the harness can check they all parse.</summary>
+    public static List<string> ExpectedFilesForTest()
+    {
+        var want = new List<string>();
+        foreach (var s in Enum.GetValues<Sound>())
+        {
+            string key = FileKey(s);
+            if (key.Length == 0) continue;
+
+            if (Godot.FileAccess.FileExists($"{Folder}/{key}.wav")) want.Add($"{Folder}/{key}.wav");
+            for (int n = 1; n <= 8; n++)
+            {
+                string p = $"{Folder}/{key}_{n:00}.wav";
+                if (Godot.FileAccess.FileExists(p)) want.Add(p);
+            }
+        }
+        return want;
+    }
+
+    /// <summary>
+    /// Reads one canonical PCM wav off disk, or null.
+    ///
+    /// Parsed here rather than through Godot's importer for the reason every other asset in this
+    /// project is: the importer only runs when the editor opens, so an imported sound means a new
+    /// file does nothing until somebody launches the editor once.
+    ///
+    /// Only the format tools/audio.py writes is accepted - 16-bit mono PCM - because that is the
+    /// format the whole mixer already assumes. Anything else is refused rather than played at the
+    /// wrong speed, which is a bug that sounds like a design decision.
+    /// </summary>
+    static AudioStreamWav? Load(string path)
+    {
+        if (!Godot.FileAccess.FileExists(path)) return null;
+
+        byte[] raw = Godot.FileAccess.GetFileAsBytes(path);
+        if (raw.Length < 44) return null;
+        if (raw[0] != 'R' || raw[1] != 'I' || raw[2] != 'F' || raw[3] != 'F') return null;
+
+        int channels = BitConverter.ToInt16(raw, 22);
+        int rate = BitConverter.ToInt32(raw, 24);
+        int bits = BitConverter.ToInt16(raw, 34);
+        if (channels != 1 || bits != 16) return null;
+
+        // Walk the chunks rather than assuming 44 bytes: a generator that writes a LIST chunk
+        // would otherwise have its metadata played as audio, which is a burst of noise.
+        int at = 12;
+        while (at + 8 <= raw.Length)
+        {
+            int size = BitConverter.ToInt32(raw, at + 4);
+            if (raw[at] == 'd' && raw[at + 1] == 'a' && raw[at + 2] == 't' && raw[at + 3] == 'a')
+            {
+                int len = Mathf.Min(size, raw.Length - at - 8);
+                if (len <= 0) return null;
+
+                var pcm = new byte[len];
+                Array.Copy(raw, at + 8, pcm, 0, len);
+
+                return new AudioStreamWav
+                {
+                    Format = AudioStreamWav.FormatEnum.Format16Bits,
+                    MixRate = rate,
+                    Stereo = false,
+                    Data = pcm,
+                };
+            }
+            at += 8 + size + (size & 1);
+        }
+        return null;
+    }
 
     static void Build()
     {

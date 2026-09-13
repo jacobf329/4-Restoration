@@ -219,6 +219,24 @@ public partial class Match : Node3D
 
     public void Build(Node parent, MatchSettings settings, IReadOnlyList<LobbySlot> roster, bool visuals)
     {
+        foreach (var _ in BuildStages(parent, settings, roster, visuals)) { }
+    }
+
+    /// <summary>
+    /// The same build, handed back one stage at a time, each yielding what it just finished.
+    ///
+    /// Written as an iterator so the loading screen can draw a frame between stages. Building a
+    /// match is seconds of work - a siege map is a thousand metres across and its navigation graph
+    /// is two hundred thousand cells - and a single blocking call spends all of it with the lobby
+    /// still on screen and nothing moving, which is indistinguishable from a hang. Nobody waits
+    /// politely for software they believe has crashed.
+    ///
+    /// The stage names are what the player reads, so they are named for what is being made rather
+    /// than for the method that makes it.
+    /// </summary>
+    public IEnumerable<string> BuildStages(Node parent, MatchSettings settings,
+                                           IReadOnlyList<LobbySlot> roster, bool visuals)
+    {
         Settings = settings;
         Visuals = visuals;
         Name = "Match";
@@ -226,11 +244,18 @@ public partial class Match : Node3D
 
         Arena = new Arena(ChooseArena(settings));
         Arena.Build(this, visuals);
+        yield return "Raising the arena";
+
         Nav = new NavGraph(Arena);
+        yield return "Mapping the ground";
+
         BuildLevelMachinery();
         BuildPickups();
+        yield return "Laying out the weapons";
+
         BuildVehicles();
         BuildBreakables();
+        yield return "Parking the vehicles";
 
         if (Settings.Mode == GameMode.KingOfTheHill) SetupZone();
         if (Settings.Mode == GameMode.CaptureTheFlag) SetupFlags();
@@ -276,6 +301,10 @@ public partial class Match : Node3D
             Pawns.Add(pawn);
 
             brains.Add(slot.IsBot ? new BotBrain(settings.BotSkill) : null!);
+
+            // One yield per fighter: building twelve of them, each with a rig, a view model and a
+            // brain, is the second-longest part of this.
+            yield return $"Fielding {pawn.Name2}";
         }
     }
 
@@ -2141,6 +2170,7 @@ public partial class Match : Node3D
             AddChild(v);
             v.Setup(def, Visuals);
             v.ArenaCeiling = Arena.WallHeight;
+            v.PlayCeiling = Arena.CeilingY;
             v.ArenaHalfWidth = Arena.HalfWidth;
             v.ArenaHalfDepth = Arena.HalfDepth;
             v.HomePosition = Arena.VehicleSpawns[i];
@@ -2160,6 +2190,7 @@ public partial class Match : Node3D
             AddChild(t);
             t.Setup(Vehicles.Turret, Visuals);
             t.ArenaCeiling = Arena.WallHeight;
+            t.PlayCeiling = Arena.CeilingY;
             t.ArenaHalfWidth = Arena.HalfWidth;
             t.ArenaHalfDepth = Arena.HalfDepth;
             t.HomePosition = at;
@@ -2342,7 +2373,12 @@ public partial class Match : Node3D
 
     public void ToggleVehicle(Pawn p)
     {
-        if (p.Riding is { } current) { current.Eject(); return; }
+        if (p.Riding is { } current)
+        {
+            current.Eject();
+            if (Visuals) Sfx.PlayKeyAt("v_eject", current.GlobalPosition);
+            return;
+        }
 
         foreach (var v in VehicleList)
         {
@@ -2401,8 +2437,14 @@ public partial class Match : Node3D
             shots.Add(shot);
         }
 
-        if (Visuals) Sfx.PlayAt(Sound.ShotTactician, v.Seat, pitch: 0.75f);
-        if (Visuals) Sfx.PlayKeyAt("v_tank_cannon", v.Seat);
+        // Its own voice where it has one, and the synthesised shotgun only where it does not.
+        // Every hull used to play the tank's cannon on top of that blanket, so a plane's wing guns
+        // and an emplaced repeater both fired hundred-millimetre shells.
+        if (Visuals)
+        {
+            if (Sfx.Has(v.Def.GunSound)) Sfx.PlayKeyAt(v.Def.GunSound, v.Seat);
+            else Sfx.PlayAt(Sound.ShotTactician, v.Seat, pitch: 0.75f);
+        }
     }
 
     // ---- weapon pickups ----

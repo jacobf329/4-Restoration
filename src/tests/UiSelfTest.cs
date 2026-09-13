@@ -51,6 +51,8 @@ public static class UiSelfTest
         TestVehiclesAndJetpack();
         TestOnePressSurvivesEveryFrameRate();
         TestGeneratedAudioParses();
+        TestTheMix();
+        TestTheMixerIsReachableWithAPad();
 
         TestLog.Line($"=== {checks - failures}/{checks} checks passed ===");
         if (failures > 0) TestLog.Fail($"{failures} check(s) FAILED");
@@ -450,6 +452,52 @@ public static class UiSelfTest
     }
 
     /// <summary>
+    /// The mixer is reachable and adjustable with a pad alone, and it sticks.
+    ///
+    /// Worth a navigation test rather than a unit test on <see cref="Audio"/>, because the
+    /// complaint that produced the screen was that the game was unlistenable, and a volume slider
+    /// the player cannot get to on a controller does not fix that. This is the same journey they
+    /// make: title, options, audio, left and right, back.
+    /// </summary>
+    static void TestTheMixerIsReachableWithAPad()
+    {
+        TestLog.Line("- the audio sliders are reachable with a pad alone");
+
+        UserSettings.Load();
+        int original = UserSettings.MusicVolume;
+
+        var h = new Harness();
+        Check(h.Open("Options"), "options opens");
+        Check(h.Open("Audio levels"), "and the audio row is on it");
+        Check(h.TopName == nameof(AudioScreen), "which opens the mixer");
+
+        Check(h.NavTo("Music volume"), "the music slider is reachable");
+
+        // Down to silence and back up, one step at a time, so a slider that only moves one way
+        // or clamps at the wrong end shows up here rather than in somebody's ears.
+        for (int i = 0; i < Audio.Steps + 4; i++) h.Nav(-1, 0);
+        Check(UserSettings.MusicVolume == 0, $"it goes all the way down ({UserSettings.MusicVolume})");
+
+        for (int i = 0; i < Audio.Steps + 4; i++) h.Nav(1, 0);
+        Check(UserSettings.MusicVolume == Audio.Steps,
+              $"and all the way up ({UserSettings.MusicVolume})");
+
+        h.TapBack();
+        Check(h.TopName == nameof(OptionsScreen), "and backs out to options");
+        h.Dispose();
+
+        // It is written down as it moves, so the level survives a restart.
+        UserSettings.MusicVolume = 3;
+        UserSettings.Save();
+        UserSettings.MusicVolume = 9;
+        UserSettings.Load();
+        Check(UserSettings.MusicVolume == 3, "a saved level comes back after a reload");
+
+        UserSettings.MusicVolume = original;
+        UserSettings.Save();
+    }
+
+    /// <summary>
     /// No spawn may drop a player inside a block. This is cheap to get wrong when the layout
     /// moves — an earlier pass slid the spawns inward and landed them on the corner pillars, so
     /// players began each life embedded in cover, looking at its inside face.
@@ -501,11 +549,13 @@ public static class UiSelfTest
         TestLog.Line($"    {arena.Name}: {arena.HealthSpawns.Count} med kits, "
                      + $"furthest standable point is {worst:0}m from one ({samples} samples)");
 
-        // Forty metres is about six seconds at a walk. Anything past that and being hurt in that
-        // corner means leaving the fight entirely rather than making a decision about it.
+        // Measured against the layout's own budget rather than a flat forty metres, because the
+        // budget is a property of the map's size - see Arena.MaxHealthWalk. A flat number here was
+        // what forced Coldstore to carry seven hundred and eighty-four med kits.
         Check(samples > 0, $"{arena.Name} has standable floor to sample");
-        Check(worst < 40f, $"{arena.Name}: nowhere is further than 40m from a med kit "
-                           + $"(worst {worst:0}m at {worstAt})");
+        Check(worst < arena.MaxHealthWalk,
+              $"{arena.Name}: nowhere is further than {arena.MaxHealthWalk:0}m from a med kit "
+              + $"(worst {worst:0}m at {worstAt})");
     }
 
     /// <summary>
@@ -1499,57 +1549,59 @@ public static class UiSelfTest
     }
 
     /// <summary>
-    /// The scope lock: help onto a target, then get out of the way.
+    /// Aim assist is one mechanism, it is brief, and a scope does not get a second one.
     ///
-    /// Tested as the relationships between the numbers rather than by flying a camera around,
-    /// because what went wrong last time was not arithmetic — it was a design that applied its
-    /// pull every frame, forever, whoever was in the cone. Each check below is one sentence of
-    /// that design written so it cannot quietly stop being true.
+    /// The last check is the point of this test. Scopes used to acquire a lock and swing onto it,
+    /// and every attempt at tuning that ended in the same report - too strong. It was removed, and
+    /// this is what stops it coming back: the class is asked whether it still has any of the
+    /// machinery, by name, because a half-restored version would compile and pass everything else.
+    ///
+    /// The rest is the surviving assist stated as relationships rather than as arithmetic, since
+    /// what makes it an assist rather than a lock is not any one constant - it is that the pull is
+    /// scaled by stick effort and expires on a clock.
     /// </summary>
-    static void TestScopeLock()
+    static void TestAimAssist()
     {
-        TestLog.Line("- the scope hands you a target and then lets go");
+        TestLog.Line("- aim assist helps you onto a target and then lets go");
 
-        Check(MatchScreen.ScopeBreakConeForTest > MatchScreen.ScopeAcquireConeForTest,
-              "a lock is harder to lose than it was to get");
+        Check(MatchScreen.AssistPullForTest > 0f && MatchScreen.AssistPullForTest < 1.5f,
+              $"the pull is a hand, not a steer ({MatchScreen.AssistPullForTest:0.00} rad/s)");
 
-        Check(MatchScreen.ScopeSnapRateForTest > MatchScreen.ScopeTrackForTest * 4f,
-              "the swing onto a target is far faster than the following afterwards");
+        Check(MatchScreen.AssistFrictionForTest > 0f && MatchScreen.AssistFrictionForTest < 0.5f,
+              $"friction slows the stick without stopping it ({MatchScreen.AssistFrictionForTest:0.00})");
 
-        // The snap has to cover the whole acquire cone inside its own time budget, or the scope
-        // comes up, starts turning, and hands over still pointing somewhere in between.
-        float covered = MatchScreen.ScopeSnapRateForTest * MatchScreen.ScopeSnapTimeForTest;
-        TestLog.Line($"    the snap covers {covered:0.00} rad, cone is "
-                   + $"{MatchScreen.ScopeAcquireConeForTest:0.00} rad");
-        Check(covered > MatchScreen.ScopeAcquireConeForTest * 2f,
-              $"the snap finishes the swing it starts ({covered:0.00} rad)");
+        Check(MatchScreen.AssistAcquireForTest > 0f && MatchScreen.AssistAcquireForTest <= 0.6f,
+              $"and it is over in under a second ({MatchScreen.AssistAcquireForTest:0.00}s)");
 
-        // The override has to be a deadzone rather than a threshold somebody has to lean on.
-        Check(MatchScreen.ScopeOverrideForTest > 0f && MatchScreen.ScopeOverrideForTest < 0.25f,
-              $"a light touch is enough to take over ({MatchScreen.ScopeOverrideForTest:0.00})");
-
-        // And the lock must actually end. This is the check that would have failed against the
-        // version being replaced, which held on for as long as the scope was up.
-        Check(MatchScreen.ScopeGripForTest(0f) >= 0.99f, "the lock is at full strength when taken");
-        Check(MatchScreen.ScopeGripForTest(MatchScreen.ScopeHoldFullForTest * 0.5f) >= 0.99f,
-              "and stays there while you settle");
-
-        float ends = MatchScreen.ScopeHoldFullForTest + MatchScreen.ScopeHoldFadeForTest;
-        Check(MatchScreen.ScopeGripForTest(ends + 0.01f) <= 0f,
-              $"and is gone by {ends:0.0}s however still your hands are");
+        Check(MatchScreen.AssistFreshForTest(0f) >= 0.99f, "full strength the moment you arrive");
+        Check(MatchScreen.AssistFreshForTest(MatchScreen.AssistAcquireForTest) <= 0f,
+              "nothing at all once the timer is out");
 
         // Monotone, so the fade is a fade rather than a shape somebody has to reason about.
         float last = 2f;
-        for (float t = 0f; t <= ends + 0.5f; t += 0.05f)
+        for (float t = 0f; t <= MatchScreen.AssistAcquireForTest + 0.3f; t += 0.02f)
         {
-            float g = MatchScreen.ScopeGripForTest(t);
-            if (g > last + 0.001f) { Check(false, $"the lock never strengthens again (at {t:0.00}s)"); break; }
+            float g = MatchScreen.AssistFreshForTest(t);
+            if (g > last + 0.001f) { Check(false, $"the pull never strengthens again (at {t:0.00}s)"); break; }
             last = g;
         }
         Check(last <= 0f, "and the fade only ever runs one way");
 
-        TestLog.Line($"    full for {MatchScreen.ScopeHoldFullForTest:0.0}s, "
-                   + $"gone by {ends:0.0}s, override at {MatchScreen.ScopeOverrideForTest:0.00} stick");
+        // The scope lock is gone and stays gone.
+        var members = new System.Collections.Generic.List<string>();
+        foreach (var m in typeof(MatchScreen).GetMembers(
+                     System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
+                     | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static))
+            if (m.Name.Contains("ScopeLock") || m.Name.Contains("ScopeSnap")
+                || m.Name.Contains("ScopeTrack") || m.Name.Contains("ScopeGrip"))
+                members.Add(m.Name);
+
+        Check(members.Count == 0,
+              $"a scope gets no assist of its own ({string.Join(", ", members)})");
+
+        TestLog.Line($"    pull {MatchScreen.AssistPullForTest:0.00} rad/s, "
+                   + $"gone by {MatchScreen.AssistAcquireForTest:0.00}s, "
+                   + $"cone {MatchScreen.AssistConeForTest:0.00} rad");
     }
 
     /// <summary>
@@ -2240,16 +2292,91 @@ public static class UiSelfTest
         }
         TestLog.Line($"    {voiced} pickup weapons have their own report");
 
-        // Every arena names a cue. A missing file is fine and expected while the roster fills up;
-        // a cue that names nothing at all is a map that will be silent forever.
+        // Every arena names a cue, and the cue has to actually load.
+        //
+        // This used to log a missing cue and pass. It found nothing, because the files were all
+        // there - what was wrong was that none of them had been loudness-mastered, so half the
+        // roster sat forty decibels below the effects and the report was "where is all the music?".
+        // The level itself is measured by tools/master.py, which is where a decoder lives; what
+        // this can check is that every cue the game will ever ask for is a file Godot can play.
         for (int layout = 0; layout < Arena.CombatLayouts; layout++)
         {
             var a = new Arena(layout);
             Check(a.MusicCue.Length > 0, $"{a.Name} names a music cue");
-
-            if (!Godot.FileAccess.FileExists($"{Music.Folder}/{a.MusicCue}.mp3"))
-                TestLog.Line($"    {a.Name}: {a.MusicCue}.mp3 not generated yet");
+            Check(Music.Has(a.MusicCue), $"{a.Name}: {a.MusicCue}.mp3 loads");
         }
+
+        // And so do the two the menus name, which no arena would have covered.
+        foreach (string cue in new[] { "mus_01_specification", "mus_02_standing_orders" })
+            Check(Music.Has(cue), $"the menus' cue {cue}.mp3 loads");
+
+        var cues = Godot.DirAccess.GetFilesAt(Music.Folder);
+        int playable = 0;
+        foreach (string file in cues)
+        {
+            if (!file.EndsWith(".mp3")) continue;
+            string key = file.Substring(0, file.Length - 4);
+            if (Music.Has(key)) playable++;
+            else Check(false, $"{file} is on disk but will not play");
+        }
+        TestLog.Line($"    {playable} music cue(s) load");
+    }
+
+    /// <summary>
+    /// The mix: nothing plays at the level it was mastered at, and the sliders can reach all of it.
+    ///
+    /// Every generated effect is normalised to a decibel below full scale, which is right for a
+    /// file and wrong for a game - it makes a footstep exactly as loud as a tank shell, and it is
+    /// the whole of why the effects were reported as "mixed way too loud". The trims in
+    /// <see cref="Sfx.Trim"/> take that back apart, and what is worth asserting is not the numbers
+    /// but the ordering: the quiet things have to stay quieter than the loud ones however they are
+    /// tuned afterwards.
+    /// </summary>
+    static void TestTheMix()
+    {
+        TestLog.Line("- the mix puts each family of sounds where it belongs");
+
+        float boom = Sfx.Trim("x_large");
+        float gun = Sfx.Trim("w_assault_rifle");
+        float hit = Sfx.Trim("i_flesh");
+        float step = Sfx.Trim("f_snow_01");
+        float ui = Sfx.Trim("ui_claim");
+
+        Check(boom > gun, $"an explosion is louder than a rifle ({boom:0} vs {gun:0} dB)");
+        Check(gun > hit, $"a rifle is louder than the bullet landing ({gun:0} vs {hit:0} dB)");
+        Check(hit > step, $"a hit is louder than a footstep ({hit:0} vs {step:0} dB)");
+        Check(step < -12f, $"and a footstep is well down ({step:0} dB)");
+        Check(ui < 0f, $"menu sounds are under unity ({ui:0} dB)");
+
+        // Every family on disk has a level chosen for it. A prefix with no entry plays at unity,
+        // which is the loudest thing in the game and never what a new sound wants.
+        var seen = new System.Collections.Generic.HashSet<string>();
+        foreach (string file in Godot.DirAccess.GetFilesAt(Sfx.Folder))
+        {
+            int u = file.IndexOf('_');
+            if (u > 0) seen.Add(file.Substring(0, u + 1));
+        }
+
+        foreach (string prefix in seen)
+            Check(Sfx.Trim(prefix + "x") < 0f, $"the {prefix} family has a level ({prefix})");
+
+        TestLog.Line($"    {seen.Count} sound families, all mixed");
+
+        // The sliders. Nine of ten is unity, zero is silence, and every step in between is a step
+        // down - a slider with a flat spot in it is a slider the player thinks is broken.
+        Check(Audio.Db(9) == 0f, "nine of ten is unity gain");
+        Check(Audio.Db(0) <= -60f, "zero is silence");
+        Check(Audio.Db(Audio.Steps) > 0f, "and the top step has something in hand");
+
+        for (int i = 1; i <= Audio.Steps; i++)
+            Check(Audio.Db(i) > Audio.Db(i - 1), $"step {i} is louder than step {i - 1}");
+
+        // Out of range is clamped rather than extrapolated: a settings file edited by hand must
+        // not be able to ask for +400 dB.
+        Check(Audio.Db(-5) == Audio.Db(0), "a nonsense level below the bottom clamps");
+        Check(Audio.Db(99) == Audio.Db(Audio.Steps), "and one above the top clamps too");
+
+        TestLog.Line($"    {Audio.Steps} steps from {Audio.Db(1):0.0} to {Audio.Db(Audio.Steps):0.0} dB");
     }
 
     /// <summary>
@@ -2522,7 +2649,7 @@ public static class UiSelfTest
         TestSurfaces();
         TestChildhoodMission();
         TestHarvestMission();
-        TestScopeLock();
+        TestAimAssist();
         TestDressing();
         TestNeedler();
         TestHeadshotsAndMuzzles();

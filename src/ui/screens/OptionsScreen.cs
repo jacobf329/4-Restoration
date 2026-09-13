@@ -37,8 +37,12 @@ public sealed class OptionsScreen : UiScreen
                 UserSettings.Save();
             });
 
+        menu.Add("Audio levels", () => Stack.Push(new AudioScreen()));
+
         menu.Add("Controller bindings", () => Stack.Push(new RebindScreen()));
     }
+
+    public override string? SelectedLabel => menu.Current?.Label;
 
     protected override void UpdateScreen(float dt, IReadOnlyList<InputDevice> devices)
         => menu.Update(devices);

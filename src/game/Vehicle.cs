@@ -42,6 +42,17 @@ public sealed class VehicleDef
     // you see and what you drive into things with stay the same shape.
 
     /// <summary>Base name under <c>assets/vehicles</c> of the body, or empty for the box.</summary>
+    /// <summary>
+    /// The file its gun is fired with, without the folder or extension. Empty for no gun.
+    ///
+    /// Named here rather than derived from the kind because it is the same convention every other
+    /// asset in the project uses - a weapon finds its report at w_&lt;model&gt; - and because every
+    /// hull used to play the tank's cannon regardless of what it was carrying. A plane's wing guns
+    /// and an emplaced repeater are not a hundred-millimetre shell, and a mix where they are is a
+    /// mix nobody can read.
+    /// </summary>
+    public string GunSound = "";
+
     public string HullModel = "";
 
     /// <summary>Base name of the part that rides the turret pivot. Empty for a plain barrel.</summary>
@@ -148,6 +159,7 @@ public static class Vehicles
             BlastRadius = 8.5f,
             Ammo = 0,
         },
+        GunSound = "v_tank_cannon",
         NeutralSteer = true,
         HalfExtents = new Vector3(4.0f, 1.2f, 2.4f),
         Tint = new Color(0.44f, 0.52f, 0.38f),
@@ -197,6 +209,8 @@ public static class Vehicles
             AdsFov = 50f,
             Ammo = 0,
         },
+        GunSound = "v_plane_guns",
+
         // Matched to the mesh rather than guessed. The model is 1.90 x 0.73 x 1.85 in its own
         // units and VehicleModels scales it by the X extent, so at a six-metre length it comes out
         // 6.0 x 2.3 x 5.85 - the old box was 8.4m across the wings and 1.2m tall, which is a
@@ -254,6 +268,7 @@ public static class Vehicles
             Ammo = 0,
         },
 
+        GunSound = "w_repeater",
         HalfExtents = new Vector3(1.6f, 1.1f, 1.6f),
         Tint = new Color(0.52f, 0.56f, 0.60f),
         EyeHeight = 1.7f,
@@ -291,9 +306,7 @@ public static class Vehicles
     /// future map wide enough to fly on gets the plane without anybody remembering to add it.
     /// </summary>
     public static VehicleDef[] SpawnableFor(int layout)
-        => Arena.HalfWidthFor(layout) * Arena.HalfDepthFor(layout) >= 60000f
-            ? SpawnableWithAir
-            : Spawnable;
+        => Arena.HasAirspaceFor(layout) ? SpawnableWithAir : Spawnable;
 
     public static VehicleDef ByIndex(int i) => ByIndex(i, 0);
 
@@ -334,6 +347,9 @@ public partial class Vehicle : CharacterBody3D
     public float Facing;
     public float Pitch;
 
+    /// <summary>Bank angle, radians, right wing down positive. Flying hulls only.</summary>
+    public float Roll;
+
     float fireCooldown;
     float exitLock;
 
@@ -343,7 +359,86 @@ public partial class Vehicle : CharacterBody3D
     const float Gravity = 22f;
 
     /// <summary>Radians per second of pitch at full stick. A rate, not an angle.</summary>
-    const float PlanePitchRate = 1.5f;
+    // ---- flight ----
+    //
+    // An arcade flight model, not a simulation, but one with the three things a plane has to have
+    // before it reads as a plane rather than as a hovering car: it banks into its turns, it goes
+    // where the nose points rather than where the stick points, and it falls out of the sky when
+    // it runs out of speed.
+    //
+    // The version this replaces had none of them. Turning changed Facing while the velocity was
+    // dragged toward the new heading on an acceleration budget too small to keep up, so the hull
+    // crabbed sideways through every turn; pitch went into the node's X rotation, which for a hull
+    // whose nose is local +X is the ROLL axis, so pulling back rolled the aircraft instead of
+    // raising the nose; gravity was switched off outright, so cutting the throttle did nothing at
+    // all and altitude was free. Three faults with one symptom: it did not feel like flying.
+
+    /// <summary>Radians per second the nose moves on the look axis.</summary>
+    const float PlanePitchRate = 1.2f;
+
+    /// <summary>How far the nose may be held off the horizon, up or down.</summary>
+    const float PlaneMaxPitch = 0.95f;      // about 54 degrees
+
+    /// <summary>Radians per second the airframe rolls toward the bank the stick is asking for.</summary>
+    const float PlaneRollRate = 3.2f;
+
+    /// <summary>Bank angle at full stick.</summary>
+    const float PlaneMaxRoll = 1.1f;        // about 63 degrees
+
+    /// <summary>
+    /// Airspeed at which the wings are carrying their own weight, in metres a second.
+    ///
+    /// Below it the aircraft sinks, and the sink is proportional, so slowing down is a gradual loss
+    /// of altitude rather than a switch that flips. Half of cruise, which leaves the throttle a
+    /// real decision: you can fly slowly to stay over a fight, and you will be losing height while
+    /// you do it.
+    /// </summary>
+    const float PlaneStallSpeed = 24f;
+
+    /// <summary>
+    /// Radians per second the direction of travel swings round onto the heading.
+    ///
+    /// This is the number that decides whether the aircraft turns. A plane that changes heading
+    /// faster than its velocity can follow does not turn - it skids, nose pointing one way and
+    /// travelling another, which is exactly the "can't turn left to right" report. At three and a
+    /// half it comfortably beats any heading change the stick can ask for.
+    /// </summary>
+    const float PlaneYawAuthority = 3.5f;
+
+    /// <summary>
+    /// Radians per second the climb angle of the velocity swings onto the nose's.
+    ///
+    /// Separate from the yaw, and separate on purpose. Chasing the nose as one 3D direction spends
+    /// a single budget across both axes, so an aircraft held against the ceiling - where the climb
+    /// angle it is chasing can never be reached, because the clamp undoes it every frame - spends
+    /// the whole budget there and stops turning altogether. That is the same shared-budget fault
+    /// that made the ground vehicles crawl, one axis over.
+    /// </summary>
+    const float PlanePitchAuthority = 2.5f;
+
+    /// <summary>Metres a second of airspeed traded for holding the nose up at full deflection.</summary>
+    const float PlaneClimbCost = 20f;
+
+    /// <summary>
+    /// How far below the nose the flight path sags with no lift at all, in radians.
+    ///
+    /// This is how gravity gets into the model, and it has to get in here rather than as a
+    /// downward push on the velocity afterwards. The velocity is rebuilt every step from a
+    /// heading, a climb angle and a speed, so a sink added to its Y component is simply thrown
+    /// away on the next step when the climb angle is chased back toward the nose - measured, that
+    /// came out as a plane losing one metre in three seconds with its engine off.
+    ///
+    /// Sagging the target instead makes the whole thing one loop: lose speed, the path droops
+    /// below the nose, the dive buys the speed back through <see cref="PlaneClimbCost"/>, and the
+    /// wings start carrying again. That is a stall and a recovery, and it costs nothing extra.
+    /// </summary>
+    const float PlaneMaxSag = 1.4f;
+
+    /// <summary>Steepest the flight path may point downward, however badly it is being flown.</summary>
+    const float PlaneMaxDive = 1.4f;
+
+    /// <summary>Throttle at the bottom of its travel, as a fraction of full.</summary>
+    const float PlaneIdleThrottle = 0.2f;
 
     /// <summary>Seconds of muzzle flash left, so firing reads on screen as well as in the sim.</summary>
     public float MuzzleFlash;
@@ -390,10 +485,20 @@ public partial class Vehicle : CharacterBody3D
 
     public float ArenaCeiling = Arena.StandardWallHeight;
 
+    /// <summary>The play boundary overhead — above this a pawn is out of bounds and dies.</summary>
+    public float PlayCeiling = Arena.StandardWallHeight + 26f;
+
     void HoldInsideArena()
     {
         const float Margin = 3f;
-        float ceiling = ArenaCeiling - 1.5f;
+
+        // A flying hull is held under the play boundary rather than under the walls. Holding it at
+        // wall height was the whole of "the planes can't go high enough": the clamp sat at fourteen
+        // and a half metres, which is below the top of the perimeter, so the aircraft spent the
+        // match scraping the fence it was meant to be flying over. Twelve metres of clearance under
+        // the boundary is left so that bailing out is a fall rather than an out-of-bounds kill.
+        float ceiling = Def.Flies ? MathF.Max(ArenaCeiling - 1.5f, PlayCeiling - 12f)
+                                  : ArenaCeiling - 1.5f;
 
         var p = GlobalPosition;
         var v = Velocity;
@@ -429,7 +534,13 @@ public partial class Vehicle : CharacterBody3D
     {
         // Local +X is the nose, so yaw is negated: Godot's Y rotation runs the opposite way round
         // from the atan2 convention Facing uses everywhere else in the game.
-        Rotation = new Vector3(Def.Flies ? Pitch : 0f, -Facing, 0f);
+        //
+        // And for the same reason pitch is the Z rotation, not the X one. Godot composes euler
+        // angles as Y then X then Z, and a rotation about X leaves local +X - the nose - exactly
+        // where it was. Pitch used to be put there, which meant pulling back on the stick rolled
+        // the aircraft and never raised its nose. Z swings +X toward +Y, which is the climb; X is
+        // the roll axis, which is where the bank belongs.
+        Rotation = Def.Flies ? new Vector3(Roll, -Facing, Pitch) : new Vector3(0f, -Facing, 0f);
     }
 
     /// <summary>Where a driver sits and where the vehicle gun fires from.</summary>
@@ -659,6 +770,20 @@ public partial class Vehicle : CharacterBody3D
 
         p.ExitVehicle(FreeSpotFor(p));
 
+        // Bailing out of an aircraft comes with a chute. Without one the airspace over a siege map
+        // is a two-hundred-metre fall, which is either a twelve-second walk back into the match or,
+        // at the speed the controller reaches by the bottom, a tunnel through the floor and a
+        // crush - and "I die when I eject out of the plane" is how both of those read.
+        //
+        // And you are thrown clear whether or not the aircraft was destroyed, because there is no
+        // such thing as stepping out of one. Set down gently on the roof instead, the pilot simply
+        // rides it down again.
+        if (Def.Flies)
+        {
+            p.OpenChute();
+            thrown = true;
+        }
+
         if (thrown)
         {
             var away = (p.GlobalPosition - GlobalPosition) with { Y = 0f };
@@ -692,6 +817,27 @@ public partial class Vehicle : CharacterBody3D
     Vector3 FreeSpotFor(Pawn p)
     {
         float roof = Def.HalfExtents.Y * 2f + 0.15f;
+
+        // An aircraft in flight is the one hull whose roof is the wrong answer.
+        //
+        // On the ground the roof is the one place the hull cannot drive over, which is the whole
+        // reason this method looks there first. In the air it is a platform two hundred metres up,
+        // and a character controller standing on a falling character controller is two solvers
+        // pushing each other apart: measured, both the pilot and the plane accelerated upward and
+        // doubled their speed every two frames until the pilot was flung through the top of the
+        // map. You do not step out of an aeroplane. You fall out of one, and the spot is clear air
+        // beside and below it - far enough out that neither body ever touches the other.
+        if (Def.Flies && !IsOnFloor())
+        {
+            var side = new Vector3(-MathF.Sin(Facing), 0f, MathF.Cos(Facing));
+            var clear = GlobalPosition
+                      + side * (Def.HalfExtents.Z + Pawn.Radius + 2.5f)
+                      - Vector3.Up * (Def.HalfExtents.Y + Pawn.Height + 1.5f);
+
+            // Flying low over something, or too near a wall to have room out there: fall through
+            // to the roof, which at that height is a step down rather than a platform in the sky.
+            if (InsideWalls(clear) && Fits(p, clear)) return clear;
+        }
 
         // Tried lifted first, then flush. The lift is what makes the drop happen, but a hull can
         // be parked under something — the spawn nearest the Reliquary's galleries is two metres
@@ -788,9 +934,33 @@ public partial class Vehicle : CharacterBody3D
 
         if (Driver == null)
         {
-            // Parked: settle and stay put.
-            Velocity = new Vector3(Velocity.X * 0.86f, Def.Flies ? 0f : Velocity.Y - Gravity * dt, Velocity.Z * 0.86f);
+            if (Def.Flies)
+            {
+                // An abandoned aircraft is not parked, it is falling. It used to hold whatever
+                // altitude its pilot left it at, forever - which made it a platform the pilot then
+                // landed on and stood about on, two hundred metres up, instead of coming down.
+                //
+                // It keeps some lift on the way, so it glides down rather than dropping like a
+                // brick, but never all of it: half a gravity at cruise is enough that the sky is
+                // eventually empty again.
+                float lift = MathU.Clamp01(Velocity.Length() / PlaneStallSpeed);
+                Velocity = new Vector3(Velocity.X * 0.995f,
+                                       Velocity.Y - Gravity * (1f - lift * 0.5f) * dt,
+                                       Velocity.Z * 0.995f);
+            }
+            else
+            {
+                // Parked: settle and stay put.
+                Velocity = new Vector3(Velocity.X * 0.86f, Velocity.Y - Gravity * dt, Velocity.Z * 0.86f);
+            }
+
             MoveAndSlide();
+
+            // Held inside the walls whether or not anybody is aboard. This used to be done only on
+            // the driven path, so an abandoned aircraft was the one body in the game that could
+            // leave the map - and, when something shoved it, did.
+            if (Def.Flies) HoldInsideArena();
+
             ApplyOrientation();
             return;
         }
@@ -826,12 +996,51 @@ public partial class Vehicle : CharacterBody3D
         {
             // Nose up and down with the look axis. This is a rate rather than the driver's absolute
             // view angle: a plane is flown by holding the stick back, not by looking upward.
-            Pitch = MathU.Clamp(Pitch - input.RawLook.Y * PlanePitchRate * dt, -0.9f, 0.9f);
+            Pitch = MathU.Clamp(Pitch - input.RawLook.Y * PlanePitchRate * dt,
+                                -PlaneMaxPitch, PlaneMaxPitch);
 
-            // It holds altitude rather than stalling, because a stall model is a flight sim and
-            // this is not. Throttle has a floor for the same reason.
-            float throttle = MathF.Max(0.35f, drive);
-            Velocity = Velocity.MoveToward(Forward * (Def.MaxSpeed * throttle), Def.Accel * dt * 2f);
+            float airspeed = Velocity.Length();
+
+            // How much of its own weight the wings are carrying. One at cruise, nothing at a
+            // standstill, and everything between is the sag.
+            float lift = MathU.Clamp01(airspeed / PlaneStallSpeed);
+
+            // Turn, and bank into it. Turn authority is worth more with air over the wings but
+            // never falls to nothing - an aircraft you cannot point is an aircraft you cannot get
+            // out of trouble in, and this is an arcade fighter, not a trainer.
+            Facing += steer * Def.TurnRate * (0.45f + 0.55f * lift) * dt;
+            Roll = Mathf.MoveToward(Roll, steer * PlaneMaxRoll, PlaneRollRate * dt);
+
+            // Where the aircraft is actually going, as opposed to where it is pointing. The two
+            // are chased separately - see PlanePitchAuthority - and the climb is chased toward the
+            // nose less however much lift is missing.
+            float heading = Facing;
+            float climb = MathU.Clamp(Pitch - (1f - lift) * PlaneMaxSag, -PlaneMaxDive, PlaneMaxPitch);
+
+            if (airspeed > 0.5f)
+            {
+                heading = MathU.MoveAngleToward(
+                    MathF.Atan2(Velocity.Z, Velocity.X), Facing, PlaneYawAuthority * dt);
+                climb = Mathf.MoveToward(
+                    MathF.Asin(MathU.Clamp(Velocity.Y / airspeed, -1f, 1f)),
+                    climb, PlanePitchAuthority * dt);
+            }
+
+            // Throttle spans the whole of the drive axis rather than only its forward half, so
+            // there is somewhere to put "slow down" other than letting go.
+            float throttle = PlaneIdleThrottle
+                           + (1f - PlaneIdleThrottle) * MathU.Clamp01(drive * 0.5f + 0.5f);
+
+            // Climbing costs airspeed and diving buys it back, measured off the path actually
+            // flown rather than off the nose. That is what stops the ceiling being the only thing
+            // limiting a climb - hold the nose up and you run out of speed before you run out of
+            // sky - and it is also what lets a stalled aircraft recover instead of falling flat.
+            float want = MathF.Max(0f, Def.MaxSpeed * throttle - MathF.Sin(climb) * PlaneClimbCost);
+            float speed = Mathf.MoveToward(airspeed, want, Def.Accel * dt);
+
+            float cc = MathF.Cos(climb);
+            Velocity = new Vector3(MathF.Cos(heading) * cc, MathF.Sin(climb), MathF.Sin(heading) * cc)
+                       * speed;
         }
         else
         {
@@ -903,6 +1112,7 @@ public partial class Vehicle : CharacterBody3D
         Velocity = Vector3.Zero;
         Facing = facing;
         Pitch = 0f;
+        Roll = 0f;
         TurretYaw = facing;
         TurretPitch = 0f;
         fireCooldown = 0f;

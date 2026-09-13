@@ -262,14 +262,34 @@ public sealed class Arena
     public const float KillPlaneY = -5f;
 
     /// <summary>
-    /// The top of the world, as far above it as the kill plane is below.
+    /// Whether this layout has sky over it worth flying in.
+    ///
+    /// Keyed off floor area, the same question <see cref="Vehicles.SpawnableFor"/> asks, because
+    /// the two have to agree: an arena that parks an aircraft and then caps the play boundary at
+    /// forty metres is an arena where taking off is fatal. The harness asserts they agree.
+    /// </summary>
+    public bool HasAirspace => HasAirspaceFor(Layout);
+
+    public static bool HasAirspaceFor(int layout)
+        => HalfWidthFor(layout) * HalfDepthFor(layout) >= 60000f;
+
+    /// <summary>How high the sky goes over a layout that has any, in metres.</summary>
+    public const float AirspaceY = 210f;
+
+    /// <summary>
+    /// The top of the world, as far above it as the kill plane is below - unless there is airspace.
     ///
     /// Named because two places need to agree about it and used to only by coincidence: the play
     /// boundary below and the corpse clamp in the match step. Comfortably above anything anybody
-    /// can legitimately reach - a full jetpack tops out at 33m and the strongest launch pad on any
-    /// map apexes at 18.6m - so a pawn up here got there by a fault rather than by playing.
+    /// can legitimately reach on foot - a full jetpack tops out at 33m and the strongest launch pad
+    /// on any map apexes at 18.6m - so a pawn up here got there by a fault rather than by playing.
+    ///
+    /// On a map that parks aircraft that reasoning inverts: twenty-six metres of headroom is ten
+    /// metres above the walls, which is not a sky, it is a lid. A plane held under it cannot climb
+    /// over anything, cannot dive at anything, and cannot be bailed out of without the pawn coming
+    /// down through the only altitude the plane was allowed to have.
     /// </summary>
-    public float CeilingY => WallHeight + 26f;
+    public float CeilingY => WallHeight + (HasAirspace ? AirspaceY : 26f);
 
     /// <summary>
     /// One arena per faith, named for what it is rather than for its floor plan.
@@ -1431,16 +1451,39 @@ public sealed class Arena
     /// </summary>
     public const int HealthCrateTarget = 34;
 
+    /// <summary>This arena's floor area as a multiple of a standard arena's.</summary>
+    public float AreaRatio => (HalfWidth * HalfDepth) / (StandardHalfWidth * StandardHalfDepth);
+
     /// <summary>
-    /// Med kits for THIS arena, scaled by floor area.
+    /// The longest walk to health the layout is built to allow, in metres.
     ///
-    /// A fixed thirty-four was right while every map was the same size. On a floor five times
-    /// larger the same thirty-four spread to eighty-two metres from the nearest kit, which the
-    /// harness caught immediately: the number that matters is the longest walk to health, and
-    /// that is a property of area, not of a constant.
+    /// Forty on a standard arena: about six seconds, so being hurt in a corner is a decision about
+    /// whether to break off, not a hike. Holding forty on every map was the first attempt at
+    /// scaling and it does not survive contact with a siege map - a floor twenty-three times
+    /// larger wanted seven hundred and eighty-four med kits to meet it, at which point health
+    /// stops being a supply line and becomes litter you walk through.
+    ///
+    /// So health thins out as the map grows, rather than keeping pace with it. The walk grows as
+    /// roughly the fifth root of area, which on Coldstore is seventy metres - far enough that
+    /// holding ground near a kit is worth something, close enough that the far end of the map is
+    /// not a death sentence. That map also hands out vehicles, which is the other half of why a
+    /// longer walk is affordable there and nowhere else.
     /// </summary>
-    public int HealthCrates => Mathf.RoundToInt(
-        HealthCrateTarget * (HalfWidth * HalfDepth) / (StandardHalfWidth * StandardHalfDepth));
+    public float MaxHealthWalk => 40f * MathF.Pow(AreaRatio, 0.18f);
+
+    /// <summary>
+    /// Med kits for THIS arena.
+    ///
+    /// The same rule as <see cref="MaxHealthWalk"/>, stated as a count. Spacing goes as the square
+    /// root of area per kit, so a target walk of <c>w</c> over an area of <c>a</c> needs kits in
+    /// proportion to <c>a / w²</c> - which, with the walk itself growing as <c>r^0.18</c>, works
+    /// out to <c>r^0.64</c>. Coldstore lands on about two hundred and fifty rather than seven
+    /// hundred and eighty-four.
+    ///
+    /// Written as one exponent rather than as the division it came from, because the two numbers
+    /// have to move together and a reader who changes one should see the other.
+    /// </summary>
+    public int HealthCrates => Mathf.RoundToInt(HealthCrateTarget * MathF.Pow(AreaRatio, 0.64f));
 
     /// <summary>
     /// Lay med kits over the whole floor.
@@ -4337,8 +4380,16 @@ public sealed class Arena
         && p.Y > KillPlaneY - 1f
         && p.Y < CeilingY;
 
+    /// <summary>
+    /// The invariant check's boundary: gross escapes only, with slack on every side.
+    ///
+    /// The overhead used to be a flat sixty metres, which happened to be exactly the play ceiling
+    /// plus its slack on a standard arena and was wrong everywhere else - a pawn at seventy metres
+    /// in the Laboratory was in play and out of bounds at the same time, and a pilot at a hundred
+    /// over Coldstore tripped the invariant on every frame of the climb.
+    /// </summary>
     public bool Contains(Vector3 p)
         => MathF.Abs(p.X) <= HalfWidth + 4f
         && MathF.Abs(p.Z) <= HalfDepth + 4f
-        && p.Y > KillPlaneY - 30f && p.Y < 60f;
+        && p.Y > KillPlaneY - 30f && p.Y < CeilingY + 18f;
 }

@@ -38,7 +38,7 @@ public sealed class ResultsScreen : UiScreen
     /// a World3D and a physics scene, and tearing all that down cleanly is exactly what its
     /// existing exit path already does.
     /// </summary>
-    void Rematch() => Stack.Reset(new MatchScreen(settings, slots, app));
+    void Rematch() => Stack.Reset(new LoadingScreen(new MatchScreen(settings, slots, app)));
 
     /// <summary>Results is terminal for the match, so back goes the same place the menu does.</summary>
     protected override bool OnBack(InputDevice d)

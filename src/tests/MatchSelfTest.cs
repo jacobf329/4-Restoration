@@ -105,6 +105,20 @@ public static class MatchSelfTest
         driveScenario = scenarios.Count;
         scenarios.Add(new MatchSettings { Mode = GameMode.Deathmatch, ScoreLimit = 99, BotSkill = 0, ArenaIndex = 0 });
 
+        // A scenario that actually flies, on the only layout with sky over it.
+        //
+        // Every fault in the first flight model was invisible to a suite that never left the
+        // ground: the ceiling sat below the top of the perimeter wall, pitch was wired to the roll
+        // axis, the velocity could not follow the nose through a turn, and gravity was switched
+        // off entirely. Four separate things, one report - "the plane flight is terrible" - and
+        // nothing here to catch any of them.
+        flightScenario = scenarios.Count;
+        scenarios.Add(new MatchSettings
+        {
+            Mode = GameMode.Deathmatch, ScoreLimit = 99, BotSkill = 0,
+            ArenaIndex = Arena.ColdstoreLayout,
+        });
+
         TestLog.Line("=== HitboxClone match self-test ===");
         StartScenario();
     }
@@ -116,6 +130,7 @@ public static class MatchSelfTest
     const float DriveFireTime = 5f;
 
     static int driveScenario = -1;
+    static int flightScenario = -1;
     static int crowdScenario = -1;
     static int juggernautScenario = -1;
     static int dominionScenario = -1;
@@ -184,6 +199,219 @@ public static class MatchSelfTest
             hull.Facing = facing;
             hull.TurretYaw = facing;
         }
+    }
+
+    // ---- flying ----
+    //
+    // One aircraft, flown through the four things a plane has to be able to do, each measured
+    // rather than asserted: climb well clear of the buildings, come round to a new heading without
+    // skidding sideways, sink when the throttle comes off, and put its pilot on the ground alive
+    // when they bail out of it.
+
+    static Vehicle? plane;
+    static Pawn? pilot;
+    static float flightPhase;
+    static float flightStartY;
+    static float flightTurnFrom;
+    static float worstSkid;
+    static bool flightClimbChecked, flightTurnChecked, flightSinkChecked, flightBailed;
+    static float flightBailY;
+    static bool flightDone;
+    static float nextBailSample;
+
+    static PawnInput flightInput;
+
+    /// <summary>Seconds given to each phase of the flight probe.</summary>
+    const float FlyClimbTime = 3.5f;
+    const float FlyTurnTime = 3f;
+    const float FlySinkTime = 3f;
+    const float FlyFallTime = 8f;
+
+    static void SetUpFlightProbe()
+    {
+        var m = current!;
+        plane = null;
+        pilot = null;
+        flightPhase = 0f;
+        worstSkid = 0f;
+        flightClimbChecked = flightTurnChecked = flightSinkChecked = flightBailed = false;
+        flightDone = false;
+        flightInput = default;
+
+        m.InputSource = _ => flightInput;
+
+        foreach (var v in m.VehicleList)
+            if (v.Def.Kind == VehicleKind.Plane) { plane = v; break; }
+
+        Check(plane != null, "flight test: Coldstore parks an aircraft");
+        Check(m.Arena.HasAirspace, "flight test: and has sky over it");
+        if (plane == null) { flightDone = true; return; }
+
+        pilot = m.Pawns[0];
+
+        // Launched from the middle of the map at cruise, a hundred metres up: the probe is about
+        // what the aircraft does in the air, and taking off is a separate question.
+        plane.Restore(new Vector3(0f, 100f, 0f), 0f);
+        plane.Board(pilot);
+        plane.Facing = 0f;
+        plane.Velocity = new Vector3(Vehicles.Plane.MaxSpeed, 0f, 0f);
+
+        flightStartY = plane.GlobalPosition.Y;
+        flightTurnFrom = plane.Facing;
+    }
+
+    /// <summary>How far the velocity is pointing away from the nose, in radians.</summary>
+    static float Skid(Vehicle v)
+    {
+        var flat = new Vector2(v.Velocity.X, v.Velocity.Z);
+        if (flat.Length() < 2f) return 0f;
+        return MathF.Abs(MathU.AngleDiff(MathF.Atan2(flat.Y, flat.X), v.Facing));
+    }
+
+    static bool StepFlightProbe(float dt)
+    {
+        if (flightDone) return true;
+        if (plane is not { } air || pilot is not { } p) return true;
+
+        flightPhase += dt;
+
+        // ---- climb ----
+        if (!flightClimbChecked)
+        {
+            // Full throttle, nose up. RawLook.Y negative is "stick back", which raises the nose.
+            flightInput = new PawnInput { RawMove = new Vector2(0f, -1f), RawLook = new Vector2(0f, -1f) };
+
+            if (flightPhase < FlyClimbTime) return false;
+
+            flightClimbChecked = true;
+            float gained = air.GlobalPosition.Y - flightStartY;
+
+            TestLog.Line($"    the plane climbed {gained:0}m in {FlyClimbTime:0.0}s "
+                       + $"to {air.GlobalPosition.Y:0}m");
+
+            // Well clear of the walls, which is the whole complaint: the old ceiling was 14.5m.
+            Check(gained > 30f, $"a plane climbs when you pull back ({gained:0}m)");
+            Check(air.GlobalPosition.Y > Arena.StandardWallHeight * 2f,
+                  $"and gets properly above the map ({air.GlobalPosition.Y:0}m)");
+            Check(p.Alive, "and the pilot survives being up there");
+
+            // Levelled before the turn phase. A plane held nose-up is pinned against the ceiling,
+            // and what a turn does while pinned is a different question from whether it turns.
+            air.Pitch = 0f;
+
+            flightPhase = 0f;
+            flightTurnFrom = air.Facing;
+            worstSkid = 0f;
+            return false;
+        }
+
+        // ---- turn, both ways ----
+        if (!flightTurnChecked)
+        {
+            // Level the nose and hold full left stick, then full right.
+            float half = FlyTurnTime * 0.5f;
+            float steer = flightPhase < half ? -1f : 1f;
+            flightInput = new PawnInput { RawMove = new Vector2(steer, -1f) };
+
+            worstSkid = MathF.Max(worstSkid, Skid(air));
+
+            if (flightPhase < FlyTurnTime) return false;
+
+            flightTurnChecked = true;
+
+            float swept = MathF.Abs(MathU.AngleDiff(air.Facing, flightTurnFrom));
+            TestLog.Line($"    it swung {swept:0.0} rad left then right, "
+                       + $"worst skid {worstSkid:0.00} rad, roll {air.Roll:0.00}");
+
+            // It has to come round at all — this is "the planes can't turn left to right".
+            Check(worstSkid < 0.45f,
+                  $"a turning plane goes where its nose points ({worstSkid:0.00} rad of skid)");
+            Check(MathF.Abs(air.Roll) > 0.2f, $"and banks into the turn ({air.Roll:0.00} rad)");
+
+            // Level, slow, and not already falling: the sink phase asks whether a plane with no
+            // airspeed goes down, which is only a fair question from level flight. Measured off a
+            // steep climb it reads as "lost one metre", because the climb it is still carrying
+            // cancels most of the fall.
+            air.Pitch = 0f;
+            air.Velocity = new Vector3(MathF.Cos(air.Facing), 0f, MathF.Sin(air.Facing)) * 14f;
+
+            flightPhase = 0f;
+            flightStartY = air.GlobalPosition.Y;
+            return false;
+        }
+
+        // ---- sink ----
+        if (!flightSinkChecked)
+        {
+            // Throttle right back, nose level. It should not hold altitude on nothing.
+            flightInput = new PawnInput { RawMove = new Vector2(0f, 1f) };
+
+            if (flightPhase < FlySinkTime) return false;
+
+            flightSinkChecked = true;
+            float lost = flightStartY - air.GlobalPosition.Y;
+            TestLog.Line($"    with the throttle off it lost {lost:0}m in {FlySinkTime:0.0}s");
+            Check(lost > 8f, $"a plane with no airspeed falls ({lost:0}m)");
+
+            flightPhase = 0f;
+            return false;
+        }
+
+        // ---- bail out ----
+        if (!flightBailed)
+        {
+            flightBailed = true;
+            flightBailY = air.GlobalPosition.Y;
+            nextBailSample = 0f;
+
+            air.Eject();
+            Check(!p.InVehicle, "the pilot gets out");
+            Check(p.ChuteTime > 0f, "and leaves with a parachute");
+
+            flightPhase = 0f;
+            return false;
+        }
+
+        flightInput = default;
+
+        // The first second of the fall, frame by frame. A bail-out that goes wrong goes wrong
+        // immediately and the summary at the end cannot say how - the first version of this check
+        // reported a pilot dead at an altitude thirty-eight metres above the one they left, which
+        // is not something an end-of-phase number can explain.
+        if (flightPhase < 1f && flightPhase >= nextBailSample)
+        {
+            nextBailSample += 0.2f;
+            TestLog.Line($"      +{flightPhase:0.00}s  y={p.GlobalPosition.Y:0.0}  "
+                       + $"vy={p.Velocity.Y:0.0}  chute={p.ChuteTime:0.0}  "
+                       + $"plane y={air.GlobalPosition.Y:0.0}  alive={p.Alive}");
+        }
+
+        // The pilot is now falling through a match that is checking every frame for a pawn out of
+        // bounds, in the floor, or below the kill plane. Staying alive through that IS the check.
+        if (!p.Alive)
+        {
+            Check(false, $"bailing out at {flightBailY:0}m is survivable "
+                       + $"(died {flightPhase:0.0}s in, at {p.GlobalPosition.Y:0}m)");
+            flightDone = true;
+            return true;
+        }
+
+        if (flightPhase < FlyFallTime) return false;
+
+        float fell = flightBailY - p.GlobalPosition.Y;
+        TestLog.Line($"    bailed at {flightBailY:0}m, fell {fell:0}m in {FlyFallTime:0.0}s, "
+                   + $"alive at {p.GlobalPosition.Y:0}m");
+
+        Check(p.Alive, $"a pilot who bails out at {flightBailY:0}m lives");
+        Check(fell > 20f, $"and actually comes down ({fell:0}m)");
+
+        // Under the chute rather than in freefall: thirty metres a second through thin geometry is
+        // how a fall becomes a crush.
+        Check(p.Velocity.Y > -Pawn.ChuteFallSpeed - 1f,
+              $"at a survivable rate ({p.Velocity.Y:0.0} m/s)");
+
+        flightDone = true;
+        return true;
     }
 
     /// <summary>Drives forward, then turns. Returns true once both phases are judged.</summary>
@@ -4841,7 +5069,8 @@ public static class MatchSelfTest
         for (int i = 0; i < fighters; i++)
             roster.Add(new LobbySlot
             {
-                IsBot = !(scenarioIndex == driveScenario && i < 3),
+                IsBot = !((scenarioIndex == driveScenario && i < 3)
+                          || (scenarioIndex == flightScenario && i == 0)),
                 ClassIndex = i,
                 FactionIndex = i,
             });
@@ -4851,6 +5080,7 @@ public static class MatchSelfTest
         elapsed = 0f;
 
         if (scenarioIndex == driveScenario) SetUpDriveProbes();
+        if (scenarioIndex == flightScenario) SetUpFlightProbe();
 
         TestLog.Line($"- [{scenarioIndex + 1}/{scenarios.Count}] {settings.Def.Name} on "
                  + $"{Arena.Names[settings.ArenaIndex]} (bot skill {settings.BotSkillName})");
@@ -4893,7 +5123,10 @@ public static class MatchSelfTest
         bool driving = scenarioIndex == driveScenario;
         if (driving && !StepDriveProbes(dt)) return false;
 
-        bool over = driving || current.Finished || elapsed >= SecondsPerMatch;
+        bool flying = scenarioIndex == flightScenario;
+        if (flying && !StepFlightProbe(dt)) return false;
+
+        bool over = driving || flying || current.Finished || elapsed >= SecondsPerMatch;
         if (!over) return false;
 
         // A match where the bots never engaged is technically invariant-clean but worthless as a
@@ -4905,7 +5138,10 @@ public static class MatchSelfTest
         // collapsed together by the duplicate suppression below.
         var settings = scenarios[scenarioIndex];
         string tag = $"{settings.Def.Name}/{settings.BotSkillName}";
-        if (!driving) Check(current.ShotsFired > 0, $"{tag}: bots opened fire");
+        // Neither probe scenario is a fight. The drive scenario ends after a few seconds of
+        // steering and the flight scenario spends its whole life a hundred metres up over a map a
+        // kilometre across, where four bots on foot will not find each other and are not meant to.
+        if (!driving && !flying) Check(current.ShotsFired > 0, $"{tag}: bots opened fire");
         // Damage is accumulated across the whole run rather than demanded of every scenario.
         //
         // Whether anybody actually connects inside a twenty-eight second window is a behaviour

@@ -11,6 +11,13 @@ public sealed class PauseScreen : UiScreen
 {
     public override string Title => "PAUSED";
 
+    /// <summary>
+    /// Whatever the match was playing. Pausing is not leaving, and cutting to the menu bed the
+    /// moment somebody hits Start - then cutting back a second later - is two crossfades for a
+    /// screen that is often up for three seconds.
+    /// </summary>
+    public override string MusicCue => Music.Playing;
+
     readonly Match match;
     readonly Main app;
     readonly string? note;

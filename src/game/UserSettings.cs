@@ -38,6 +38,20 @@ public static class UserSettings
 
     public static readonly string[] AimAssistNames = { "Off", "Light", "Standard", "Strong" };
 
+    /// <summary>
+    /// Mixer levels, 0 (silent) to <see cref="Audio.Steps"/>. Nine is unity gain.
+    ///
+    /// Effects start a step under the soundtrack rather than level with it. A hundred and sixty
+    /// effects were mastered to a decibel below full scale and there can be sixteen of them in
+    /// flight, so at matched settings the guns bury the music - which is the state this default
+    /// was chosen to fix.
+    /// </summary>
+    public static int MasterVolume { get; set; } = 9;
+
+    public static int MusicVolume { get; set; } = 9;
+
+    public static int SfxVolume { get; set; } = 8;
+
     public static string AimAssistName => AimAssistNames[Mathf.Clamp(AimAssist, 0, 3)];
 
     public static void Load()
@@ -52,7 +66,14 @@ public static class UserSettings
 
         int q = cfg.GetValue("video", "quality", (int)GraphicsQuality.Medium).AsInt32();
         Quality = (GraphicsQuality)Mathf.Clamp(q, 0, 2);
+
+        MasterVolume = Vol(cfg, "master", 9);
+        MusicVolume = Vol(cfg, "music", 9);
+        SfxVolume = Vol(cfg, "sfx", 8);
     }
+
+    static int Vol(ConfigFile cfg, string key, int fallback)
+        => Mathf.Clamp(cfg.GetValue("audio", key, fallback).AsInt32(), 0, Audio.Steps);
 
     /// <summary>
     /// Writes the whole file. Pad bindings go through here rather than owning a file of their own,
@@ -64,6 +85,9 @@ public static class UserSettings
         cfg.SetValue("input", "keyboard_and_mouse", KeyboardAndMouse);
         cfg.SetValue("input", "aim_assist", AimAssist);
         cfg.SetValue("video", "quality", (int)Quality);
+        cfg.SetValue("audio", "master", MasterVolume);
+        cfg.SetValue("audio", "music", MusicVolume);
+        cfg.SetValue("audio", "sfx", SfxVolume);
         PadBindings.WriteTo(cfg);
         cfg.Save(Path);
     }

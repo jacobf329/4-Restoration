@@ -47,6 +47,10 @@ public partial class Main : Node
 
         // Skipped in headless: there is no audio device, and the harness has no use for sound.
         bool headless = DisplayServer.GetName().Contains("headless");
+        // Buses first: a player names its bus when it is created, and a player that names a bus
+        // which does not exist yet is quietly routed to Master instead - where the volume sliders
+        // cannot reach it.
+        if (!headless) Audio.Init();
         if (!headless) Sfx.Init(this);
         if (!headless) Music.Init(this);
 

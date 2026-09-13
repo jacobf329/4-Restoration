@@ -73,7 +73,7 @@ public static class Sfx
         voices = new AudioStreamPlayer[Voices];
         for (int i = 0; i < Voices; i++)
         {
-            var p = new AudioStreamPlayer { Name = $"Voice{i}", Bus = "Master" };
+            var p = new AudioStreamPlayer { Name = $"Voice{i}", Bus = Audio.SfxBus };
             parent.AddChild(p);
             voices[i] = p;
         }
@@ -127,7 +127,7 @@ public static class Sfx
 
         // A random take, not a rotating one: rotation is itself a pattern, and the ear finds it.
         player.Stream = bank.Count == 1 ? bank[0] : bank[rng.Next(bank.Count)];
-        player.VolumeDb = volumeDb;
+        player.VolumeDb = volumeDb + Trim(FileKey(s));
         player.PitchScale = pitch;
         player.Play();
     }
@@ -165,7 +165,7 @@ public static class Sfx
         nextVoice = (nextVoice + 1) % voices.Length;
 
         player.Stream = bank.Count == 1 ? bank[0] : bank[rng.Next(bank.Count)];
-        player.VolumeDb = volumeDb;
+        player.VolumeDb = volumeDb + Trim(key);
         player.PitchScale = pitch;
         player.Play();
     }
@@ -229,6 +229,81 @@ public static class Sfx
         if (w.FireInterval <= 0.12f) return Sound.ShotFlanker;
         if (w.FireInterval >= 0.9f || w.HasScope) return Sound.ShotMarksman;
         return Sound.ShotTrooper;
+    }
+
+    // ---- the mix ----
+
+    /// <summary>
+    /// How far under full scale each family of sounds sits, in decibels.
+    ///
+    /// This table is the whole answer to "the sounds are mixed way too loud". Every generated
+    /// effect is mastered to a decibel below full scale, which is right for the FILE - it is how
+    /// you keep a quiet recording out of the noise and a loud one out of the clipper - and wrong
+    /// for the GAME, because it makes a footstep exactly as loud as a tank shell. Normalisation
+    /// gives every sound the same level; a mix is the business of taking that back away.
+    ///
+    /// Keyed by the file-name prefix rather than by enum or by call site, for the same reason the
+    /// banks are: the roster grows by dropping a file in, and a new footstep should arrive already
+    /// at footstep level without anyone remembering to say so. A prefix with no entry plays at
+    /// unity, so an unrecognised sound is audible and obviously unmixed rather than silent.
+    /// </summary>
+    static readonly (string Prefix, float Db)[] Trims =
+    {
+        ("x_",   -1f),    // explosions: the loudest thing that happens, and the reference
+        ("v_",  -10f),    // vehicles, mostly loops and engine noise
+        ("w_",   -6f),    // weapon reports
+        ("ob_",  -8f),    // objectives: flags, dominion flips
+        ("ab_",  -8f),    // abilities
+        ("m_",   -8f),    // melee
+        ("st_",  -9f),    // the player's own state: hurt, heal, death
+        ("po_", -10f),    // portals
+        ("mc_", -10f),    // machinery: lifts, push walls, launch pads
+        ("gr_", -12f),    // grapple
+        ("ui_", -12f),    // menu and lobby
+        ("i_",  -13f),    // impacts, which fire on every single bullet that lands
+        ("mv_", -14f),    // jumps, slides, landings
+        ("jp_", -14f),    // jetpack
+        ("f_",  -20f),    // footsteps: four a second, per pawn, for the whole match
+    };
+
+    /// <summary>
+    /// Sounds whose family level is wrong for them specifically.
+    ///
+    /// Short and meant to stay short. A cannon is not a tank engine and a headshot is not a body
+    /// shot, but if this list starts growing past a dozen it means a family in
+    /// <see cref="Trims"/> is drawn in the wrong place.
+    /// </summary>
+    static readonly Dictionary<string, float> Overrides = new()
+    {
+        ["v_tank_cannon"] = -2f,
+        ["v_wreck"] = -4f,
+        ["v_plane_guns"] = -8f,
+        ["v_tank_idle"] = -16f,
+        ["v_buggy_idle"] = -16f,
+        ["i_headshot"] = -7f,
+        ["x_small"] = -4f,
+        ["x_breakable"] = -7f,
+        ["st_low_health"] = -6f,
+        ["jp_loop"] = -18f,
+        ["po_idle"] = -18f,
+    };
+
+    /// <summary>Where a sound sits in the mix, in decibels below full scale.</summary>
+    public static float Trim(string key)
+    {
+        if (key.Length == 0) return 0f;
+        if (Overrides.TryGetValue(key, out float exact)) return exact;
+
+        // Longest prefix wins, so "st_" cannot be shadowed by a hypothetical "s_".
+        float db = 0f;
+        int best = 0;
+        foreach (var (prefix, value) in Trims)
+            if (key.StartsWith(prefix, StringComparison.Ordinal) && prefix.Length > best)
+            {
+                best = prefix.Length;
+                db = value;
+            }
+        return db;
     }
 
     // ---- synthesis ----

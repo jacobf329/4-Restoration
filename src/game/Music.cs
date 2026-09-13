@@ -27,11 +27,16 @@ public static class Music
     /// <summary>
     /// How loud the soundtrack sits under the game.
     ///
-    /// Well down. These are beds, not songs: the mix has twelve fighters, a tank and a hundred
-    /// and sixty effects on top, and music that competes with a weapon report is music a player
-    /// turns off.
+    /// Down, but not buried. The cues are mastered to -15 dBFS by tools/master.py, so this is on
+    /// top of a level that already leaves room for twelve fighters, a tank and a hundred and sixty
+    /// effects.
+    ///
+    /// It used to be -14, chosen when the cues were unmastered and ranged over forty-eight
+    /// decibels. That was the wrong knob: attenuating everything equally cannot fix a roster where
+    /// half the files are below the noise floor, and all it achieved was making the half that were
+    /// loud enough inaudible too. The files got fixed; this came back up to match.
     /// </summary>
-    public const float BedDb = -14f;
+    public const float BedDb = -6f;
 
     /// <summary>Seconds to cross from one cue to the next. Long enough to read as a change of place.</summary>
     const float Crossfade = 1.6f;
@@ -53,8 +58,8 @@ public static class Music
         if (ready || !Enabled) return;
         ready = true;
 
-        active = new AudioStreamPlayer { Name = "MusicA", Bus = "Master", VolumeDb = BedDb };
-        fading = new AudioStreamPlayer { Name = "MusicB", Bus = "Master", VolumeDb = -80f };
+        active = new AudioStreamPlayer { Name = "MusicA", Bus = Audio.MusicBus, VolumeDb = BedDb };
+        fading = new AudioStreamPlayer { Name = "MusicB", Bus = Audio.MusicBus, VolumeDb = -80f };
         parent.AddChild(active);
         parent.AddChild(fading);
     }

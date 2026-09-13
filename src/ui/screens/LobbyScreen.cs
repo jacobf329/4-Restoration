@@ -113,7 +113,7 @@ public sealed class LobbyScreen : UiScreen
                 var d = s.Device;
                 if (s.Claimed && d is { StartPressed: true })
                 {
-                    Stack.Push(new MatchScreen(settings, Slots, app));
+                    Stack.Push(new LoadingScreen(new MatchScreen(settings, Slots, app)));
                     return;
                 }
             }

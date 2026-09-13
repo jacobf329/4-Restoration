@@ -1447,6 +1447,30 @@ public partial class Pawn : CharacterBody3D
         // arc rather than a stop in mid-air, and at these numbers the arc is a second jump.
         if (dashingNow && dashRise != 0f) vy = dashRise;
 
+        // The chute. Last word on the descent rate, and only ever downward - it caps a fall, it
+        // never adds a metre, so it cannot be used as a second jump or to ride a launch pad higher.
+        if (ChuteTime > 0f)
+        {
+            if (grounded) ChuteTime = 0f;
+            else
+            {
+                ChuteTime = MathF.Max(0f, ChuteTime - dt);
+                vy = MathF.Max(vy, -ChuteFallSpeed);
+            }
+        }
+
+        // A backstop, not a mechanic.
+        //
+        // Nothing a player can do reaches this: the strongest launch pad on any map leaves at
+        // twenty-eight metres a second and a jump at ten. What reaches it is the physics solver
+        // arguing with itself - a controller standing on another moving controller, each pushing
+        // the other out - which has been measured at four hundred metres a second, doubling every
+        // other frame, and ends with a pawn shot through the top of the world and killed for being
+        // out of bounds. The specific cause is fixed where it belongs; this is here so the next
+        // one of its kind is a stutter instead of a death.
+        const float Runaway = 90f;
+        vy = MathU.Clamp(vy, -Runaway, Runaway);
+
         Velocity = new Vector3(horizontal.X, vy, horizontal.Z);
         MoveAndSlide();
 
@@ -2344,6 +2368,32 @@ public partial class Pawn : CharacterBody3D
         if (rig != null) rig.Visible = false;
     }
 
+    /// <summary>
+    /// Seconds of parachute left. Set by bailing out of an aircraft; ticked down in the air.
+    ///
+    /// This exists because the airspace over a siege map is two hundred metres deep, and a bail-out
+    /// from the top of it is a twelve-second fall at the speed an unchecked pawn reaches - long
+    /// enough to be its own punishment, fast enough at the bottom to push the controller through
+    /// thin geometry and end as a crush. Neither is the thing a player asked for when they pressed
+    /// the button that says "get out".
+    ///
+    /// Deliberately not a jetpack: it does not thrust, it does not steer, and it cannot gain a
+    /// metre. All it does is cap how fast you come down.
+    /// </summary>
+    public float ChuteTime;
+
+    /// <summary>Descent rate under the chute, metres a second.</summary>
+    public const float ChuteFallSpeed = 11f;
+
+    /// <summary>Seconds of chute a bail-out is worth. Longer than the deepest fall on any map.</summary>
+    public const float ChuteDuration = 30f;
+
+    /// <summary>Whether the chute is out: bailed, in the air, and still alive.</summary>
+    public bool Parachuting => ChuteTime > 0f && Alive && !IsOnFloor();
+
+    /// <summary>Hands this pawn a parachute. Called when they leave a flying hull.</summary>
+    public void OpenChute() => ChuteTime = ChuteDuration;
+
     public void ExitVehicle(Vector3 at)
     {
         Riding = null;
@@ -2367,6 +2417,7 @@ public partial class Pawn : CharacterBody3D
         Health = MaxHealth;
         GlobalPosition = at;
         Velocity = Vector3.Zero;
+        ChuteTime = 0f;
         dashTime = 0f;
         dashRise = 0f;
         ReleaseGrapple();

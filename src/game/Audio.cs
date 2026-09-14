@@ -22,6 +22,17 @@ public static class Audio
     public const string MusicBus = "Music";
     public const string SfxBus = "Sfx";
 
+    /// <summary>
+    /// Room tone: its own bus, and so its own slider.
+    ///
+    /// Neither of the other two, and it took playing it to see why. Put it on the music bus and a
+    /// player who turns the score off loses the world with it - a crypt that sounds like nothing
+    /// is not a crypt. Put it on effects and anyone who pulls the guns down to hear footsteps
+    /// pulls the room down too, which is the opposite of what they were after. It is a third
+    /// thing, and the mixer says so.
+    /// </summary>
+    public const string AmbienceBus = "Ambience";
+
     /// <summary>Ten steps, so a stick press is a noticeable but not drastic change.</summary>
     public const int Steps = 10;
 
@@ -52,7 +63,7 @@ public static class Audio
         if (ready) return;
         ready = true;
 
-        foreach (string name in new[] { MusicBus, SfxBus })
+        foreach (string name in new[] { MusicBus, SfxBus, AmbienceBus })
         {
             if (AudioServer.GetBusIndex(name) >= 0) continue;
 
@@ -73,6 +84,7 @@ public static class Audio
         Set("Master", UserSettings.MasterVolume);
         Set(MusicBus, UserSettings.MusicVolume);
         Set(SfxBus, UserSettings.SfxVolume);
+        Set(AmbienceBus, UserSettings.AmbienceVolume);
     }
 
     static void Set(string bus, int step)

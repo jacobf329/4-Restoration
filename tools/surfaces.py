@@ -401,7 +401,7 @@ def world_grime():
     return fbm(5, 6, 90101) * 0.6 + fbm(4, 20, 90102) * 0.4
 
 
-def grade(col, grime, ceiling=0.86, grime_scale=1.0, contrast=None, warm=1.0):
+def grade(col, grime, ceiling=0.86, grime_scale=1.0, contrast=None, warm=1.0, level=1.0):
     """Desaturate, compress into the shared value range, warm it, then dirty it.
 
     `ceiling` and `grime_scale` exist for snow, and only barely. The shared range is what keeps
@@ -417,6 +417,14 @@ def grade(col, grime, ceiling=0.86, grime_scale=1.0, contrast=None, warm=1.0):
     itself, and the clamp at 0.86 never even engages. So snow also relaxes the compression. And it
     turns down WORLD_TINT, because the shared warm sun on a near-white surface is the difference
     between snow and sand - at full strength it came out beige.
+
+    `level` is the correction to that correction, and it is a separate knob because it does a
+    different thing. Ceiling and contrast decide how bright a material may be relative to the
+    others; level decides how much of the renderer's dynamic range it is allowed to spend. Snow
+    came out at 0.92 mean with a range of nine hundredths, which is not a bright material, it is a
+    clipped one: the scene's ambient runs at 1.55 and ACES rolls everything above white into the
+    same white, so a snowfield rendered flat and featureless to the horizon. Scaling it down keeps
+    every bit of the variation and gives the tonemapper somewhere to put it.
     """
     lum = col @ LUMA
     col = lum[..., None] + (col - lum[..., None]) * SATURATION
@@ -428,15 +436,15 @@ def grade(col, grime, ceiling=0.86, grime_scale=1.0, contrast=None, warm=1.0):
 
     col = col * (1.0 + (WORLD_TINT - 1.0) * warm)[None, None, :]
     col = col * (1.0 - GRIME * grime_scale * (1.0 - grime)[..., None])
-    return col
+    return col * level
 
 
 # Materials that sit above the shared ceiling, and how much of the shared dirt they take.
 # Everything not named here uses the defaults, which is the whole set except these two.
 GRADE = {
-    "snow": dict(ceiling=0.985, grime_scale=0.30, contrast=0.95, warm=0.25),
+    "snow": dict(ceiling=0.985, grime_scale=0.30, contrast=0.95, warm=0.25, level=0.85),
     "glass": dict(ceiling=0.93, grime_scale=0.60, contrast=0.85, warm=0.55),
-    "ice":  dict(ceiling=0.94,  grime_scale=0.55, contrast=0.80, warm=0.35),
+    "ice":  dict(ceiling=0.94,  grime_scale=0.55, contrast=0.80, warm=0.35, level=0.94),
 }
 
 

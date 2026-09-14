@@ -18,6 +18,9 @@ public sealed class PauseScreen : UiScreen
     /// </summary>
     public override string MusicCue => Music.Playing;
 
+    /// <summary>And the same room. You have not left it.</summary>
+    public override string AmbienceCue => Music.Ambience_;
+
     readonly Match match;
     readonly Main app;
     readonly string? note;

@@ -337,6 +337,34 @@ public sealed class Arena
         _ => "mus_02_standing_orders",
     };
 
+    /// <summary>
+    /// The room tone for this place: what it sounds like with nothing happening in it.
+    ///
+    /// A separate layer from the music rather than baked into the cue, because the two want
+    /// opposite things. A bed is written and can be changed for a mood - the crown cue replaces
+    /// the arena's - while the place itself does not change: a crypt is a crypt whether or not
+    /// somebody is wearing the crown, and folding it into the music would mean the room went away
+    /// every time the score did.
+    ///
+    /// Fairview and Convocation borrow, and say so. A settlement of thin walls is what Fairview is
+    /// made of, and the Convocation is a stone hall; borrowing a bed is much better than building
+    /// a town and hearing nothing in it, and it is one string to change when they get their own.
+    /// </summary>
+    public string AmbienceCue => Layout switch
+    {
+        0 => "amb_01_reliquary",
+        1 => "amb_02_furnace",
+        2 => "amb_03_glasshouse",
+        3 => "amb_04_thousand_rooms",
+        LaboratoryLayout => "amb_05_laboratory",
+        ColdstoreLayout => "amb_06_coldstore",
+
+        _ when Layout == FairviewLayout => "amb_04_thousand_rooms",
+        _ when Layout == ConvocationLayout => "amb_01_reliquary",
+
+        _ => "",
+    };
+
     public readonly List<Block> Blocks = new();
 
     /// <summary>
@@ -3187,13 +3215,22 @@ public sealed class Arena
     /// </summary>
     void RoomsGlasshouse()
     {
+        // Glazed, and only these. Giving the whole palette's wall role to glass was the first
+        // attempt and it painted the entire map in a lattice, because Wall is what DressingFor
+        // falls through to for any block that is not a deck, a mass or a crouch-height crate -
+        // which is most of them. A glasshouse is glazing over a frame, not a building made of
+        // window; the bays and the vaults are the glazing and everything else is the frame.
+        //
+        // Rendered rather than measured, the first time. It took a screenshot to see it.
+
         // Growing bays down each side. Low and open-topped: cover from the ground, transparent from
         // the balcony, which gives the upper storey a real reason to exist beyond height.
         foreach (int sx in new[] { -1, 1 })
         for (int i = -1; i <= 1; i++)
         {
             if (!Room(new Vector3(sx * 66f, 0f, i * 30f), new Vector3(8f, 1.7f, 8f),
-                      doors: new[] { true, true, true, true }, roofed: false)) continue;
+                      doors: new[] { true, true, true, true }, roofed: false,
+                      surface: SurfaceKind.Glass)) continue;
 
             Blocks.Add(new Block(LastRoomAt with { Y = 0.5f },
                                  new Vector3(4.5f, 0.5f, 3f), new Color(0.30f, 0.52f, 0.36f)));
@@ -3203,7 +3240,8 @@ public sealed class Arena
         // space on the map, which is what makes them worth taking.
         foreach (int sz in new[] { -1, 1 })
             if (Room(new Vector3(0f, 0f, sz * 62f), new Vector3(12f, 3f, 9f),
-                     doors: new[] { true, true, false, false }))
+                     doors: new[] { true, true, false, false },
+                     surface: SurfaceKind.Glass))
                 WeaponSpawns.Add(LastRoomAt with { Y = 1f });
     }
 
@@ -4134,7 +4172,8 @@ public sealed class Arena
 
         root.AddChild(Graphics.BuildSun());
         root.AddChild(Graphics.BuildFill());
-        root.AddChild(Graphics.BuildEnvironment(fog));
+        // Ranged off this arena, not off a constant. See Graphics.BuildEnvironment.
+        root.AddChild(Graphics.BuildEnvironment(fog, MathF.Max(HalfWidth, HalfDepth) * 2f));
     }
 
     /// <summary>
@@ -4229,12 +4268,9 @@ public sealed class Arena
             // THE GLASSHOUSE - the Garden's. White-painted iron and glazing bars over planting
             // beds. Light, damp, and the only arena where the ground is growing.
             //
-            // Its walls are the thing it is named for and were plaster until the material existed.
-            // That was not only a look: a round striking the Glasshouse sounded like a round
-            // striking a rendered wall, on the one map in the game that is made of panes.
             2 => new Palette(
                 SurfaceKind.Plaster,  new Color(0.88f, 0.90f, 0.86f),
-                SurfaceKind.Glass,    new Color(0.86f, 0.92f, 0.88f),
+                SurfaceKind.Plaster,  new Color(0.80f, 0.85f, 0.80f),
                 SurfaceKind.Timber,   new Color(0.52f, 0.46f, 0.34f),
                 SurfaceKind.Foliage,  new Color(0.72f, 0.86f, 0.66f)),
 
@@ -4250,11 +4286,17 @@ public sealed class Arena
             // COLDSTORE - nobody's, which is why it is fought over. Snow, glare ice and cold
             // grey plant. The only arena whose ground is the brightest thing in it, and the only
             // one built from materials no other map uses at all.
+            // The tints on the snow look far too dark written down, and are not. Albedo is an input,
+            // not a picture: measured off the render, a 0.65 snowfield came back at 0.97 - brighter
+            // than the sky above it and flat to the horizon, because the scene runs its ambient at
+            // 1.55 and ACES rolls everything up there into the same white. What you see is the
+            // number after the light and the tonemapper have had it, and these are the numbers that
+            // put it at 0.86 with its relief still in it.
             ColdstoreLayout => new Palette(
                 SurfaceKind.Panel, new Color(0.44f, 0.47f, 0.52f),
-                SurfaceKind.Snow,  new Color(0.95f, 0.96f, 0.98f),
-                SurfaceKind.Ice,   new Color(0.70f, 0.82f, 0.92f),
-                SurfaceKind.Snow,  new Color(0.90f, 0.93f, 0.97f)),
+                SurfaceKind.Snow,  new Color(0.60f, 0.62f, 0.66f),
+                SurfaceKind.Ice,   new Color(0.58f, 0.68f, 0.78f),
+                SurfaceKind.Snow,  new Color(0.55f, 0.59f, 0.66f)),
 
             // THE LABORATORY - the Vessels' again, and the same bone white as the Reliquary
             // because it is the same people, but everything here is soot-stained and cold. Where

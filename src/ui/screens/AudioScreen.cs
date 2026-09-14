@@ -4,7 +4,7 @@ using Godot;
 namespace HitboxClone;
 
 /// <summary>
-/// The mixer, as three sliders.
+/// The mixer, as four sliders.
 ///
 /// Split off the options screen rather than added to it because these are the only settings in the
 /// game you cannot judge by reading - you have to hear them - and a row you have to hear wants the
@@ -47,6 +47,10 @@ public sealed class AudioScreen : UiScreen
                 // nothing playing is the reason a mixer feels broken when it is not.
                 Sfx.PlayKey("ui_claim");
             });
+
+        menu.AddSetting("Ambience volume",
+            () => Bar(UserSettings.AmbienceVolume),
+            dx => { UserSettings.AmbienceVolume = Nudge(UserSettings.AmbienceVolume, dx); Commit(); });
 
         menu.Add("Test the mix", () =>
         {
@@ -103,6 +107,8 @@ public sealed class AudioScreen : UiScreen
             "Effects sit a step under music by default because every",
             "effect is mastered to full scale and there can be sixteen",
             "of them at once. Raise it if the guns feel thin.",
+            "",
+            "Ambience is the room itself — wind, water, machinery.",
         };
 
         float hy = top + menu.Items.Count * 52f + 26f;

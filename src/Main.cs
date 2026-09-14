@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Godot;
 
@@ -28,6 +29,7 @@ public partial class Main : Node
 
     // --shots state
     string? shotDir;
+    string shotFilter = "";
     readonly List<(string name, UiScreen screen, int settle)> shots = new();
 
     /// <summary>Scripted devices used to pose captures. Real hardware is never polled during a shot.</summary>
@@ -82,7 +84,15 @@ public partial class Main : Node
                 return;
             }
             if (args[i] == "--shots" && i + 1 < args.Length)
+            {
                 shotDir = args[i + 1];
+
+                // An optional third word narrows the queue to shots whose name contains it. The
+                // full set is twenty minutes of rendering and most iterations are about one map;
+                // waiting out nineteen screens to look at the twentieth is how a visual bug stays
+                // unlooked-at, which is how the snow shipped white.
+                if (i + 2 < args.Length && !args[i + 2].StartsWith("--")) shotFilter = args[i + 2];
+            }
         }
 
         Stack.Push(new TitleScreen(Settings, this));
@@ -138,6 +148,7 @@ public partial class Main : Node
         Devices.PollAll(dt);
         Stack.Update(dt, Devices.All);
 
+
         if (Stack.QuitRequested) GetTree().Quit();
 
         Ui.QueueRedraw();
@@ -172,8 +183,12 @@ public partial class Main : Node
         shots.Add(("02b-controls", new ControlsScreen(), 3));
         shots.Add(("03-devices", new DeviceTestScreen(), 3));
         shots.Add(("03b-options", new OptionsScreen(), 3));
-        shots.Add(("03c-bindings", new RebindScreen(), 3));
-        shots.Add(("03c-bindings", new RebindScreen(), 3));
+
+        // The mixer gets a shot of its own. It is four bars and a test row, and four bars is
+        // exactly the kind of screen that silently overflows when a fifth arrives.
+        shots.Add(("03c-audio", new AudioScreen(), 3));
+
+        shots.Add(("03d-bindings", new RebindScreen(), 3));
 
         var lobby = new LobbyScreen(Settings, this);
         lobby.Slots[0].DeviceId = Devices.Keyboards[0].Id;
@@ -380,6 +395,11 @@ public partial class Main : Node
         for (int a = 0; a < Arena.Names.Length; a++)
             shots.Add(($"09-arena-{a}-{Arena.Names[a].ToLowerInvariant()}",
                        new ArenaPreviewScreen(a, this), 12));
+
+        // Narrowed last, so the filter is a view of the real queue rather than a second queue that
+        // can drift out of step with it.
+        if (shotFilter.Length > 0)
+            shots.RemoveAll(s => !s.name.Contains(shotFilter, StringComparison.OrdinalIgnoreCase));
 
         DirAccess.MakeDirRecursiveAbsolute(shotDir);
     }

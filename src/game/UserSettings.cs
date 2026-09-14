@@ -52,6 +52,11 @@ public static class UserSettings
 
     public static int SfxVolume { get; set; } = 8;
 
+    /// <summary>
+    /// Room tone, two steps under unity. It is the layer you are meant to stop noticing.
+    /// </summary>
+    public static int AmbienceVolume { get; set; } = 7;
+
     public static string AimAssistName => AimAssistNames[Mathf.Clamp(AimAssist, 0, 3)];
 
     public static void Load()
@@ -70,6 +75,7 @@ public static class UserSettings
         MasterVolume = Vol(cfg, "master", 9);
         MusicVolume = Vol(cfg, "music", 9);
         SfxVolume = Vol(cfg, "sfx", 8);
+        AmbienceVolume = Vol(cfg, "ambience", 7);
     }
 
     static int Vol(ConfigFile cfg, string key, int fallback)
@@ -88,6 +94,7 @@ public static class UserSettings
         cfg.SetValue("audio", "master", MasterVolume);
         cfg.SetValue("audio", "music", MusicVolume);
         cfg.SetValue("audio", "sfx", SfxVolume);
+        cfg.SetValue("audio", "ambience", AmbienceVolume);
         PadBindings.WriteTo(cfg);
         cfg.Save(Path);
     }

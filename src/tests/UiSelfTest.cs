@@ -51,6 +51,8 @@ public static class UiSelfTest
         TestVehiclesAndJetpack();
         TestOnePressSurvivesEveryFrameRate();
         TestGeneratedAudioParses();
+        TestYouCanSeeAcrossTheMap();
+        TestGlazingIsDeliberate();
         TestEverySoundIsReachable();
         TestTheMix();
         TestTheMixerIsReachableWithAPad();
@@ -482,6 +484,8 @@ public static class UiSelfTest
         for (int i = 0; i < Audio.Steps + 4; i++) h.Nav(1, 0);
         Check(UserSettings.MusicVolume == Audio.Steps,
               $"and all the way up ({UserSettings.MusicVolume})");
+
+        Check(h.NavTo("Ambience volume"), "and so is the room tone");
 
         h.TapBack();
         Check(h.TopName == nameof(OptionsScreen), "and backs out to options");
@@ -2311,6 +2315,16 @@ public static class UiSelfTest
         foreach (string cue in new[] { "mus_01_specification", "mus_02_standing_orders" })
             Check(Music.Has(cue), $"the menus' cue {cue}.mp3 loads");
 
+        // Room tone, per arena. Six beds were generated, mastered, regenerated when four of them
+        // came back silent - and never played, because nothing in the game had ever named one.
+        // That is the same fault as the hundred and forty-five unplayed effects, one folder over.
+        for (int layout = 0; layout < Arena.CombatLayouts; layout++)
+        {
+            var a = new Arena(layout);
+            Check(a.AmbienceCue.Length > 0, $"{a.Name} names a room tone");
+            Check(Music.Has(a.AmbienceCue), $"{a.Name}: {a.AmbienceCue}.mp3 loads");
+        }
+
         var cues = Godot.DirAccess.GetFilesAt(Music.Folder);
         int playable = 0;
         foreach (string file in cues)
@@ -2321,6 +2335,79 @@ public static class UiSelfTest
             else Check(false, $"{file} is on disk but will not play");
         }
         TestLog.Line($"    {playable} music cue(s) load");
+    }
+
+    /// <summary>
+    /// You can see across the map you are standing on.
+    ///
+    /// The fog was a pair of constants tuned for a 278-metre arena - hazy from 45 metres, gone by
+    /// 330. On a siege map 1320 metres deep that is a quarter of the way to the objective, and the
+    /// screenshot of it is a white void with a smear of geometry at the horizon. A map whose whole
+    /// idea is a long approach has to let you see the approach.
+    ///
+    /// Stated as a relationship rather than as numbers: wherever you stand, the far side is not
+    /// fully hazed, and the near ground is clear.
+    /// </summary>
+    static void TestYouCanSeeAcrossTheMap()
+    {
+        TestLog.Line("- the haze is ranged off the map, not off a constant");
+
+        for (int layout = 0; layout < Arena.Names.Length; layout++)
+        {
+            float reach = MathF.Max(Arena.HalfWidthFor(layout), Arena.HalfDepthFor(layout)) * 2f;
+            var (begin, end) = Graphics.FogRange(reach);
+
+            Check(end > reach,
+                  $"{Arena.Names[layout]}: the far side is still visible ({end:0}m haze over {reach:0}m)");
+
+            Check(begin > 30f && begin < reach * 0.3f,
+                  $"{Arena.Names[layout]}: the near ground is clear (haze from {begin:0}m)");
+
+            Check(end > begin * 4f, $"{Arena.Names[layout]}: the haze has somewhere to build");
+        }
+
+        var (b0, e0) = Graphics.FogRange(Arena.StandardHalfWidth * 2f);
+        var (b1, e1) = Graphics.FogRange(Arena.LargestHalfDepth * 2f);
+        TestLog.Line($"    standard {b0:0}-{e0:0}m, largest {b1:0}-{e1:0}m");
+    }
+
+    /// <summary>
+    /// Glazing is chosen, never defaulted to.
+    ///
+    /// The check that would have saved a screenshot. Glass was given to the Glasshouse's palette
+    /// as its *wall* material, which sounds exactly right and is not: Wall is what DressingFor
+    /// falls through to for any block that is not a deck, a big mass or a crouch-height crate,
+    /// which is most of the map. The whole arena came out tiled in a lattice, and nothing said so
+    /// because nothing here had ever looked at it.
+    ///
+    /// So: no palette role in any layout may be glass, and the one map that is named for its panes
+    /// has to actually have some.
+    /// </summary>
+    static void TestGlazingIsDeliberate()
+    {
+        TestLog.Line("- glazing is placed by hand, not fallen into");
+
+        for (int layout = 0; layout < Arena.Names.Length; layout++)
+        {
+            var p = Arena.PaletteFor(layout);
+
+            foreach (var (role, kind) in new[]
+                     { ("mass", p.Mass), ("wall", p.Wall), ("cover", p.Cover), ("ground", p.Ground) })
+                Check(kind != SurfaceKind.Glass,
+                      $"{Arena.Names[layout]}'s {role} material is not glazing");
+        }
+
+        // And the Glasshouse is glazed. Its bays and its seed vaults ask for it by name.
+        var glasshouse = new Arena(2);
+        int panes = 0;
+        foreach (var b in glasshouse.Blocks) if (b.Surface == SurfaceKind.Glass) panes++;
+
+        TestLog.Line($"    the Glasshouse carries {panes} glazed block(s) of {glasshouse.Blocks.Count}");
+        Check(panes > 0, "the Glasshouse has glass in it");
+
+        // A minority of it, which is the difference between a glasshouse and a fishbowl.
+        Check(panes < glasshouse.Blocks.Count / 4,
+              $"and is not made entirely of it ({panes} of {glasshouse.Blocks.Count})");
     }
 
     /// <summary>
@@ -2476,6 +2563,12 @@ public static class UiSelfTest
 
         // The sliders. Nine of ten is unity, zero is silence, and every step in between is a step
         // down - a slider with a flat spot in it is a slider the player thinks is broken.
+        // Four buses, four sliders. Room tone is neither music nor an effect: on the music bus a
+        // player who turns the score off loses the world, and on the effects bus anyone who pulls
+        // the guns down to hear footsteps pulls the room down with them.
+        foreach (string bus in new[] { Audio.MusicBus, Audio.SfxBus, Audio.AmbienceBus })
+            Check(bus.Length > 0, $"the {bus} bus is named");
+
         Check(Audio.Db(9) == 0f, "nine of ten is unity gain");
         Check(Audio.Db(0) <= -60f, "zero is silence");
         Check(Audio.Db(Audio.Steps) > 0f, "and the top step has something in hand");

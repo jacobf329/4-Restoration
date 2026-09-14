@@ -103,7 +103,10 @@ public static class Graphics
     /// the arena washes the entire map to one flat haze. Depth cueing is for looking *through* a
     /// space, not at one.
     /// </summary>
-    public static WorldEnvironment BuildEnvironment(bool fog = true)
+    /// <param name="reach">
+    /// The longest straight line across the arena, in metres. The fog is ranged off it.
+    /// </param>
+    public static WorldEnvironment BuildEnvironment(bool fog = true, float reach = 278f)
     {
         var sky = new ProceduralSkyMaterial
         {
@@ -162,10 +165,18 @@ public static class Graphics
         env.AdjustmentSaturation = 1.14f;
         env.AdjustmentBrightness = 1.02f;
 
-        // Aerial perspective, re-ranged for the arena as it now is. The old numbers had fog fully
-        // saturated by 140 metres, which was most of the way across the previous map and barely a
-        // third of the way across this one — so everything beyond the middle distance sat at one
-        // uniform haze and the far half of the arena had no depth in it at all.
+        // Aerial perspective, ranged off the map rather than fixed.
+        //
+        // Fixed numbers were right for one arena and then there were six. Tuned for a 278-metre
+        // crossing, "fully hazy by 330m" is the far wall; on a siege map 1320 metres deep it is a
+        // quarter of the way to the objective, and the screenshot shows what that looks like - a
+        // white void with a smear of geometry at the horizon and no way to read the approach you
+        // are supposed to be fighting across. The whole point of a map that size is seeing what is
+        // coming.
+        //
+        // So both ends are fractions of the crossing: haze starts at a sixth of it and saturates a
+        // fifth past the far side. On a standard arena that lands on 46 and 334, which is where
+        // these numbers were by hand.
         //
         // The colour is matched to the sky horizon rather than picked independently, so distance
         // dissolves into the sky instead of into a blue-grey band in front of it.
@@ -173,8 +184,9 @@ public static class Graphics
         env.FogMode = Godot.Environment.FogModeEnum.Depth;
         env.FogLightColor = new Color(0.62f, 0.71f, 0.83f);
         env.FogLightEnergy = 1f;
-        env.FogDepthBegin = 45f;
-        env.FogDepthEnd = 330f;
+        var (begin, end) = FogRange(reach);
+        env.FogDepthBegin = begin;
+        env.FogDepthEnd = end;
         env.FogDensity = 0.26f;
 
         // Deliberately below full: at 1.0 a distant enemy disappears entirely, and on a map this
@@ -184,6 +196,13 @@ public static class Graphics
 
         return new WorldEnvironment { Environment = env };
     }
+
+    /// <summary>
+    /// Where the haze starts and where it saturates, for an arena that long. See the note at the
+    /// call site; exposed so the harness can assert you can still see across the map you are on.
+    /// </summary>
+    public static (float Begin, float End) FogRange(float reach)
+        => (reach * 0.165f, reach * 1.2f);
 
     /// <summary>Standard surface material for arena geometry.</summary>
     public static StandardMaterial3D Surface(Color c) => new()

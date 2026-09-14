@@ -21,6 +21,9 @@ public sealed class MatchScreen : UiScreen
     /// </summary>
     public override string MusicCue => Music.Playing;
 
+    /// <summary>The arena's own room tone. Unlike the cue, nothing ever replaces it mid-match.</summary>
+    public override string AmbienceCue => match?.Arena.AmbienceCue ?? "";
+
     /// <summary>One human player's view: their pawn, their device, their camera and their yaw.</summary>
     sealed class View
     {

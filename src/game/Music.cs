@@ -43,15 +43,26 @@ public static class Music
 
     static AudioStreamPlayer? active;
     static AudioStreamPlayer? fading;
+    static AudioStreamPlayer? room;
     static readonly Dictionary<string, AudioStream?> cache = new();
 
     static string playing = "";
+    static string ambience = "";
     static float fade;
     static float targetDb = BedDb;
     static bool ready;
 
     /// <summary>What is playing, so the harness can assert the right cue for the right screen.</summary>
     public static string Playing => playing;
+
+    /// <summary>The room tone currently under it, or empty.</summary>
+    public static string Ambience_ => ambience;
+
+    /// <summary>
+    /// How loud the room sits. Further down than the music, and for a different reason: a bed is
+    /// meant to be listened to occasionally and a room is meant never to be noticed at all.
+    /// </summary>
+    public const float RoomDb = -9f;
 
     public static void Init(Node parent)
     {
@@ -60,8 +71,14 @@ public static class Music
 
         active = new AudioStreamPlayer { Name = "MusicA", Bus = Audio.MusicBus, VolumeDb = BedDb };
         fading = new AudioStreamPlayer { Name = "MusicB", Bus = Audio.MusicBus, VolumeDb = -80f };
+
+        // No crossfade partner. Room tone changes when the map does, which is a loading screen and
+        // a black frame away - there is nothing to fade across.
+        room = new AudioStreamPlayer { Name = "Room", Bus = Audio.AmbienceBus, VolumeDb = RoomDb };
+
         parent.AddChild(active);
         parent.AddChild(fading);
+        parent.AddChild(room);
     }
 
     /// <summary>
@@ -73,7 +90,7 @@ public static class Music
         if (!ready) return;
         ready = false;
 
-        foreach (var p in new[] { active, fading })
+        foreach (var p in new[] { active, fading, room })
         {
             if (p == null || !GodotObject.IsInstanceValid(p)) continue;
             p.Stop();
@@ -82,9 +99,10 @@ public static class Music
             p.Free();
         }
 
-        active = fading = null;
+        active = fading = room = null;
         cache.Clear();
         playing = "";
+        ambience = "";
     }
 
     /// <summary>
@@ -119,6 +137,35 @@ public static class Music
 
         fade = 0f;
         playing = key;
+    }
+
+    /// <summary>
+    /// States the room tone under the music: a cue to play one, or empty for none.
+    ///
+    /// Idempotent and stated every frame, exactly like <see cref="Play"/> and for the same reason -
+    /// "this arena sounds like this" is a fact about where you are, not an event, and a screen that
+    /// forgets to stop it is then impossible.
+    /// </summary>
+    public static void Room(string key)
+    {
+        if (!ready || room == null) return;
+        if (key == ambience) return;
+
+        ambience = key;
+
+        if (key.Length == 0)
+        {
+            room.Stop();
+            room.Stream = null;
+            return;
+        }
+
+        if (Stream(key) is not { } stream) { ambience = ""; return; }
+
+        SetLoop(stream, true);
+        room.Stream = stream;
+        room.VolumeDb = RoomDb;
+        room.Play();
     }
 
     /// <summary>Fades the soundtrack out and forgets what was playing.</summary>

@@ -36,6 +36,12 @@ public abstract class UiScreen
     /// </summary>
     public virtual string MusicCue => "mus_02_standing_orders";
 
+    /// <summary>
+    /// What this screen's place sounds like with nothing happening in it. Empty for a menu, which
+    /// is not a place.
+    /// </summary>
+    public virtual string AmbienceCue => "";
+
     public void Update(float dt, IReadOnlyList<InputDevice> devices)
     {
         foreach (var d in devices)
@@ -108,6 +114,7 @@ public sealed class ScreenStack
         // screen inherits the menu cue by default instead of inheriting silence - and so a screen
         // only has to say anything at all when it wants something different.
         Music.Play(Top.MusicCue);
+        Music.Room(Top.AmbienceCue);
 
         Top.Update(dt, devices);
     }

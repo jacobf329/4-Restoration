@@ -36,8 +36,11 @@ public enum SurfaceKind
     /// <summary>Trodden snow. The brightest thing in the world, and graded to be allowed to be.</summary>
     Snow,
 
-    /// <summary>Glare ice: fracture planes, and the only surface in the set that is not matt.</summary>
+    /// <summary>Glare ice: fracture planes, and one of two surfaces in the set that are not matt.</summary>
     Ice,
+
+    /// <summary>Glazing in a painted lattice. The Glasshouse is named for it.</summary>
+    Glass,
 }
 
 /// <summary>
@@ -75,6 +78,50 @@ public static class Surfaces
         public Spec(string name, float metres) { Name = name; Metres = metres; }
     }
 
+    /// <summary>
+    /// What a footstep on this material is called, without the folder or the f_ prefix.
+    ///
+    /// A separate vocabulary from the material names on purpose, and a smaller one. Ten materials
+    /// do not need ten footsteps - plaster, brick and roof tile are all "a hard mineral surface"
+    /// to an ear, and asking a generator for three subtly different versions of that would produce
+    /// three files nobody could tell apart and a library that costs three times as much to keep
+    /// consistent. What has to be distinct is what is obviously distinct underfoot: snow, ice,
+    /// metal, wood, undergrowth, road, stone.
+    /// </summary>
+    public static string FootstepName(SurfaceKind kind) => kind switch
+    {
+        SurfaceKind.Panel => "metal",
+        SurfaceKind.Timber => "timber",
+        SurfaceKind.Foliage => "foliage",
+        SurfaceKind.Snow => "snow",
+        SurfaceKind.Ice => "ice",
+        SurfaceKind.Tarmac => "tarmac",
+
+        // You walk on the frames and the staging, never on the panes.
+        SurfaceKind.Glass => "metal",
+
+        _ => "concrete",
+    };
+
+    /// <summary>
+    /// What a round striking this material is called, without the folder or the i_ prefix.
+    ///
+    /// Nearly the same table and deliberately not shared with it. Tarmac has a footstep and no
+    /// impact - a bullet into a road is a bullet into stone - and glass has an impact and no
+    /// footstep, for the obvious reason. Folding the two together would mean one of them naming a
+    /// file that does not exist, which is silence rather than an error and would never be noticed.
+    /// </summary>
+    public static string ImpactName(SurfaceKind kind) => kind switch
+    {
+        SurfaceKind.Panel => "metal",
+        SurfaceKind.Timber => "timber",
+        SurfaceKind.Foliage => "foliage",
+        SurfaceKind.Snow => "snow",
+        SurfaceKind.Ice => "ice",
+        SurfaceKind.Glass => "glass",
+        _ => "concrete",
+    };
+
     public static Spec SpecFor(SurfaceKind kind) => kind switch
     {
         SurfaceKind.Plaster => new Spec("plaster", 2.4f),
@@ -89,6 +136,7 @@ public static class Surfaces
         // little tighter so its cracks stay readable close up.
         SurfaceKind.Snow => new Spec("snow", 4.0f),
         SurfaceKind.Ice => new Spec("ice", 2.6f),
+        SurfaceKind.Glass => new Spec("glass", 2.8f),
         _ => new Spec("", Graphics.PanelMetres),
     };
 

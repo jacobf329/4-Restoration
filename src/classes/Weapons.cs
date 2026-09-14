@@ -161,6 +161,17 @@ public sealed class WeaponDef
     public string Model = "";
 
     /// <summary>
+    /// The report's file name under <c>assets/sfx</c>, or empty to use <c>w_&lt;model&gt;</c>.
+    ///
+    /// Almost never set. The convention - a weapon's sound is named after its mesh - is what lets
+    /// twenty-six guns each have a voice with no table anywhere, and it is right whenever the mesh
+    /// belongs to the gun. It stops being right when a mesh is borrowed: the Seeker carries the
+    /// Orchard's pod thrower until somebody models one, and borrowing a shape is not borrowing a
+    /// sound.
+    /// </summary>
+    public string Sound = "";
+
+    /// <summary>
     /// Whether a round anchors where it lands and hauls the shooter to it.
     ///
     /// Same shape as <see cref="PlantsPortal"/> and for the same reason: the projectile path is
@@ -357,6 +368,10 @@ public static class Weapons
         // is a reinforcement whose gun is only ever seen in somebody's hands, never lying on the
         // floor beside this one. A bespoke seeker.glb replaces this by changing one string.
         Model = "pod_thrower",
+
+        // Its own voice, though it wears somebody else's shape. See WeaponDef.Sound.
+        Sound = "w_seeker",
+
         Silhouette = WeaponSilhouette.Launcher,
         Damage = 22f,
         FireInterval = 1.7f,

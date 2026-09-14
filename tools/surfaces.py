@@ -324,6 +324,57 @@ def ice():
     col = tint(h, [0.80, 0.88, 0.94], [0.06, 0.05, 0.03], fbm(4, 3, 84))
     return col, h, 0.18 + norm(h) * 0.16
 
+def glass():
+    """Glazing: panes in a painted lattice, seen from inside a damp building.
+
+    Two materials in one tile, which is what a glasshouse wall is - a bar every so often and
+    nothing at all in between. The bars carry every bit of the relief and most of the roughness;
+    the panes are flat and smooth, and what little they have is condensation running down them and
+    the dirt that collects where they meet the frame.
+
+    Deliberately not transparent. Nothing in this renderer is, and a glasshouse read at arena scale
+    is a pale lattice with a bright sheen between the bars - which is what this is - rather than a
+    hole you can see through. Making it transparent would also make it cover you, which is the
+    opposite of what a wall in a shooter is for.
+    """
+    # Tall and narrow, the way glazing is actually cut. Square panes read as wall tiling - that
+    # was the first attempt and it looked like a bathroom.
+    cols, rows = 4, 3
+    x = np.arange(SIZE) / SIZE * cols
+    y = np.arange(SIZE) / SIZE * rows
+
+    fx = (x % 1.0)[None, :]
+    fy = (y % 1.0)[:, None]
+
+    # The bar: a margin around every pane, feathered over a few texels so the edge catches the
+    # light rather than aliasing into a dotted line at distance. Narrower across than up, because
+    # the glazing bar is one section turned two ways and the panes are not square.
+    edge = np.minimum(np.minimum(fx, 1 - fx) * cols, np.minimum(fy, 1 - fy) * rows)
+    pane = np.clip((edge - 0.22) / 0.10, 0.0, 1.0)
+
+    # Condensation, only on the glass. Stretched vertically by sampling a field that is fine
+    # across and coarse down, which is what makes it read as running rather than as blotches.
+    runs = norm(value_noise(48, 91)[:, :] * 0.6 + fbm(3, 6, 93) * 0.4)
+    runs = np.clip((runs - 0.46) / 0.30, 0.0, 1.0)
+    runs = np.minimum(runs, np.roll(runs, 3, axis=0)) * pane
+
+    # And the dirt where the glass meets the frame, which is the only thing saying it is old.
+    grime_edge = np.clip(1.0 - (edge - 0.22) / 0.55, 0.0, 1.0) ** 2 * pane
+
+    height = pane * (0.30 + runs * 0.10) + (1 - pane) * 0.94
+
+    frame = np.array([0.87, 0.88, 0.85])                 # white-painted iron, gone grey
+    lit = tint(0.55 + runs * 0.25, [0.70, 0.80, 0.79], [0.07, 0.05, 0.04], fbm(3, 4, 92))
+
+    col = lit * pane[..., None] + frame[None, None, :] * (1 - pane)[..., None]
+    col *= (1.0 - grime_edge * 0.26)[..., None]
+
+    # The one place in the set where roughness carries the material: painted metal is matt and
+    # glass is not, and the difference between the two is the whole read.
+    rough = 0.88 - pane * 0.74 + runs * 0.22 + grime_edge * 0.25
+    return col, height, np.clip(rough, 0.0, 1.0)
+
+
 WORLD_TINT = np.array([1.00, 0.975, 0.94])   # a slightly warm sun, on everything
 
 # Contrast is pulled toward this rather than normalised per material, which matters: normalising
@@ -384,6 +435,7 @@ def grade(col, grime, ceiling=0.86, grime_scale=1.0, contrast=None, warm=1.0):
 # Everything not named here uses the defaults, which is the whole set except these two.
 GRADE = {
     "snow": dict(ceiling=0.985, grime_scale=0.30, contrast=0.95, warm=0.25),
+    "glass": dict(ceiling=0.93, grime_scale=0.60, contrast=0.85, warm=0.55),
     "ice":  dict(ceiling=0.94,  grime_scale=0.55, contrast=0.80, warm=0.35),
 }
 
@@ -409,6 +461,7 @@ MATERIALS = {
     "timber": timber,
     "snow": snow,
     "ice": ice,
+    "glass": glass,
 }
 
 # How pronounced each material's relief is. Brick and tile are real geometry being faked and
@@ -423,6 +476,10 @@ STRENGTH = {
     # Snow is all relief and no colour, so it gets more than it looks like it should. Ice is the
     # other way about: nearly flat, and what shape it has is cracks.
     "snow": 3.2, "ice": 1.6,
+
+    # Glass is flat and its frame is not, so the relief is entirely in the lattice. High enough
+    # that the bars read as standing proud of the panes at arena distance.
+    "glass": 4.2,
 }
 
 

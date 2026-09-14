@@ -134,6 +134,7 @@ public partial class Main : Node
 
         Chrome.Tick(dt);
         Music.Tick(dt);
+        Sfx.TickLoops(dt);
         Devices.PollAll(dt);
         Stack.Update(dt, Devices.All);
 

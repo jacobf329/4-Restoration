@@ -4228,9 +4228,13 @@ public sealed class Arena
 
             // THE GLASSHOUSE - the Garden's. White-painted iron and glazing bars over planting
             // beds. Light, damp, and the only arena where the ground is growing.
+            //
+            // Its walls are the thing it is named for and were plaster until the material existed.
+            // That was not only a look: a round striking the Glasshouse sounded like a round
+            // striking a rendered wall, on the one map in the game that is made of panes.
             2 => new Palette(
                 SurfaceKind.Plaster,  new Color(0.88f, 0.90f, 0.86f),
-                SurfaceKind.Plaster,  new Color(0.80f, 0.85f, 0.80f),
+                SurfaceKind.Glass,    new Color(0.86f, 0.92f, 0.88f),
                 SurfaceKind.Timber,   new Color(0.52f, 0.46f, 0.34f),
                 SurfaceKind.Foliage,  new Color(0.72f, 0.86f, 0.66f)),
 
@@ -4388,6 +4392,102 @@ public sealed class Arena
     /// in the Laboratory was in play and out of bounds at the same time, and a pilot at a hundred
     /// over Coldstore tripped the invariant on every frame of the climb.
     /// </summary>
+    // ---- what things are made of, at a point ----
+    //
+    // Footsteps and bullet impacts both need one answer: which material is here. The arena is the
+    // only thing that knows, and it knows it per block, so it is asked rather than having the
+    // material copied onto every pawn and every round.
+
+    /// <summary>Metres per cell of the block index. Big enough that most cells hold a handful.</summary>
+    const float MaterialCell = 24f;
+
+    Dictionary<long, List<int>>? materialCells;
+    static readonly List<int> NoBlocks = new();
+
+    /// <summary>
+    /// Files every block into every cell its footprint touches.
+    ///
+    /// Built on first use rather than during Build, because most of the checks in the harness
+    /// construct an arena to measure its geometry and never ask it what anything sounds like.
+    /// </summary>
+    void BuildMaterialCells()
+    {
+        materialCells = new Dictionary<long, List<int>>();
+
+        for (int i = 0; i < Blocks.Count; i++)
+        {
+            var b = Blocks[i];
+            int x0 = Mathf.FloorToInt((b.Centre.X - b.HalfExtents.X) / MaterialCell);
+            int x1 = Mathf.FloorToInt((b.Centre.X + b.HalfExtents.X) / MaterialCell);
+            int z0 = Mathf.FloorToInt((b.Centre.Z - b.HalfExtents.Z) / MaterialCell);
+            int z1 = Mathf.FloorToInt((b.Centre.Z + b.HalfExtents.Z) / MaterialCell);
+
+            for (int x = x0; x <= x1; x++)
+            for (int z = z0; z <= z1; z++)
+            {
+                long key = ((long)x << 32) ^ (uint)z;
+                if (!materialCells.TryGetValue(key, out var list))
+                    materialCells[key] = list = new List<int>();
+                list.Add(i);
+            }
+        }
+    }
+
+    List<int> BlocksNear(float x, float z)
+    {
+        if (materialCells == null) BuildMaterialCells();
+
+        long key = ((long)Mathf.FloorToInt(x / MaterialCell) << 32)
+                 ^ (uint)Mathf.FloorToInt(z / MaterialCell);
+
+        return materialCells!.TryGetValue(key, out var list) ? list : NoBlocks;
+    }
+
+    /// <summary>
+    /// What is underfoot at a point: the highest block top within reach of it, or the ground.
+    ///
+    /// The band is deliberately loose. A character controller settles a few centimetres into
+    /// whatever it is standing on and a step over a lip leaves it briefly above one block and
+    /// below the next, so a tight test produces a footstep that flickers between two materials
+    /// while you walk along a kerb.
+    /// </summary>
+    public SurfaceKind SurfaceUnder(Vector3 p)
+    {
+        var kind = GroundDressing().Kind;
+        float best = float.NegativeInfinity;
+
+        foreach (int i in BlocksNear(p.X, p.Z))
+        {
+            var b = Blocks[i];
+            if (MathF.Abs(p.X - b.Centre.X) > b.HalfExtents.X + 0.35f) continue;
+            if (MathF.Abs(p.Z - b.Centre.Z) > b.HalfExtents.Z + 0.35f) continue;
+
+            float top = b.Centre.Y + b.HalfExtents.Y;
+            if (top > p.Y + 0.7f || top < p.Y - 1.3f) continue;
+            if (top <= best) continue;
+
+            best = top;
+            kind = b.Surface;
+        }
+
+        return kind;
+    }
+
+    /// <summary>What a round struck at a point. The ground when it struck nothing built.</summary>
+    public SurfaceKind SurfaceHit(Vector3 p)
+    {
+        foreach (int i in BlocksNear(p.X, p.Z))
+        {
+            var b = Blocks[i];
+            if (MathF.Abs(p.X - b.Centre.X) > b.HalfExtents.X + 0.3f) continue;
+            if (MathF.Abs(p.Y - b.Centre.Y) > b.HalfExtents.Y + 0.3f) continue;
+            if (MathF.Abs(p.Z - b.Centre.Z) > b.HalfExtents.Z + 0.3f) continue;
+            return b.Surface;
+        }
+
+        return GroundDressing().Kind;
+    }
+
     public bool Contains(Vector3 p)
         => MathF.Abs(p.X) <= HalfWidth + 4f
         && MathF.Abs(p.Z) <= HalfDepth + 4f

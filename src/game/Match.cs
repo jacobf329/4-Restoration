@@ -1073,7 +1073,7 @@ public partial class Match : Node3D
             if (Visuals)
             {
                 PaintPosts();
-                Sfx.PlayAt(Sound.ZoneCapture, post.Centre);
+                Sfx.PlayKeyAt("ob_dominion_flip", post.Centre);
                 Impact.DeathRing(this, post.Centre, PostTint(taking));
             }
         }
@@ -1777,7 +1777,7 @@ public partial class Match : Node3D
                 flag.At = holder.GlobalPosition;
                 flag.Carrier = null;
                 flag.Loose = 0f;
-                if (Visuals) Sfx.PlayAt(Sound.MenuBack, flag.At, -2f, 0.8f);
+                if (Visuals) Sfx.PlayKeyAt("ob_flag_drop", flag.At);
             }
 
             if (flag.Carrier is { } carrier)
@@ -1816,13 +1816,13 @@ public partial class Match : Node3D
                     if (!flag.Dropped) continue;
 
                     SendFlagHome(flag);
-                    if (Visuals) Sfx.PlayAt(Sound.ZoneCapture, flag.Home, -3f, 1.2f);
+                    if (Visuals) Sfx.PlayKeyAt("ob_flag_drop", flag.Home, pitch: 1.25f);
                 }
                 else
                 {
                     flag.Carrier = pawn;
                     FlagTouches++;
-                    if (Visuals) Sfx.PlayAt(Sound.Respawn, pawn.GlobalPosition, -2f, 1.1f);
+                    if (Visuals) Sfx.PlayKeyAt("ob_flag_take", pawn.GlobalPosition);
                 }
 
                 break;
@@ -2044,6 +2044,7 @@ public partial class Match : Node3D
     // ---- level hazards and machinery ----
 
     readonly List<AnimatableBody3D> platforms = new();
+    readonly List<bool> platformMoving = new();
     float platformClock;
 
     void BuildLevelMachinery()
@@ -2075,6 +2076,7 @@ public partial class Match : Node3D
             }
 
             platforms.Add(body);
+            platformMoving.Add(false);
         }
     }
 
@@ -2093,6 +2095,20 @@ public partial class Match : Node3D
             Vector3 was = platforms[i].GlobalPosition;
             Vector3 now = def.A.Lerp(def.B, def.Travel(platformClock));
             platforms[i].GlobalPosition = now;
+
+            // Machinery announces itself at the edges rather than droning. A lift that waits to be
+            // boarded is silent while it waits, says so when it sets off, and clunks when it
+            // arrives - which is also the only warning anyone gets that a push wall has started.
+            if (Visuals)
+            {
+                bool moving = was.DistanceTo(now) / MathF.Max(dt, 0.0001f) > 0.35f;
+
+                if (moving != platformMoving[i])
+                    Sfx.PlayKeyAt(moving ? (def.Pushes ? "mc_pushwall" : "mc_platform")
+                                         : "mc_platform_stop", now);
+
+                platformMoving[i] = moving;
+            }
 
             if (def.Pushes) ShoveAlong(def, was, now, dt);
         }
@@ -2743,7 +2759,12 @@ public partial class Match : Node3D
 
                 if (Visuals)
                 {
-                    Sfx.PlayAt(Sound.Respawn, p.At, pitch: 1.35f);
+                    // A weapon crate is silent here on purpose: Pawn.TakeWeapon is the only
+                    // place that knows the gun was actually taken, and it makes the noise. Two
+                    // sounds for one event is worse than the wrong one.
+                    if (p.Kind != PickupKind.Weapon)
+                        Sfx.PlayKeyAt("st_heal", p.At,
+                                      pitch: p.Kind == PickupKind.Jetpack ? 0.82f : 1f);
                     Impact.Hit(this, p.At, Vector3.Up, p.Tint);
                 }
                 break;
@@ -2842,7 +2863,7 @@ public partial class Match : Node3D
             pawn.Launch(pad.Impulse);
             if (Visuals)
             {
-                Sfx.PlayAt(Sound.Dash, pawn.GlobalPosition, pitch: 1.4f);
+                Sfx.PlayKeyAt("mc_launchpad", pawn.GlobalPosition);
                 Impact.Hit(this, pad.Centre, Vector3.Up, new Color(0.35f, 0.85f, 0.55f));
             }
             return;
@@ -3611,7 +3632,7 @@ public partial class Match : Node3D
                 {
                     Impact.Death(this, at, Factions.Ingenuity.Tint);
                     Impact.DeathRing(this, d.Node.GlobalPosition, Factions.Ingenuity.Tint);
-                    Sfx.PlayAt(Sound.Death, at);
+                    Sfx.PlayKeyAt("ab_decoy_blast", at);
                 }
 
                 d.Node.QueueFree();
@@ -3690,7 +3711,7 @@ public partial class Match : Node3D
 
         if (spot is not { } at2)
         {
-            if (Visuals) Sfx.PlayAt(Sound.MenuBack, where, -4f, 0.7f);
+            if (Visuals) Sfx.PlayKeyAt("ui_denied", where);
             return;
         }
 
@@ -3744,7 +3765,7 @@ public partial class Match : Node3D
             });
 
             portal.Node = node;
-            Sfx.PlayAt(Sound.Respawn, at2, -2f, 1.35f);
+            Sfx.PlayKeyAt("po_open", at2);
         }
 
         portals.Add(portal);
@@ -3754,7 +3775,13 @@ public partial class Match : Node3D
     void ClosePortal(Portal p)
     {
         if (p.Node == null) return;
-        if (Visuals) Impact.Hit(this, p.Node.GlobalPosition, p.Out, new Color(0.4f, 0.8f, 1f));
+
+        if (Visuals)
+        {
+            Impact.Hit(this, p.Node.GlobalPosition, p.Out, new Color(0.4f, 0.8f, 1f));
+            Sfx.PlayKeyAt("po_close", p.Node.GlobalPosition);
+        }
+
         p.Node.QueueFree();
     }
 
@@ -3781,6 +3808,13 @@ public partial class Match : Node3D
         for (int i = portals.Count - 1; i >= 0; i--)
         {
             portals[i].Age += dt;
+
+            // An open gate hums. It is the only way to know one is round the corner, and a gate
+            // you cannot hear is a gate somebody walks past.
+            if (Visuals && portals[i].Node != null)
+                Sfx.Loop($"portal{portals[i].Node!.GetInstanceId()}", "po_idle",
+                         portals[i].At, -4f);
+
             if (portals[i].Age < PortalLifetime) continue;
 
             ClosePortal(portals[i]);
@@ -3874,7 +3908,7 @@ public partial class Match : Node3D
         if (Visuals)
         {
             Impact.Hit(this, exit.At + Vector3.Up * 0.9f, exit.Out, new Color(0.35f, 0.85f, 1f));
-            Sfx.PlayAt(Sound.Dash, exit.At, -2f, 1.5f);
+            Sfx.PlayKeyAt("po_travel", exit.At);
         }
     }
 
@@ -3964,6 +3998,8 @@ public partial class Match : Node3D
         var node = new Node3D();
         AddChild(node);
         node.GlobalPosition = user.GlobalPosition;
+
+        Sfx.PlayKeyAt("ab_decoy_spawn", user.GlobalPosition);
         node.Rotation = new Vector3(0f, -user.Facing, 0f);
 
         // The user's own body, not a coloured box.
@@ -5192,7 +5228,7 @@ public partial class Match : Node3D
                     if (Visuals)
                     {
                         if (s.Mesh != null) PointAlong(s.Mesh, s.Pos, s.Vel);
-                        Sfx.PlayAt(Sound.Hit, where, -8f, 1.7f);
+                        Sfx.PlayKeyAt("w_grenade_bounce", where);
                     }
 
                     continue;
@@ -5247,7 +5283,7 @@ public partial class Match : Node3D
 
                     if (Visuals)
                     {
-                        Sfx.PlayAt(Sound.Hit, where, 2f, 1.6f);
+                        Sfx.PlayKeyAt("m_blade_deflect", where);
                         Impact.Hit(this, where, -s.Vel.Normalized(), new Color(0.98f, 0.86f, 0.30f));
                     }
 
@@ -5342,7 +5378,7 @@ public partial class Match : Node3D
                         if (Visuals)
                         {
                             Impact.Death(this, at, Weapons.TintFor(Weapons.Needler));
-                            Sfx.PlayAt(Sound.Death, at, -2f, 1.4f);
+                            Sfx.PlayKeyAt("w_needler_detonate", at);
                         }
 
                         killed = !target.Alive;
@@ -5381,6 +5417,19 @@ public partial class Match : Node3D
 
                     if (killed) AwardKill(s.Owner, target);
                     }
+                }
+
+                // Nothing alive: the round hit the world.
+                //
+                // Which material it hit is most of what makes a firefight sound like it is
+                // happening somewhere rather than in a box - snow, sheet metal and undergrowth are
+                // three different events - and until now all three were silence. Only the rounds
+                // that reach here: a hit on a body, a hull or a raised saber has already made its
+                // own noise above.
+                else if (Visuals && !s.Heals)
+                {
+                    Sfx.PlayKeyAt("i_" + Surfaces.ImpactName(Arena.SurfaceHit(where)), where,
+                                  pitch: 0.92f + GD.Randf() * 0.16f);
                 }
 
                 // An explosive round does its real work here, on whatever it struck — a body, a
@@ -5769,6 +5818,8 @@ public partial class Match : Node3D
         }
 
         IntermissionLeft = IntermissionTime;
+
+        if (Visuals) Sfx.PlayKey("st_round_end");
     }
 
     /// <summary>What a pawn's headline number is in this mode — rounds won, or frags.</summary>

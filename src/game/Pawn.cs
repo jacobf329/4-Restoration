@@ -522,6 +522,8 @@ public partial class Pawn : CharacterBody3D
     {
         if (anchor.DistanceTo(GlobalPosition) < GrappleArrive) return;
 
+        if (body != null) Sfx.PlayKeyAt("gr_release", GlobalPosition);
+
         GrappleAnchor = anchor;
         grappleLeft = GrappleMaxTime;
         grappleLastGap = float.MaxValue;
@@ -544,6 +546,10 @@ public partial class Pawn : CharacterBody3D
     {
         if (!Alive) return;
         Health = MathF.Min(MaxHealth, Health + amount);
+
+        // Healing back out of the red re-arms the warning, so a fight you survive twice warns you
+        // twice. Without this the alarm is a once-per-life event, which is not what it is for.
+        if (Health > MaxHealth * LowHealthFraction) wasLowHealth = false;
     }
 
     /// <summary>
@@ -858,6 +864,8 @@ public partial class Pawn : CharacterBody3D
         heldAmmo[slot] = w.Ammo;
         ActiveSlot = slot;
         RefreshViewModel();
+
+        if (body != null) Sfx.PlayKeyAt("w_pickup", GlobalPosition);
     }
 
     /// <summary>Switch to the other slot, if there is anything in it.</summary>
@@ -867,6 +875,8 @@ public partial class Pawn : CharacterBody3D
 
         ActiveSlot ^= 1;
         RefreshViewModel();
+
+        if (body != null) Sfx.PlayKeyAt("w_swap", GlobalPosition);
     }
 
     /// <summary>Whether taking this weapon would achieve anything.</summary>
@@ -898,6 +908,11 @@ public partial class Pawn : CharacterBody3D
 
         // Running dry empties the slot. If that leaves you with nothing at all, the class weapon
         // comes back — you are never standing there unarmed.
+        //
+        // The click is what tells you it happened. Without it the gun in your hands changes model
+        // mid-fight and the first you know about it is that the damage went down.
+        if (body != null) Sfx.PlayKeyAt("w_dry", GlobalPosition);
+
         held[slot] = null;
 
         if (held[slot ^ 1] != null) ActiveSlot = slot ^ 1;
@@ -951,6 +966,70 @@ public partial class Pawn : CharacterBody3D
 
     /// <summary>Seconds left on a slip. Zero means upright.</summary>
     public float SlipTime { get; private set; }
+
+    // ---- footsteps ----
+    //
+    // Driven by distance covered rather than by a timer, which is the whole of why it works at
+    // every speed the game has: a walk, a sprint, a slide and a surge all put a foot down every
+    // so many metres, and a timer would have to be rescaled by each of them separately and would
+    // still be wrong during the acceleration between two of them.
+
+    /// <summary>Metres between footfalls.</summary>
+    const float Stride = 2.1f;
+
+    /// <summary>Below this the pawn is shuffling rather than walking, and is silent.</summary>
+    const float StepSpeed = 1.2f;
+
+    /// <summary>Downward speed past which a landing is a thud rather than a step down.</summary>
+    const float HardLanding = 13f;
+
+    float stepDistance;
+    bool wasGrounded = true;
+    bool wasThrusting;
+
+    /// <summary>Seconds between grunts, so sustained fire does not stack them.</summary>
+    const float HurtVoiceGap = 0.34f;
+
+    float hurtVoice;
+
+    /// <summary>Health below this fraction is "in the red", and says so once.</summary>
+    const float LowHealthFraction = 0.3f;
+
+    bool wasLowHealth;
+
+    // ---- spooling ----
+    //
+    // Some guns are not a series of shots, they are a thing you switch on: barrels come up to
+    // speed, a pilot light catches. Those have a start and an end that the per-shot report cannot
+    // carry, and the generated library has the files for them.
+    //
+    // Expressed as a naming convention rather than as a property on two specific weapons, for the
+    // same reason the report itself is: w_<model> is the shot, w_<model>_spin or _start is coming
+    // up, w_<model>_down or _stop is coming off. A gun with no such files simply never spools, so
+    // this costs nothing until somebody drops a pair in.
+
+    static readonly string[] SpoolUp = { "_spin", "_start" };
+    static readonly string[] SpoolDown = { "_down", "_stop" };
+
+    /// <summary>Seconds of not firing before a burst counts as over.</summary>
+    const float SpoolDownAfter = 0.28f;
+
+    bool spooled;
+    float fireIdle;
+
+    void Spool(bool up)
+    {
+        if (body == null || Sfx.ShotKey(Weapon).Length == 0) return;
+
+        foreach (string suffix in up ? SpoolUp : SpoolDown)
+        {
+            string key = Sfx.ShotKey(Weapon) + suffix;
+            if (!Sfx.Has(key)) continue;
+
+            Sfx.PlayKeyAt(key, GlobalPosition);
+            return;
+        }
+    }
 
     // ---- needles ----
 
@@ -1007,10 +1086,12 @@ public partial class Pawn : CharacterBody3D
         SlideTime = 0f;
         dashTime = 0f;
 
+        if (body != null) Sfx.PlayKeyAt("mv_slip", GlobalPosition);
+
         var back = new Vector3(-MathF.Cos(Facing), 0f, -MathF.Sin(Facing));
         Knockback += back * 6.5f + Vector3.Up * 3.2f;
 
-        if (body != null) Sfx.PlayAt(Sound.Dash, GlobalPosition, -4f, 0.6f);
+        if (body != null) Sfx.PlayKeyAt("mv_land_hard", GlobalPosition, pitch: 0.85f);
     }
 
     /// <summary>
@@ -1023,6 +1104,55 @@ public partial class Pawn : CharacterBody3D
         if (!Alive) return;
         Velocity = new Vector3(Velocity.X, impulse, Velocity.Z);
         SlideTime = 0f;
+    }
+
+    /// <summary>
+    /// Feet: a footfall every stride, and a landing when the ground comes back.
+    ///
+    /// Asked of the arena what it is standing on rather than carrying a material around, because
+    /// the material belongs to the block and a pawn walks over a great many of them. See
+    /// <see cref="Arena.SurfaceUnder"/>.
+    ///
+    /// Distance is measured from where the controller actually ended up, not from the velocity it
+    /// was given: walking into a wall spends a full stick deflection and moves nobody, and the
+    /// version of this that trusted the velocity had a pawn pinned against a corner producing four
+    /// footsteps a second forever.
+    /// </summary>
+    void StepSounds(Vector3 before, float falling, float dt, Match match)
+    {
+        // Sound only exists in a match anybody is watching, and `body` is the rig - null in the
+        // harness, which runs a million simulation steps and should not be told about any of them.
+        if (body == null || !Alive) return;
+
+        bool grounded = IsOnFloor();
+
+        if (grounded && !wasGrounded)
+        {
+            string key = falling <= -HardLanding ? "mv_land_hard" : "mv_land_soft";
+            Sfx.PlayKeyAt(key, GlobalPosition);
+
+            // A landing is also a footfall, and it resets the stride so the first step after it is
+            // a full one rather than whatever fraction was left over from before the jump.
+            stepDistance = 0f;
+        }
+
+        wasGrounded = grounded;
+
+        if (!grounded || Sliding || InVehicle) return;
+
+        var moved = GlobalPosition - before;
+        float flat = new Vector2(moved.X, moved.Z).Length();
+
+        if (flat < StepSpeed * dt) { stepDistance = 0f; return; }
+
+        stepDistance += flat;
+        if (stepDistance < Stride) return;
+
+        stepDistance -= Stride;
+
+        var kind = match.Arena.SurfaceUnder(GlobalPosition);
+        Sfx.PlayKeyAt("f_" + Surfaces.FootstepName(kind), GlobalPosition,
+                      pitch: 0.94f + GD.Randf() * 0.12f);
     }
 
     /// <summary>Killed by falling out of the world. No attacker, no damage, just gone.</summary>
@@ -1199,6 +1329,8 @@ public partial class Pawn : CharacterBody3D
 
         // Needles work loose. Ticked here rather than in the match so it happens to bots, corpses
         // and anybody the match forgot about, which is the whole reason pawns own their own timers.
+        if (hurtVoice > 0f) hurtVoice = MathF.Max(0f, hurtVoice - dt);
+
         if (needleTime > 0f)
         {
             needleTime -= dt;
@@ -1302,7 +1434,7 @@ public partial class Pawn : CharacterBody3D
         if (input.Dash && dashCooldown <= 0f && dashTime <= 0f)
         {
             StartDash(move);
-            if (body != null) Sfx.PlayAt(Sound.Dash, GlobalPosition);
+            if (body != null) Sfx.PlayKeyAt("mv_slide", GlobalPosition);
         }
 
         Vector3 horizontal;
@@ -1363,7 +1495,15 @@ public partial class Pawn : CharacterBody3D
             vy = JumpVelocity * (Surging ? SurgeJump : 1f);
             jumpBuffered = 0f;
             timeOffGround = CoyoteTime + 1f;   // consume the grace so it cannot double-fire
-            if (body != null) Sfx.PlayAt(Sound.Dash, GlobalPosition, -8f, 1.5f);
+
+            // The generated grunt where there is one, and the synthesised sweep where there is
+            // not. Same bargain as every other asset here: the file improves it and its absence
+            // does not break it.
+            if (body != null)
+            {
+                if (Sfx.Has("mv_jump")) Sfx.PlayKeyAt("mv_jump", GlobalPosition);
+                else Sfx.PlayAt(Sound.Dash, GlobalPosition, -8f, 1.5f);
+            }
         }
 
         // Jetpack: holding jump in the air burns fuel and pushes up. It used to be a climb rather
@@ -1383,9 +1523,14 @@ public partial class Pawn : CharacterBody3D
 
             vy = MathF.Min(vy + JetThrust * headroom * dt, JetRise * headroom);
 
-            if (body != null && GD.Randf() < 0.5f)
-                Sfx.PlayAt(Sound.Dash, GlobalPosition, -14f, 2.1f);
+            // The ignition, once, rather than a blip every other frame. What the jets sound like
+            // while they are running is a loop and belongs to one - see Sfx.Loop.
+            if (body != null && !wasThrusting) Sfx.PlayKeyAt("jp_ignite", GlobalPosition);
         }
+
+        if (body != null && wasThrusting && !Thrusting) Sfx.PlayKeyAt("jp_cutout", GlobalPosition);
+        if (body != null && Thrusting) Sfx.Loop($"jet{GetInstanceId()}", "jp_loop", GlobalPosition);
+        wasThrusting = Thrusting;
 
         // The winch. It owns both axes while it runs, which is what makes it a grapple rather than
         // a suggestion — fighting gravity and the movement stick at the same time would leave you
@@ -1421,7 +1566,7 @@ public partial class Pawn : CharacterBody3D
                 vy = pull.Y;
 
                 if (body != null && GD.Randf() < 0.25f)
-                    Sfx.PlayAt(Sound.Dash, GlobalPosition, -16f, 2.4f);
+                    Sfx.PlayKeyAt("gr_reel", GlobalPosition, -4f);
             }
         }
 
@@ -1472,7 +1617,19 @@ public partial class Pawn : CharacterBody3D
         vy = MathU.Clamp(vy, -Runaway, Runaway);
 
         Velocity = new Vector3(horizontal.X, vy, horizontal.Z);
+
+        var before = GlobalPosition;
+        float falling = vy;
+
         MoveAndSlide();
+
+        StepSounds(before, falling, dt, match);
+
+        bool firing = input.Fire && CanFire && !Weapon.Swings;
+        fireIdle = firing ? 0f : fireIdle + dt;
+
+        if (firing && !spooled) { spooled = true; Spool(true); }
+        else if (spooled && fireIdle >= SpoolDownAfter) { spooled = false; Spool(false); }
 
         if (input.Fire && fireCooldown <= 0f && CanFire)
         {
@@ -1597,7 +1754,7 @@ public partial class Pawn : CharacterBody3D
                 SlideTime = SlideDuration;
                 Sprinting = false;
                 Crouching = true;
-                if (body != null) Sfx.PlayAt(Sound.Dash, GlobalPosition, -3f, 0.8f);
+                if (body != null) Sfx.PlayKeyAt("mv_slide", GlobalPosition, pitch: 0.88f);
             }
             else
             {
@@ -2333,6 +2490,27 @@ public partial class Pawn : CharacterBody3D
         // Banked for Second Wind. Every pawn tracks it; only a Vessel can spend it.
         DamageBanked += amount;
 
+        // A grunt, at most three a second. Ungated, a minigun landing sixteen rounds a second
+        // turns one person into a chorus of themselves and eats the whole voice pool while it does
+        // it - the shots, the impacts and everybody else's footsteps all go quiet behind it.
+        if (body != null && Health > 0f && hurtVoice <= 0f)
+        {
+            hurtVoice = HurtVoiceGap;
+            Sfx.PlayKeyAt("st_hurt", GlobalPosition);
+        }
+
+        // Crossing into the red, once per crossing.
+        //
+        // Only for a person. A bot dropping to a sliver across the map is not news, and with eleven
+        // of them on the roster it would be an alarm that never stops - which is the same as no
+        // alarm at all, except louder.
+        if (body != null && !IsBot && Health > 0f)
+        {
+            bool low = Health <= MaxHealth * LowHealthFraction;
+            if (low && !wasLowHealth) Sfx.PlayKeyAt("st_low_health", GlobalPosition);
+            wasLowHealth = low;
+        }
+
         if (Health > 0f) return false;
 
         Health = 0f;
@@ -2418,6 +2596,7 @@ public partial class Pawn : CharacterBody3D
         GlobalPosition = at;
         Velocity = Vector3.Zero;
         ChuteTime = 0f;
+        wasLowHealth = false;
         dashTime = 0f;
         dashRise = 0f;
         ReleaseGrapple();

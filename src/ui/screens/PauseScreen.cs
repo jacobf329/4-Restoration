@@ -44,6 +44,7 @@ public sealed class PauseScreen : UiScreen
     void Resume()
     {
         match.Paused = false;
+        Sfx.PlayKey("ui_unpause");
         Stack.Pop();
     }
 

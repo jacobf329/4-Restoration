@@ -182,7 +182,12 @@ public sealed class LobbyScreen : UiScreen
                 // them onto one list would force players to pick a fighting style to get a power.
                 if (d.NavX != 0) s.ClassIndex = Mathf.PosMod(s.ClassIndex + d.NavX, Classes.All.Length);
                 if (d.NavY != 0) s.FactionIndex = Mathf.PosMod(s.FactionIndex + d.NavY, Factions.All.Length);
-                if (d.ConfirmPressed) { s.Ready = true; d.Rumble(0.2f, 0.4f, 0.1f); }
+                if (d.ConfirmPressed)
+                {
+                    s.Ready = true;
+                    Sfx.PlayKey("ui_ready");
+                    d.Rumble(0.2f, 0.4f, 0.1f);
+                }
             }
         }
     }
@@ -231,7 +236,7 @@ public sealed class LobbyScreen : UiScreen
         foreach (var s in Slots)
         {
             if (s.DeviceId != d.Id) continue;
-            if (s.Ready) s.Ready = false;
+            if (s.Ready) { s.Ready = false; Sfx.PlayKey("ui_unready"); }
             else s.Clear();
             return true;
         }

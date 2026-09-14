@@ -376,6 +376,7 @@ public sealed class MatchScreen : UiScreen
     void Pause()
     {
         match.Paused = true;
+        Sfx.PlayKey("ui_pause");
         Stack.Push(new PauseScreen(match, disconnectNote, app));
     }
 

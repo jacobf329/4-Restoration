@@ -53,6 +53,12 @@ public sealed class VehicleDef
     /// </summary>
     public string GunSound = "";
 
+    /// <summary>The loop it makes standing still with somebody aboard. Empty for no engine.</summary>
+    public string IdleSound = "";
+
+    /// <summary>The loop it makes under way. Falls back to the idle when empty.</summary>
+    public string DriveSound = "";
+
     public string HullModel = "";
 
     /// <summary>Base name of the part that rides the turret pivot. Empty for a plain barrel.</summary>
@@ -119,6 +125,9 @@ public static class Vehicles
         Tint = new Color(0.99f, 0.90f, 0.46f),
         EyeHeight = 1.5f,
 
+        IdleSound = "v_buggy_idle",
+        DriveSound = "v_buggy_drive",
+
         HullModel = "car_hull",
 
         // The model's nose points down its own -X, measured from a shaded render and confirmed by
@@ -160,6 +169,8 @@ public static class Vehicles
             Ammo = 0,
         },
         GunSound = "v_tank_cannon",
+        IdleSound = "v_tank_idle",
+        DriveSound = "v_tank_drive",
         NeutralSteer = true,
         HalfExtents = new Vector3(4.0f, 1.2f, 2.4f),
         Tint = new Color(0.44f, 0.52f, 0.38f),
@@ -210,6 +221,8 @@ public static class Vehicles
             Ammo = 0,
         },
         GunSound = "v_plane_guns",
+        IdleSound = "v_plane_engine",
+        DriveSound = "v_plane_engine",
 
         // Matched to the mesh rather than guessed. The model is 1.90 x 0.73 x 1.85 in its own
         // units and VehicleModels scales it by the X extent, so at a six-metre length it comes out
@@ -980,6 +993,12 @@ public partial class Vehicle : CharacterBody3D
         if (!Def.NeutralSteer)
             steer *= 0.25f + 0.75f * MathU.Clamp01(HorizontalSpeed / Def.MaxSpeed);
 
+        // Tyres, while a wheeled hull is being thrown into a corner at speed. Not for the tank,
+        // which neutral-steers on tracks, and not for the plane, which has nothing to skid on.
+        if (Def.Kind == VehicleKind.Car && MathF.Abs(steer) > 0.55f
+            && HorizontalSpeed > Def.MaxSpeed * 0.45f)
+            Sfx.Loop($"skid{GetInstanceId()}", "v_buggy_skid", GlobalPosition, -5f);
+
         Facing += steer * Def.TurnRate * dt;
 
         // The look stick lays the gun, not the hull — you drive with one thumb and aim with the
@@ -990,6 +1009,11 @@ public partial class Vehicle : CharacterBody3D
             TurretPitch = MathU.Clamp(TurretPitch - input.RawLook.Y * TurretPitchRate * dt,
                                       TurretMinPitch, TurretMaxPitch);
             AimBarrel();
+
+            // The traverse motor, while it is actually traversing. This is the sound that tells
+            // everyone nearby which way a tank is about to be pointing.
+            if (input.RawLook.Length() > 0.25f)
+                Sfx.Loop($"turret{GetInstanceId()}", "v_tank_turret", GlobalPosition, -6f);
         }
 
         if (Def.Flies)
@@ -1060,6 +1084,7 @@ public partial class Vehicle : CharacterBody3D
         MoveAndSlide();
         if (Def.Flies) HoldInsideArena();
         ApplyOrientation();
+        EngineNote();
 
         if (Def.Gun != null && input.Fire && fireCooldown <= 0f)
         {
@@ -1076,6 +1101,31 @@ public partial class Vehicle : CharacterBody3D
                 MuzzleFlash = MuzzleFlashTime;
             }
         }
+    }
+
+    /// <summary>
+    /// The engine, as a loop that follows the hull.
+    ///
+    /// Only while somebody is aboard. A dozen parked vehicles idling on an empty map is a drone
+    /// rather than a soundscape, and an engine you can hear from a crate nobody is driving tells
+    /// you something untrue about where people are.
+    ///
+    /// Pitched off road speed rather than throttle, so it rises as the hull actually gets going
+    /// and falls when it hits something - which is the half of an engine note that carries
+    /// information.
+    /// </summary>
+    void EngineNote()
+    {
+        if (Driver == null || Def.IdleSound.Length == 0) return;
+
+        float pace = MathU.Clamp01(HorizontalSpeed / MathF.Max(Def.MaxSpeed, 1f));
+
+        string key = pace > 0.12f && Def.DriveSound.Length > 0 ? Def.DriveSound : Def.IdleSound;
+
+        // A single id per hull, so changing from idle to drive moves the same voice across rather
+        // than starting a second engine in the same place.
+        Sfx.Loop($"engine{GetInstanceId()}", key, GlobalPosition,
+                 volumeDb: -6f + 6f * pace, pitch: 0.82f + 0.4f * pace);
     }
 
     /// <summary>Where this hull is parked at the start of the match, and where a wreck comes back.</summary>

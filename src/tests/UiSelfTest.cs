@@ -51,6 +51,7 @@ public static class UiSelfTest
         TestVehiclesAndJetpack();
         TestOnePressSurvivesEveryFrameRate();
         TestGeneratedAudioParses();
+        TestEverySoundIsReachable();
         TestTheMix();
         TestTheMixerIsReachableWithAPad();
 
@@ -2320,6 +2321,117 @@ public static class UiSelfTest
             else Check(false, $"{file} is on disk but will not play");
         }
         TestLog.Line($"    {playable} music cue(s) load");
+    }
+
+    /// <summary>
+    /// Every sound file on disk is one the game can actually ask for.
+    ///
+    /// The check that matters, and the one that was missing. A hundred and sixty effects were
+    /// generated and fifteen of them had a call site; the other hundred and forty-five were bytes
+    /// on a disk that nothing would ever play, and nothing said so, because an unplayed sound is
+    /// silence and silence is indistinguishable from an event that has not happened yet. The
+    /// suite happily reported "15 file(s) reached by name, 160 on disk" as a fact about the
+    /// library rather than as a fault in the game.
+    ///
+    /// So it runs in the direction that can fail: take the disk, take every key the code can
+    /// produce, and name anything in the first that is not in the second. Composed keys are
+    /// composed here from the same tables the game composes them from - the material vocabulary
+    /// and the weapon models - because a check that hardcoded the answers would pass on the day
+    /// somebody renamed a material and the game went quiet.
+    /// </summary>
+    static void TestEverySoundIsReachable()
+    {
+        TestLog.Line("- every generated sound has something that plays it");
+
+        var reachable = new System.Collections.Generic.HashSet<string>(Sfx.NamedEvents);
+
+        // Underfoot and under fire, per material.
+        foreach (var kind in System.Enum.GetValues<SurfaceKind>())
+        {
+            reachable.Add("f_" + Surfaces.FootstepName(kind));
+            reachable.Add("i_" + Surfaces.ImpactName(kind));
+        }
+
+        // What lands in a person is not a material, and is the one impact with no surface.
+        reachable.Add("i_flesh");
+        reachable.Add("i_headshot");
+
+        // A weapon's report, and the spool of a weapon that is switched on rather than fired.
+        //
+        // Every gun the game can put in a pawn's hands, which is three separate rosters: the crates
+        // on the floor, the four classes' own guns, and the eight reinforcements'. The first draft
+        // of this check asked only about the crates and reported ten class weapons as orphans -
+        // the test was wrong, not the game, which is its own kind of failure to design for.
+        var guns = new System.Collections.Generic.List<WeaponDef>(Weapons.Pickups);
+        foreach (var c in Classes.All) guns.Add(c.Weapon);
+        foreach (var c in SpecialClasses.All) guns.Add(c.Weapon);
+        foreach (var v in Vehicles.All) if (v.GunSound.Length > 0) reachable.Add(v.GunSound);
+
+        foreach (var w in guns)
+        {
+            string key = Sfx.ShotKey(w);
+            if (key.Length == 0) continue;
+
+            reachable.Add(key);
+            foreach (string suffix in new[] { "_spin", "_start", "_down", "_stop" })
+                reachable.Add(key + suffix);
+        }
+
+        // The incidentals of holding one at all.
+        reachable.Add("w_dry");
+        reachable.Add("w_pickup");
+        reachable.Add("w_swap");
+        reachable.Add("w_grenade_bounce");
+        reachable.Add("w_needler_detonate");
+
+        int orphans = 0;
+        var files = Godot.DirAccess.GetFilesAt(Sfx.Folder);
+
+        foreach (string file in files)
+        {
+            if (!file.EndsWith(".wav")) continue;
+
+            // Variants are numbered from the same key: w_smg_01 is a take of w_smg.
+            string key = file.Substring(0, file.Length - 4);
+            if (key.Length > 3 && key[^3] == '_' && char.IsDigit(key[^2]) && char.IsDigit(key[^1]))
+                key = key[..^3];
+
+            if (reachable.Contains(key)) continue;
+
+            orphans++;
+            Check(false, $"{file} is on disk but nothing in the game plays it");
+        }
+
+        TestLog.Line($"    {files.Length} file(s) on disk, {reachable.Count} key(s) reachable, "
+                   + $"{orphans} orphaned");
+
+        // And the other direction, for the keys written out by hand: a rename that left the code
+        // naming a file that is no longer there would otherwise be silent forever.
+        int missing = 0;
+        foreach (string key in Sfx.NamedEvents)
+        {
+            bool has = Godot.FileAccess.FileExists($"{Sfx.Folder}/{key}.wav")
+                       || Godot.FileAccess.FileExists($"{Sfx.Folder}/{key}_01.wav");
+
+            if (!has) { missing++; TestLog.Line($"    {key} has no file yet"); }
+        }
+
+        Check(missing == 0, $"every named sound event has audio behind it ({missing} without)");
+
+        // The materials, stated separately so a failure names the material rather than the file.
+        foreach (var kind in System.Enum.GetValues<SurfaceKind>())
+        {
+            string step = "f_" + Surfaces.FootstepName(kind);
+            string land = "i_" + Surfaces.ImpactName(kind);
+
+            Check(Godot.FileAccess.FileExists($"{Sfx.Folder}/{step}.wav")
+                  || Godot.FileAccess.FileExists($"{Sfx.Folder}/{step}_01.wav"),
+                  $"walking on {kind} makes a sound ({step})");
+
+            Check(Godot.FileAccess.FileExists($"{Sfx.Folder}/{land}.wav")
+                  || Godot.FileAccess.FileExists($"{Sfx.Folder}/{land}_01.wav"),
+                  $"shooting {kind} makes a sound ({land})");
+        }
     }
 
     /// <summary>

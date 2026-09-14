@@ -77,6 +77,13 @@ public static class Sfx
             parent.AddChild(p);
             voices[i] = p;
         }
+
+        for (int i = 0; i < LoopVoices; i++)
+        {
+            var p = new AudioStreamPlayer { Name = $"Loop{i}", Bus = Audio.SfxBus, VolumeDb = -80f };
+            parent.AddChild(p);
+            loops.Add(new LoopVoice { Player = p });
+        }
     }
 
     /// <summary>
@@ -106,6 +113,18 @@ public static class Sfx
             v.GetParent()?.RemoveChild(v);
             v.Free();
         }
+
+        foreach (var v in loops)
+        {
+            if (!GodotObject.IsInstanceValid(v.Player)) continue;
+            v.Player.Stop();
+            v.Player.Stream = null;
+            v.Player.GetParent()?.RemoveChild(v.Player);
+            v.Player.Free();
+        }
+
+        loops.Clear();
+        looping.Clear();
 
         voices = Array.Empty<AudioStreamPlayer>();
         Listeners = Array.Empty<Vector3>();
@@ -218,10 +237,15 @@ public static class Sfx
     /// </summary>
     public static void Shot(WeaponDef w, Vector3 at, float pitch = 1f)
     {
-        string key = w.Model.Length > 0 ? "w_" + w.Model : "";
-        if (Has(key)) PlayKeyAt(key, at, 0f, pitch);
+        if (Has(ShotKey(w))) PlayKeyAt(ShotKey(w), at, 0f, pitch);
         else PlayAt(ShotFor(w), at, pitch: pitch);
     }
+
+    /// <summary>The file a weapon's report lives in: its own if it names one, else w_&lt;model&gt;.</summary>
+    public static string ShotKey(WeaponDef w)
+        => w.Sound.Length > 0 ? w.Sound
+         : w.Model.Length > 0 ? "w_" + w.Model
+         : "";
 
     public static Sound ShotFor(WeaponDef w)
     {
@@ -229,6 +253,163 @@ public static class Sfx
         if (w.FireInterval <= 0.12f) return Sound.ShotFlanker;
         if (w.FireInterval >= 0.9f || w.HasScope) return Sound.ShotMarksman;
         return Sound.ShotTrooper;
+    }
+
+    // ---- loops ----
+    //
+    // A different kind of sound and so a different mechanism. Everything above is fired and
+    // forgotten; an engine, a jetpack and an open portal are states, and they have to start, hold,
+    // follow the thing making them and stop when it does.
+    //
+    // Stated rather than commanded. A caller says "this is running, here, this loudly" every frame
+    // it is true and says nothing when it is not, and the mixer works out the rest. That is the
+    // only shape that survives contact with the game: a vehicle can be destroyed, ejected from,
+    // respawned or simply removed between one frame and the next, and every one of those would be
+    // a missed Stop() call and an engine note left running over an empty map.
+    //
+    // Their own voices, not the pool above. A loop that can be evicted by the sixteenth gunshot of
+    // a firefight is a loop that cuts out exactly when the firefight starts.
+
+    const int LoopVoices = 8;
+
+    /// <summary>
+    /// How long a loop keeps playing after its last claim, in seconds.
+    ///
+    /// Not one frame. Loops are claimed from the physics step and faded here on the frame clock,
+    /// and above sixty frames a second there are display frames with no physics step behind them -
+    /// so "claimed since last tick" would drop every engine in the game every other frame on a
+    /// fast machine. A tenth of a second is longer than any gap either clock can produce.
+    /// </summary>
+    const float LoopHold = 0.12f;
+
+    /// <summary>Seconds a loop takes to reach full level, and to fall away again.</summary>
+    const float LoopFade = 0.18f;
+
+    sealed class LoopVoice
+    {
+        public string Id = "";
+        public string Key = "";
+        public AudioStreamPlayer Player = null!;
+        public float TargetDb;
+        public float Gain;
+        public float SinceClaim = 99f;
+    }
+
+    static readonly List<LoopVoice> loops = new();
+    static readonly Dictionary<string, AudioStreamWav?> looping = new();
+
+    /// <summary>
+    /// Says that <paramref name="id"/> is making <paramref name="key"/> at a place, right now.
+    ///
+    /// Call it every frame the thing is running. Stop calling it and the sound fades out on its
+    /// own - there is no Stop, deliberately, because every caller that would need one is a caller
+    /// that can stop existing.
+    /// </summary>
+    public static void Loop(string id, string key, Vector3 where, float volumeDb = 0f,
+                            float pitch = 1f)
+    {
+        if (!ready || key.Length == 0) return;
+
+        float db = volumeDb + Trim(key);
+
+        // The same distance rule world one-shots use, so a tank you can hear across the map is not
+        // a different tank from the one you can hear shooting.
+        if (Listeners.Length > 0)
+        {
+            float nearest = float.PositiveInfinity;
+            foreach (var l in Listeners) nearest = MathF.Min(nearest, l.DistanceTo(where));
+            if (nearest >= MaxAudible) return;
+
+            db -= MathU.Clamp01(nearest / MaxAudible) * 26f;
+        }
+
+        var voice = Find(id);
+        if (voice == null) return;
+
+        if (voice.Key != key)
+        {
+            if (LoopStream(key) is not { } stream) return;
+
+            voice.Key = key;
+            voice.Player.Stream = stream;
+            voice.Player.Play();
+        }
+        else if (!voice.Player.Playing) voice.Player.Play();
+
+        voice.TargetDb = db;
+        voice.Player.PitchScale = pitch;
+        voice.SinceClaim = 0f;
+    }
+
+    /// <summary>The voice already holding this id, or a free one, or null when all are busy.</summary>
+    static LoopVoice? Find(string id)
+    {
+        foreach (var v in loops) if (v.Id == id) return v;
+
+        // Free means faded out, not merely unclaimed: taking a voice that is still audible would
+        // cut one engine off mid-note to start another.
+        foreach (var v in loops)
+        {
+            if (v.SinceClaim < LoopHold || v.Gain > 0.01f) continue;
+
+            v.Id = id;
+            v.Key = "";
+            v.Gain = 0f;
+            return v;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Advances every loop's fade. Driven from the frame clock, like the music crossfade.
+    /// </summary>
+    public static void TickLoops(float dt)
+    {
+        if (!ready) return;
+
+        foreach (var v in loops)
+        {
+            v.SinceClaim += dt;
+
+            float want = v.SinceClaim <= LoopHold ? 1f : 0f;
+            v.Gain = Mathf.MoveToward(v.Gain, want, dt / LoopFade);
+
+            if (v.Gain <= 0.001f)
+            {
+                if (v.Player.Playing) { v.Player.Stop(); v.Player.Stream = null; }
+                v.Key = "";
+                v.Id = "";
+                continue;
+            }
+
+            // Amplitude, converted to decibels, so a fade sounds like a fade rather than like the
+            // level jumping the last twenty decibels at the end.
+            v.Player.VolumeDb = v.TargetDb + 20f * MathF.Log10(MathF.Max(v.Gain, 0.0001f));
+        }
+    }
+
+    /// <summary>
+    /// A cue loaded with its loop points set, cached separately from the one-shot banks.
+    ///
+    /// Separately on purpose: the banks hand the same AudioStreamWav to every voice that plays it,
+    /// and setting LoopMode on a shared instance would make the one-shot form of the same file
+    /// play until the heat death of the universe.
+    /// </summary>
+    static AudioStreamWav? LoopStream(string key)
+    {
+        if (looping.TryGetValue(key, out var hit)) return hit;
+
+        var w = Load($"{Folder}/{key}.wav");
+        if (w != null)
+        {
+            w.LoopMode = AudioStreamWav.LoopModeEnum.Forward;
+            w.LoopBegin = 0;
+            w.LoopEnd = w.Data.Length / 2;      // 16-bit mono: two bytes a sample
+        }
+
+        looping[key] = w;
+        return w;
     }
 
     // ---- the mix ----
@@ -374,6 +555,39 @@ public static class Sfx
         samples = (w?.Data?.Length ?? 0) / 2;
         return w != null;
     }
+
+    /// <summary>
+    /// Every sound the game fires by a name written out in full, for the harness.
+    ///
+    /// This list is the inventory of what has a voice, and it is maintained by hand on purpose.
+    /// A hundred and sixty files were generated and fifteen of them were ever played; nothing said
+    /// so, because a file nobody asks for is silence and silence looks exactly like a sound that
+    /// has not happened yet. The check that uses this asks the opposite question - is there
+    /// anything on disk that nothing can reach - and it can only ask it if something knows the
+    /// answer for the keys that are not composed from data.
+    ///
+    /// Keys built at runtime are NOT here and must not be: w_&lt;model&gt; for a weapon's report,
+    /// the same with a spool suffix, f_&lt;material&gt; and i_&lt;material&gt; for the ground and for
+    /// what a round struck. Those the harness composes for itself from the same tables the game
+    /// does, which is the only way that check means anything.
+    /// </summary>
+    public static readonly string[] NamedEvents =
+    {
+        "ab_decoy_blast", "ab_decoy_spawn",
+        "gr_reel", "gr_release",
+        "jp_cutout", "jp_ignite", "jp_loop",
+        "m_blade_deflect", "m_blade_hit", "m_punch", "m_saber_swing", "m_sword_swing",
+        "mc_launchpad", "mc_platform", "mc_platform_stop", "mc_pushwall",
+        "mv_jump", "mv_land_hard", "mv_land_soft", "mv_slide", "mv_slip",
+        "ob_dominion_flip", "ob_flag_drop", "ob_flag_take",
+        "po_close", "po_idle", "po_open", "po_travel",
+        "st_death", "st_heal", "st_hurt", "st_low_health", "st_round_end",
+        "ui_claim", "ui_denied", "ui_pause", "ui_ready", "ui_unpause", "ui_unready",
+        "v_board", "v_buggy_drive", "v_buggy_idle", "v_buggy_skid", "v_eject",
+        "v_plane_engine", "v_plane_guns", "v_tank_cannon", "v_tank_drive", "v_tank_idle",
+        "v_tank_turret", "v_wreck",
+        "x_breakable", "x_large", "x_small",
+    };
 
     /// <summary>Every file a sound would look for, so the harness can check they all parse.</summary>
     public static List<string> ExpectedFilesForTest()

@@ -52,6 +52,7 @@ public static class UiSelfTest
         TestOnePressSurvivesEveryFrameRate();
         TestGeneratedAudioParses();
         TestYouCanSeeAcrossTheMap();
+        TestPropsStandInHonestBoxes();
         TestGlazingIsDeliberate();
         TestEverySoundIsReachable();
         TestTheMix();
@@ -557,6 +558,10 @@ public static class UiSelfTest
         // Measured against the layout's own budget rather than a flat forty metres, because the
         // budget is a property of the map's size - see Arena.MaxHealthWalk. A flat number here was
         // what forced Coldstore to carry seven hundred and eighty-four med kits.
+        if (arena.PropsPlaced + arena.PropsRefused > 0)
+            TestLog.Line($"    {arena.Name}: {arena.PropsPlaced} props placed, "
+                       + $"{arena.PropsRefused} refused");
+
         Check(samples > 0, $"{arena.Name} has standable floor to sample");
         Check(worst < arena.MaxHealthWalk,
               $"{arena.Name}: nowhere is further than {arena.MaxHealthWalk:0}m from a med kit "
@@ -2369,6 +2374,74 @@ public static class UiSelfTest
         var (b0, e0) = Graphics.FogRange(Arena.StandardHalfWidth * 2f);
         var (b1, e1) = Graphics.FogRange(Arena.LargestHalfDepth * 2f);
         TestLog.Line($"    standard {b0:0}-{e0:0}m, largest {b1:0}-{e1:0}m");
+    }
+
+    /// <summary>
+    /// Every prop stands in a box its own shape, and every prop the map names actually exists.
+    ///
+    /// The first of those is the one that matters, and it is a bug this suite would not otherwise
+    /// have seen. The prop boxes were first written by hand - a snowdrift twelve metres long,
+    /// because that is what a drift ought to be - and the mesh that came back was nearly round in
+    /// plan. Fitted into that box it would have filled a third of it, and the collider would have
+    /// been a lie: cover you could shoot through and stand inside. Nothing renders wrong, nothing
+    /// throws, and the map plays subtly badly forever.
+    ///
+    /// So: the box's proportions have to match the mesh's, whatever size the arena asked for.
+    /// </summary>
+    static void TestPropsStandInHonestBoxes()
+    {
+        TestLog.Line("- props stand in boxes their own shape");
+
+        var manifest = Json.ParseString(
+            Godot.FileAccess.GetFileAsString(PropShapes.Manifest)).AsGodotDictionary();
+
+        var shape = new System.Collections.Generic.Dictionary<string, Vector3>();
+
+        foreach (var entry in manifest["props"].AsGodotArray())
+        {
+            var prop = entry.AsGodotDictionary();
+            string key = prop["key"].AsString();
+
+            // A prop with no mesh yet is a cube until it lands, which is the same bargain every
+            // other asset in this project runs on - but the manifest must still name it.
+            bool onDisk = Godot.FileAccess.FileExists($"{PropModels.Folder}/{key}.glb");
+            Check(onDisk, $"{key} has a mesh");
+
+            if (!prop.ContainsKey("measured")) { Check(false, $"{key} has been measured"); continue; }
+
+            var m = prop["measured"].AsGodotArray();
+            shape[key] = new Vector3((float)m[0].AsDouble(), (float)m[1].AsDouble(),
+                                     (float)m[2].AsDouble());
+        }
+
+        var arena = new Arena(Arena.ColdstoreLayout);
+
+        int wearing = 0;
+        foreach (var b in arena.Blocks)
+        {
+            if (b.Model.Length == 0) continue;
+            wearing++;
+
+            Check(shape.ContainsKey(b.Model), $"{b.Model} is a prop the manifest knows");
+            if (!shape.TryGetValue(b.Model, out var mesh)) continue;
+
+            // Ratios, not sizes: the arena picks how big, the mesh decides the rest.
+            float want = mesh.Y / Mathf.Max(mesh.X, Mathf.Max(mesh.Y, mesh.Z));
+            float got = b.HalfExtents.Y / Mathf.Max(b.HalfExtents.X,
+                                          Mathf.Max(b.HalfExtents.Y, b.HalfExtents.Z));
+
+            Check(MathF.Abs(want - got) < 0.02f,
+                  $"{b.Model}'s box is its own shape (wants {want:0.00} tall, box is {got:0.00})");
+        }
+
+        TestLog.Line($"    {wearing} blocks wear a mesh, {shape.Count} props in the library");
+        Check(wearing > 60, $"Coldstore is actually dressed ({wearing} props)");
+
+        // And a prop nobody has generated still gets a box, because the arena has to build the
+        // same geometry whether or not there is a rendering server to draw it on.
+        var missing = PropShapes.HalfExtents("no_such_prop", 4f);
+        Check(Mathf.IsEqualApprox(missing.X, 2f) && Mathf.IsEqualApprox(missing.Y, 2f),
+              "an ungenerated prop is a cube of the size asked for");
     }
 
     /// <summary>

@@ -1,0 +1,20 @@
+{
+  "barricade": "01a0e447-9546-77b8-8a93-20a26214ccde",
+  "cargo_sled": "01a0e44f-82b9-7708-8034-62e22c20f2d4",
+  "comms_dish": "01a0e454-181a-7364-8023-ce2df817dfea",
+  "floodlight": "01a0e455-edaf-756a-bb74-673018ff3435",
+  "frozen_crag": "01a0e445-c6c2-710c-892d-b9b1c99cb0b5",
+  "fuel_drum": "01a0e44d-e4ba-7148-948b-567bfdeefda7",
+  "ice_boulder": "01a0e440-8064-741e-b015-80c17ed439fd",
+  "ice_spire": "01a0e442-9490-750c-a028-86c319ff38ac",
+  "pipe_run": "01a0e45a-b802-776b-977e-8fb77780a98d",
+  "rock_outcrop": "01a0e444-03cb-751f-8087-ba4221626f3f",
+  "sandbags": "01a0e44a-0448-756a-92da-88026daba0e0",
+  "sensor_mast": "01a0e452-255a-70ce-a207-f4f564e622c5",
+  "snow_bank": "01a0e43e-fb26-7325-9284-036070c13e81",
+  "snow_drift": "01a0e43d-1edf-764b-8d4a-9787549eaf6c",
+  "supply_crate": "01a0e44b-f2bd-74f3-95b9-fb4aed5ff40f",
+  "trench_steps": "01a0e45c-5a85-7373-9f6e-6cd9c60166a9",
+  "wreck_fighter": "01a0e459-3b5c-7615-888c-eb2bfdac860b",
+  "wreck_hull": "01a0e457-bd13-777a-971d-f1449ccfe456"
+}

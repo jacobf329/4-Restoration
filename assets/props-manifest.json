@@ -1,0 +1,275 @@
+{
+  "_note": "Coldstore's set dressing. Reference images from OpenAI, meshes from Meshy image-to-3D, per tools/props.py. `extents` is the half-size in metres the mesh is fitted to and, when `collides`, the box it is collided as - see Arena.Block.Model.",
+  "props": [
+    {
+      "key": "snow_drift",
+      "extents": [
+        6.0,
+        0.9,
+        2.2
+      ],
+      "collides": true,
+      "prompt": "A single wind-carved snowdrift, low and long like a dune, one smooth lee slope and one scoured windward face with a sharp crest. Fresh dry snow, pale blue-white, no footprints, no debris. Isolated object on a fully transparent background, centred, three-quarter view slightly from above, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.8887,
+        0.4491,
+        1.7913
+      ]
+    },
+    {
+      "key": "snow_bank",
+      "extents": [
+        3.2,
+        1.5,
+        3.0
+      ],
+      "collides": true,
+      "prompt": "A chest-high mound of packed snow banked up into a rough rampart, wind-scalloped on top, one face steeper than the other. Dry pale snow with faint blue shadow in the hollows. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.8893,
+        0.6833,
+        1.2988
+      ]
+    },
+    {
+      "key": "ice_boulder",
+      "extents": [
+        2.2,
+        2.0,
+        2.1
+      ],
+      "collides": true,
+      "prompt": "A single boulder of glacial ice, rounded by wind, fractured along one face into flat planes, pale blue-white and faintly translucent at the edges with a dusting of snow in its hollows. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.8962,
+        1.7886,
+        1.8843
+      ]
+    },
+    {
+      "key": "ice_spire",
+      "extents": [
+        1.6,
+        5.5,
+        1.6
+      ],
+      "collides": true,
+      "prompt": "A tall jagged shard of glacial ice thrusting upward, leaning slightly, fractured into long flat facets, pale blue-white and translucent at the tip, snow packed around its base. Isolated object on a fully transparent background, centred, front three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        0.9803,
+        1.8992,
+        1.0
+      ]
+    },
+    {
+      "key": "rock_outcrop",
+      "extents": [
+        3.4,
+        2.4,
+        3.0
+      ],
+      "collides": true,
+      "prompt": "A dark grey granite outcrop breaking up through snow, angular fractured faces, weathered and lichen-free, with snow lying in its ledges and drifted against one side. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.8886,
+        1.5703,
+        1.8136
+      ]
+    },
+    {
+      "key": "frozen_crag",
+      "extents": [
+        7.0,
+        9.0,
+        6.0
+      ],
+      "collides": true,
+      "prompt": "A large crag of dark rock and glacial ice fused together, a cliff fragment standing alone, vertical fractured rock faces with ice filling the cracks and a cornice of snow along the top. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.7294,
+        1.8981,
+        1.5619
+      ]
+    },
+    {
+      "key": "barricade",
+      "extents": [
+        3.0,
+        1.2,
+        0.8
+      ],
+      "collides": true,
+      "prompt": "A military revetment barrier: a low wall of grey steel plate braced by angled struts, bolted panels, weathered and chipped paint, rime ice along the lower edge and snow drifted at its foot. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.8976,
+        0.6769,
+        0.6242
+      ]
+    },
+    {
+      "key": "sandbags",
+      "extents": [
+        2.4,
+        1.0,
+        1.0
+      ],
+      "collides": true,
+      "prompt": "A stacked wall of military weather sacks, three courses high in a running bond, coarse frost-stiffened canvas in drab grey-green, snow settled along the tops and in the seams. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.8951,
+        0.758,
+        0.6485
+      ]
+    },
+    {
+      "key": "supply_crate",
+      "extents": [
+        1.3,
+        1.1,
+        1.3
+      ],
+      "collides": true,
+      "prompt": "A weathered military supply container, ribbed grey metal with recessed latches and faded stencilled markings, scuffed corners, a crust of snow on the lid and rime in the ribs. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.8956,
+        1.2954,
+        1.2026
+      ]
+    },
+    {
+      "key": "fuel_drum",
+      "extents": [
+        0.6,
+        0.95,
+        0.6
+      ],
+      "collides": true,
+      "prompt": "A single industrial fuel drum standing upright, rolled steel hoops, weathered olive paint over rust streaks, a frosted lid and rime ice down one side. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.1536,
+        1.8968,
+        1.1552
+      ]
+    },
+    {
+      "key": "cargo_sled",
+      "extents": [
+        2.6,
+        0.9,
+        1.5
+      ],
+      "collides": true,
+      "prompt": "A low cargo sled on wide runners, an open steel frame with a slatted deck and a towing yoke at one end, weathered grey metal, snow packed into the frame. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.8952,
+        0.4721,
+        0.6376
+      ]
+    },
+    {
+      "key": "sensor_mast",
+      "extents": [
+        0.8,
+        6.5,
+        0.8
+      ],
+      "collides": true,
+      "prompt": "A tall slender sensor mast: a braced lattice tower on a square footing with a cluster of antenna vanes at the top, weathered grey steel, thick rime ice on the windward struts. Isolated object on a fully transparent background, centred, front three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        0.3526,
+        1.7421,
+        0.3604
+      ]
+    },
+    {
+      "key": "comms_dish",
+      "extents": [
+        2.2,
+        3.2,
+        2.2
+      ],
+      "collides": true,
+      "prompt": "A parabolic communications dish on a braced pedestal mount, tilted skyward, ribbed back struts and a tripod feed at the focus, weathered grey-white panels with snow collected in the bowl. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.6643,
+        1.8811,
+        1.458
+      ]
+    },
+    {
+      "key": "floodlight",
+      "extents": [
+        1.0,
+        4.5,
+        1.0
+      ],
+      "collides": true,
+      "prompt": "A portable floodlight tower: a braced tripod base under a telescopic column carrying a bank of four rectangular lamp housings, weathered yellow-grey paint, cables coiled at the base, rime on the frame. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.2826,
+        1.8967,
+        1.232
+      ]
+    },
+    {
+      "key": "wreck_hull",
+      "extents": [
+        5.0,
+        2.0,
+        3.0
+      ],
+      "collides": true,
+      "prompt": "The burnt-out hull of a small armoured vehicle, half buried in snow, hatches blown open, buckled plating scorched black around the tears, one track shed and trailing. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.8673,
+        1.0831,
+        1.1901
+      ]
+    },
+    {
+      "key": "wreck_fighter",
+      "extents": [
+        4.5,
+        1.8,
+        4.0
+      ],
+      "collides": true,
+      "prompt": "A crashed single-seat fighter aircraft nose-down in snow, one wing snapped and folded back, canopy shattered, scorched grey hull plating, a furrow of thrown snow banked against the fuselage. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.8971,
+        0.7411,
+        1.4728
+      ]
+    },
+    {
+      "key": "pipe_run",
+      "extents": [
+        4.0,
+        0.7,
+        0.9
+      ],
+      "collides": true,
+      "prompt": "A run of insulated industrial pipework on low steel cradles, two large lagged pipes side by side with banded joints and a valve wheel, weathered grey cladding, heavy rime ice along the top. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.898,
+        0.6858,
+        0.2374
+      ]
+    },
+    {
+      "key": "trench_steps",
+      "extents": [
+        1.2,
+        1.6,
+        2.0
+      ],
+      "collides": false,
+      "prompt": "A short flight of trench steps: a steel-framed stair of four open treads with a single handrail, bolted to a revetment plate, weathered grey metal packed with snow on each tread. Isolated object on a fully transparent background, centred, three-quarter view, flat even overcast lighting, no cast shadow, no ground plane, no scenery, no text. Clean readable silhouette, stylised low-poly game asset.",
+      "measured": [
+        1.0521,
+        1.8595,
+        1.9005
+      ]
+    }
+  ]
+}

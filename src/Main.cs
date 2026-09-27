@@ -62,6 +62,7 @@ public partial class Main : Node
         CharacterModels.Enabled = !headless;
         WeaponModels.Enabled = !headless;
         VehicleModels.Enabled = !headless;
+        PropModels.Enabled = !headless;
 
         // Both are on by default for a node that overrides them, but the self-test depends on the
         // physics callback specifically and a silent "never called" looks exactly like a hang.
@@ -108,6 +109,7 @@ public partial class Main : Node
         CharacterModels.Shutdown();
         WeaponModels.Shutdown();
         VehicleModels.Shutdown();
+        PropModels.Shutdown();
     }
 
     /// <summary>

@@ -31,14 +31,36 @@ public readonly struct Block
     /// </summary>
     public readonly SurfaceKind Surface;
 
+    /// <summary>
+    /// A prop mesh to wear instead of a box, or empty for the box. See <see cref="PropModels"/>.
+    ///
+    /// The collision does not change and that is the entire design. A block is an axis-aligned box
+    /// to the navigation graph, to the hull-fitting test, to the spawn clearance check and to every
+    /// reachability measurement in the harness; making those read an arbitrary mesh would mean
+    /// rewriting the spatial layer to get a nicer-looking rock. So the box stays the truth and the
+    /// mesh is what you see standing in front of it - which is how a great many shooters do it, and
+    /// why prop boxes are drawn a little tighter than the mesh rather than a little looser.
+    /// </summary>
+    public readonly string Model;
+
+    /// <summary>
+    /// Degrees of yaw applied to the MESH only. The box does not turn; it cannot.
+    ///
+    /// Only for shapes where the box was an approximation to begin with - a boulder, a drift, a
+    /// crag. On anything with flat sides this is a visible lie and the arena does not use it.
+    /// </summary>
+    public readonly float Yaw;
+
     public Block(Vector3 centre, Vector3 halfExtents, Color tint, bool fragile = false,
-                 SurfaceKind surface = SurfaceKind.Panel)
+                 SurfaceKind surface = SurfaceKind.Panel, string model = "", float yaw = 0f)
     {
         Centre = centre;
         HalfExtents = halfExtents;
         Tint = tint;
         Fragile = fragile;
         Surface = surface;
+        Model = model;
+        Yaw = yaw;
     }
 }
 
@@ -68,14 +90,19 @@ public readonly struct Decor
     public readonly Color Tint;
     public readonly SurfaceKind Surface;
 
+    /// <summary>A prop mesh to wear instead of a box, or empty. See <see cref="PropModels"/>.</summary>
+    public readonly string Model;
+
     public Decor(Vector3 centre, Vector3 halfExtents, Color tint,
-                 SurfaceKind surface = SurfaceKind.Panel, Vector3 turn = default)
+                 SurfaceKind surface = SurfaceKind.Panel, Vector3 turn = default,
+                 string model = "")
     {
         Centre = centre;
         HalfExtents = halfExtents;
         Tint = tint;
         Surface = surface;
         Turn = turn;
+        Model = model;
     }
 }
 
@@ -1995,7 +2022,8 @@ public sealed class Arena
             // first combat arena to name a material: this pass rebuilds nearly every block in the
             // map, so anything a builder had chosen was silently reset to the default plating on
             // the way past. Nothing had chosen one yet, which is the only reason it never showed.
-            Blocks[i] = new Block(b.Centre, b.HalfExtents, b.Tint, fragile: true, surface: b.Surface);
+            Blocks[i] = new Block(b.Centre, b.HalfExtents, b.Tint, fragile: true, surface: b.Surface,
+                                  model: b.Model, yaw: b.Yaw);
         }
     }
 
@@ -2589,6 +2617,233 @@ public sealed class Arena
         CanyonWalls();
         Crevasses();
         Lifts();
+        ColdstoreProps();
+    }
+
+    /// <summary>
+    /// The set dressing: drifts, boulders, wreckage and the clutter a base accumulates.
+    ///
+    /// Added as blocks rather than as decoration, and that is the point of it. Rendered and looked
+    /// at, this map's whole failing was that the approach - the thing it exists for - was a flat
+    /// white plain with a smear of geometry at the far end. Dressing it with things you cannot
+    /// touch would have fixed the picture and left the run across exactly as bare as it was. What
+    /// the ground needs is somewhere to get behind every twenty metres, and that is collision.
+    ///
+    /// Each prop's box comes from <see cref="PropShapes"/> - the arena says how big it wants the
+    /// thing and the mesh's own proportions decide the rest - so what you shoot at is the shape you
+    /// can see. See the note there for why that is not the obvious way round.
+    ///
+    /// Everything is placed off one seeded generator, so the map is the same map every time it is
+    /// built. A siege whose cover moved between rounds would be unlearnable.
+    /// </summary>
+    /// <summary>Props placed and props refused, so the density can be tuned against a number.</summary>
+    public int PropsPlaced { get; private set; }
+    public int PropsRefused { get; private set; }
+
+    void ColdstoreProps()
+    {
+        var rng = new Random(20260927);
+
+        // ---- the open ground, end to end ----
+        //
+        // The whole map, not the approach. Seen from above, the first version had dressed the
+        // southern half and left everything from the outer trench to the generator - half the
+        // floor, and the half both sides actually fight over - as bare plain. It read as two
+        // different maps stitched together, and the reason was that the loop had been written
+        // around the attack rather than around the ground.
+        //
+        // Density varies by where you are instead. Thickest coming out of the staging area, thin
+        // across the killing ground the trenches were dug to cover, and moderate again behind the
+        // line where the base's own outskirts start.
+        for (float z = StagingZ + 30f; z < GeneratorZ + 70f; z += 30f)
+        {
+            int count = DriftsAt(z);
+            if (count == 0) continue;
+
+            for (int i = 0; i < count; i++)
+            {
+                float x = (float)(rng.NextDouble() * 2.0 - 1.0) * 390f;
+                float jz = z + (float)(rng.NextDouble() * 2.0 - 1.0) * 18f;
+
+                // Snow near the middle, rock and ice toward the flanks, so the ground reads as
+                // swept in the open and broken where the canyon starts to bite.
+                bool flank = MathF.Abs(x) > 230f;
+                string key = flank
+                    ? (rng.Next(2) == 0 ? "rock_outcrop" : "ice_boulder")
+                    : rng.Next(4) switch
+                      {
+                          0 => "ice_boulder",
+                          1 => "snow_bank",
+                          _ => "snow_drift",
+                      };
+
+                // Chosen for HEIGHT, and then converted, which is not the same as choosing a
+                // size. PropShapes scales a prop by its longest axis, and these meshes are not
+                // alike: a drift is four times as long as it is tall and a boulder is very nearly
+                // a cube, so the same "ten metres" is a two-metre mound in one case and a
+                // ten-metre tower in the other. The first pass asked for sizes and got boulders
+                // taller than the hangar.
+                //
+                // What the ground actually wants is a spread of heights: some you can fight over,
+                // some you go round, and a few you navigate by. The ranges below are those heights
+                // divided by each mesh's own tall-to-long ratio.
+                float size = key switch
+                {
+                    "snow_drift" => 7f + (float)rng.NextDouble() * 10f,   // 1.7 - 4.0m tall
+                    "snow_bank" => 5.5f + (float)rng.NextDouble() * 4.5f, // 2.0 - 3.6m
+                    "ice_boulder" => 3.2f + (float)rng.NextDouble() * 4f, // 3.0 - 6.8m
+                    _ => 3.6f + (float)rng.NextDouble() * 5.4f,           // outcrop, 3.0 - 7.5m
+                };
+
+                PropBlock(key, x, jz, size, (float)(rng.NextDouble() * 360.0),
+                          key == "rock_outcrop" ? SurfaceKind.Panel
+                          : key == "ice_boulder" ? SurfaceKind.Ice : SurfaceKind.Snow);
+            }
+        }
+
+        // ---- the canyon feet: spires and crags where the walls come down ----
+        foreach (int sx in new[] { -1, 1 })
+        for (float z = -520f; z < 560f; z += 52f)
+        {
+            // Inboard of the wall itself. At twenty-six metres the spires sat inside the
+            // canyon structure's own exclusion zone and most of them were simply refused.
+            float x = sx * (CanyonX - 58f - (float)rng.NextDouble() * 46f);
+
+            // The canyon's own furniture, and the only thing on the map allowed to be enormous:
+            // these are what tells you which end of a kilometre of snow you are standing at.
+            PropBlock(rng.Next(3) == 0 ? "frozen_crag" : "ice_spire", x, z,
+                      16f + (float)rng.NextDouble() * 12f,
+                      (float)(rng.NextDouble() * 360.0), SurfaceKind.Ice);
+        }
+
+        // ---- the lines: what soldiers put in front of themselves ----
+        foreach (float line in new[] { OuterTrenchZ, InnerTrenchZ })
+        for (float x = -330f; x <= 330f; x += 34f)
+        {
+            // In front of the trench, not in it: this is the parapet, and a player behind the line
+            // should be shooting over it rather than climbing it.
+            float z = line - 13f + (float)(rng.NextDouble() * 2.0 - 1.0) * 3f;
+
+            PropBlock(rng.Next(2) == 0 ? "sandbags" : "barricade", x, z,
+                      4.5f + (float)rng.NextDouble() * 1.5f, 0f, SurfaceKind.Panel);
+        }
+
+        // ---- wreckage: the landmarks people name the ground after ----
+        var wrecks = new (string Key, float X, float Z, float Size)[]
+        {
+            ("wreck_fighter", -186f, -330f, 18f),
+            ("wreck_hull",     214f, -196f, 12f),
+            ("wreck_fighter",  268f,   96f, 16f),
+            ("wreck_hull",    -246f,  -42f, 13f),
+            ("wreck_hull",      92f, -404f, 11f),
+            ("wreck_fighter",  -78f, -486f, 15f),
+            ("wreck_hull",    -330f, -300f, 12f),
+        };
+
+        foreach (var (key, x, z, size) in wrecks)
+            PropBlock(key, x, z, size, (float)(rng.NextDouble() * 360.0), SurfaceKind.Panel);
+
+        // ---- the base: what a place people live in collects ----
+        ColdstoreYard(rng, HangarZ - 52f);
+        ColdstoreYard(rng, GeneratorZ - 64f);
+    }
+
+    /// <summary>
+    /// How much cover a row of the open ground gets, by where it sits on the approach axis.
+    ///
+    /// The shape of this function is the map's argument. Coming out of the staging area you are
+    /// meant to have somewhere to go; across the ground the trenches were dug to cover you are
+    /// meant not to, and that thin band is the whole reason the siege is hard; behind the line it
+    /// fills out again because that is a place people live rather than a field of fire.
+    /// </summary>
+    int DriftsAt(float z)
+    {
+        if (z < ApproachStart) return 13;                       // the staging shelf and its skirts
+        if (z < OuterTrenchZ - 60f)                             // the long run in
+            return 12 - (int)(MathU.Clamp01((z - ApproachStart) / (OuterTrenchZ - ApproachStart)) * 6f);
+
+        if (z < InnerTrenchZ + 40f) return 3;                   // the killing ground between lines
+        if (z < HangarZ - 70f) return 7;                        // the base's outskirts
+        if (z < GeneratorZ - 90f) return 5;                     // the yard road
+        return 8;                                               // the generator's own shoulder
+    }
+
+    /// <summary>A working yard: stores, power, and the masts that make it a base and not a shed.</summary>
+    void ColdstoreYard(Random rng, float z)
+    {
+        foreach (int sx in new[] { -1, 1 })
+        {
+            float bay = sx * (104f + (float)rng.NextDouble() * 46f);
+
+            PropBlock("supply_crate", bay, z, 3.2f, 0f, SurfaceKind.Panel);
+            PropBlock("supply_crate", bay + sx * 6f, z + 7f, 3.0f, 0f, SurfaceKind.Panel);
+            PropBlock("fuel_drum", bay - sx * 7f, z + 3f, 2.0f, 0f, SurfaceKind.Panel);
+            PropBlock("cargo_sled", bay + sx * 15f, z - 9f, 5.5f, 0f, SurfaceKind.Panel);
+            PropBlock("pipe_run", bay - sx * 21f, z + 12f, 5f, 0f, SurfaceKind.Panel);
+            PropBlock("floodlight", bay + sx * 31f, z + 18f, 6f, 0f, SurfaceKind.Panel);
+            PropBlock("sensor_mast", bay - sx * 38f, z - 20f, 13f, 0f, SurfaceKind.Panel);
+            PropBlock("comms_dish", bay + sx * 46f, z + 26f, 8f, 0f, SurfaceKind.Panel);
+
+            // Steps are the one piece here nobody should be stopped by - they are a floor detail,
+            // and a knee-high obstacle in a doorway is the most annoying thing a map can own.
+            Decorations.Add(new Decor(new Vector3(bay - sx * 12f, 0f, z - 16f),
+                                      PropShapes.HalfExtents("trench_steps", 2.6f),
+                                      SnowTint, SurfaceKind.Panel,
+                                      new Vector3(0f, sx * 90f, 0f), "trench_steps"));
+        }
+    }
+
+    /// <summary>
+    /// One prop, standing on the floor, in a box the shape of its own mesh.
+    ///
+    /// Refuses anywhere it would matter: on the vehicle lanes, on a spawn, or inside something
+    /// already built. A prop dropped on a driveway is deleted by OpenDriveways anyway; one dropped
+    /// on a spawn point is somebody starting their life inside a rock.
+    /// </summary>
+    /// <summary>
+    /// Clear air a prop keeps around anything already built, in metres.
+    ///
+    /// Measured down from three. At three the map placed seventy-two props of two hundred and
+    /// fifty attempted - the approach's ice outcrops are twenty-eight metres across and their
+    /// exclusion zones met in the middle, so most of the ground that needed cover was exactly the
+    /// ground that refused it. A metre is enough to stop a mesh intersecting a wall, which is all
+    /// this was ever for.
+    /// </summary>
+    const float Margin = 1.1f;
+
+    void PropBlock(string key, float x, float z, float longest, float yaw, SurfaceKind surface)
+    {
+        var half = PropShapes.HalfExtents(key, longest);
+        var at = new Vector3(x, half.Y, z);
+
+        if (MathF.Abs(x) > HalfWidth - 24f || MathF.Abs(z) > HalfDepth - 24f) { PropsRefused++; return; }
+
+        // The vehicle lanes, which are carved clear after this runs. Placing here is not dangerous,
+        // only wasted - but a prop that vanishes is a prop somebody will go looking for.
+        if (MathF.Abs(z) < 22f) { PropsRefused++; return; }
+
+        foreach (var spawn in SpawnPoints)
+            if (new Vector2(spawn.X - x, spawn.Z - z).Length() < 16f) { PropsRefused++; return; }
+
+        foreach (var w in WeaponSpawns)
+            if (new Vector2(w.X - x, w.Z - z).Length() < 10f) { PropsRefused++; return; }
+
+        // Clear of what is already there, measured against both footprints rather than as a fixed
+        // radius: a crag beside a hangar wall needs more room than a fuel drum beside a crate.
+        foreach (var b in Blocks)
+        {
+            if (b.Centre.Y - b.HalfExtents.Y > half.Y * 2f) continue;   // a gantry overhead is fine
+
+            if (MathF.Abs(b.Centre.X - x) < b.HalfExtents.X + half.X + Margin
+                && MathF.Abs(b.Centre.Z - z) < b.HalfExtents.Z + half.Z + Margin)
+            {
+                PropsRefused++;
+                return;
+            }
+        }
+
+        Blocks.Add(new Block(at, half, SnowTint, false, surface, key, yaw));
+        PropsPlaced++;
     }
 
     // Landmarks along the approach axis, south to north. Written as named distances rather than
@@ -4135,11 +4390,21 @@ public sealed class Arena
 
             var (kind, tint) = DressingFor(b, outer);
 
-            body.AddChild(new MeshInstance3D
+            // A prop wears its own mesh and its own textures; a plain block is drawn as the box it
+            // actually is. The prop is fitted INSIDE the collider - see PropModels.Instance - so
+            // what you shoot at is never larger than what you can see.
+            if (PropModels.Instance(b.Model, b.HalfExtents, b.Yaw) is { } prop)
             {
-                Mesh = new BoxMesh { Size = b.HalfExtents * 2f },
-                MaterialOverride = Graphics.SurfaceAt(tint, b.Centre, top, outer, kind),
-            });
+                body.AddChild(prop);
+            }
+            else
+            {
+                body.AddChild(new MeshInstance3D
+                {
+                    Mesh = new BoxMesh { Size = b.HalfExtents * 2f },
+                    MaterialOverride = Graphics.SurfaceAt(tint, b.Centre, top, outer, kind),
+                });
+            }
 
             // No edge trim any more. Every block used to get four glowing bars stuck along its top
             // edges, and each bar had *two* faces exactly coplanar with the block it was decorating
@@ -4155,6 +4420,13 @@ public sealed class Arena
         // Dressing. No bodies, no shapes, no entry in any of the queries below — see Decor.
         foreach (var d in Decorations)
         {
+            if (PropModels.Instance(d.Model, d.HalfExtents, d.Turn.Y) is { } prop)
+            {
+                prop.Position = d.Centre;
+                root.AddChild(prop);
+                continue;
+            }
+
             root.AddChild(new MeshInstance3D
             {
                 Position = d.Centre,

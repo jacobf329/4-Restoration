@@ -53,6 +53,7 @@ public static class UiSelfTest
         TestGeneratedAudioParses();
         TestYouCanSeeAcrossTheMap();
         TestPropsStandInHonestBoxes();
+        TestMapsWearTheirOwnProps();
         TestGlazingIsDeliberate();
         TestEverySoundIsReachable();
         TestTheMix();
@@ -2393,6 +2394,69 @@ public static class UiSelfTest
     ///
     /// So: the box's proportions have to match the mesh's, whatever size the arena asked for.
     /// </summary>
+    /// <summary>
+    /// The themed maps are dressed in things that could only be on them, and no map asks for a
+    /// prop that does not exist.
+    ///
+    /// Both halves are here because of mistakes already made. MeshProp falls through to boxes when
+    /// it does not recognise a key, which is exactly the right behaviour for a prop that has not
+    /// been generated yet and exactly the wrong one for a typo - either way nothing appears and
+    /// nothing complains. And a scatter pass written against the wrong coordinates places nothing
+    /// at all while building cleanly: Coldstore's yards were sited inside the hangar and on the
+    /// wrong side of the compound wall, and neither was visible in the code or in a build. This is
+    /// the cheap version of looking at it.
+    /// </summary>
+    static void TestMapsWearTheirOwnProps()
+    {
+        TestLog.Line("- the themed maps wear their own props");
+
+        var themes = new (int Layout, string Name, string[] Keys, int Least)[]
+        {
+            (Arena.ReliquaryLayout, "Reliquary",
+             new[] { "sarcophagus", "ossuary_urns", "votive_rack" }, 12),
+            (Arena.FurnaceLayout, "Furnace",
+             new[] { "slag_heap", "ingot_stack", "crucible" }, 10),
+        };
+
+        foreach (var (layout, name, keys, least) in themes)
+        {
+            var worn = Worn(new Arena(layout));
+
+            int themed = 0;
+            foreach (string key in keys)
+            {
+                int n = worn.TryGetValue(key, out int c) ? c : 0;
+                Check(n > 0, $"{name} places {key}");
+                themed += n;
+            }
+
+            Check(themed >= least, $"{name} wears {themed} of its own props (wants {least}+)");
+            TestLog.Line($"    {name}: {themed} themed props");
+        }
+
+        // Every layout, including the ones with no theme of their own yet: a key nobody can
+        // resolve is a prop nobody will ever see.
+        for (int layout = 0; layout < Arena.CombatLayouts; layout++)
+            foreach (string key in Worn(new Arena(layout)).Keys)
+                Check(PropShapes.Known(key), $"layout {layout} asks for '{key}', which exists");
+    }
+
+    /// <summary>Which meshes a built arena actually asked for, and how many of each.</summary>
+    static Dictionary<string, int> Worn(Arena arena)
+    {
+        var worn = new Dictionary<string, int>();
+
+        void Add(string key)
+        {
+            if (key.Length == 0) return;
+            worn[key] = worn.TryGetValue(key, out int n) ? n + 1 : 1;
+        }
+
+        foreach (var b in arena.Blocks) Add(b.Model);
+        foreach (var d in arena.Decorations) Add(d.Model);
+        return worn;
+    }
+
     static void TestPropsStandInHonestBoxes()
     {
         TestLog.Line("- props stand in boxes their own shape");

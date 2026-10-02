@@ -134,6 +134,12 @@ public sealed class MatchScreen : UiScreen
         if (views.Count == 0) return;
 
         var pawn = match.Pawns[views[0].PawnIndex];
+
+        // `at` is where the CAMERA goes, so the pawn stands an eye height below it. Taking it as
+        // the pawn's feet was the first version and it aimed every framed capture high: the pitch
+        // was worked out from the feet and the photograph taken from the eyes, so a prop asked for
+        // dead centre came out at the bottom of the frame.
+        at -= Vector3.Up * pawn.CurrentEyeHeight;
         pawn.GlobalPosition = at;
 
         var to = lookAt - at;

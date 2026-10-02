@@ -39,6 +39,14 @@ MESHY = "https://api.meshy.ai/openapi/v1/image-to-3d"
 # place in the whole chain to buy quality.
 MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-2")
 
+# Measured, not assumed: gpt-image-2 answers a transparent request with a 400
+# ("Transparent background is not supported for this model"), gpt-image-1 with a
+# 200. A whole batch of ten died on that before anyone looked. Transparency is
+# not a nicety here - it is what keeps Meshy from turning the backdrop into
+# geometry - so a model that cannot do it is the wrong model, and this falls
+# back to one that can rather than quietly shipping props on slabs.
+ALPHA_FALLBACK = "gpt-image-1"
+
 # A prop is scenery seen at a distance by up to four viewports at once. The
 # characters get 2k for twelve-up; scenery gets less, because there is going to
 # be a great deal more of it than there are people.
@@ -63,13 +71,13 @@ def props():
 
 # ---------------------------------------------------------------- the reference
 
-def reference(prop, quality=QUALITY):
+def reference(prop, quality=QUALITY, model=MODEL):
     """One OpenAI image, transparent, ready for image-to-3D."""
     key = prop["key"]
     dest = os.path.join(OUT, key + "_ref.png")
 
     body = json.dumps({
-        "model": MODEL,
+        "model": model,
         "prompt": prop["prompt"],
         "size": prop.get("size", "1024x1024"),
         "quality": quality,
@@ -85,7 +93,7 @@ def reference(prop, quality=QUALITY):
     req = urllib.request.Request(IMAGES, data=body,
                                  headers={"Content-Type": "application/json"})
 
-    print(f"  image ({MODEL}, {quality})...")
+    print(f"  image ({model}, {quality})...")
     try:
         with urllib.request.urlopen(req, timeout=600) as r:
             payload = json.loads(r.read())
@@ -95,7 +103,11 @@ def reference(prop, quality=QUALITY):
 
         if e.code == 502 and quality in FALLBACK:
             print(f"  relay timed out; retrying at {FALLBACK[quality]}")
-            return reference(prop, FALLBACK[quality])
+            return reference(prop, FALLBACK[quality], model)
+
+        if e.code == 400 and "background" in detail and model != ALPHA_FALLBACK:
+            print(f"  {model} will not do alpha; retrying on {ALPHA_FALLBACK}")
+            return reference(prop, quality, ALPHA_FALLBACK)
         return None
 
     data = payload["data"][0]

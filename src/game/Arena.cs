@@ -406,6 +406,12 @@ public sealed class Arena
     public readonly List<Decor> Decorations = new();
 
     /// <summary>How many pieces of dressing an arena may carry. See <see cref="Decorations"/>.</summary>
+    ///
+    /// Actually spent, as of the pass that stopped skipping destructible walls - five of the six
+    /// arenas now fill it exactly, where before they were using thirty-three. If the splitscreen
+    /// frame rate ever needs buying back, this is the one number to turn down: it is a hard cap
+    /// the scatter passes stop at, in priority order, so lowering it costs the generic wall litter
+    /// first and the map's own props last. Run <c>--dress</c> to see what any value produces.
     public const int DecorBudget = 260;
 
     /// <summary>Interior chambers this arena actually built. Reported by the harness.</summary>
@@ -2795,7 +2801,7 @@ public sealed class Arena
         // Measured from EchoBase: the hangar spans 300m across and 152m deep, its mouth at
         // HangarZ - 76 and its back wall at HangarZ + 76, with mezzanines down both long sides
         // from x 84 out to 148.
-        const float HangarHalfX = 150f, HangarHalfZ = 76f;
+        const float HangarHalfZ = 76f;
 
         float mouth = HangarZ - HangarHalfZ, rear = HangarZ + HangarHalfZ;
 
@@ -3430,8 +3436,14 @@ public sealed class Arena
         // matters in a room this size.
         foreach (int sz in new[] { -1, 1 })
         for (int i = -2; i <= 2; i++)
-            Blocks.Add(new Block(new Vector3(i * 24f, 0.75f, sz * 44f + sz * 3f),
-                                 new Vector3(4.5f, 0.75f, 1.2f), CoverTint));
+        {
+            var slab = new Vector3(i * 24f, 0.75f, sz * 44f + sz * 3f);
+            var half = new Vector3(4.5f, 0.75f, 1.2f);
+            Blocks.Add(new Block(slab, half, CoverTint));
+
+            // What a cradle is for. The dressing pass lays a body on it.
+            Surface(slab, half);
+        }
 
         // A closed vault at each end of the western gallery. No through route, one door, and the
         // best gun on the floor inside it — somewhere worth going that you cannot be chased out of
@@ -3465,6 +3477,10 @@ public sealed class Arena
                                  new Vector3(2.4f, 1.4f, 5f), CoverTint));
             Blocks.Add(new Block(new Vector3(sx * 62f + 5f, 1.1f, sz * 46f + sz * 4f),
                                  new Vector3(3.2f, 1.1f, 1.6f), CoverTint));
+
+            // The low bench of the two, which is a work surface rather than a cabinet.
+            Surface(new Vector3(sx * 62f + 5f, 1.1f, sz * 46f + sz * 4f),
+                    new Vector3(3.2f, 1.1f, 1.6f));
         }
 
         // A second rank of halls inboard of the first, so the Furnace reads as a works rather than
@@ -3476,6 +3492,7 @@ public sealed class Arena
 
             Blocks.Add(new Block(LastRoomAt with { Y = 1.3f },
                                  new Vector3(3f, 1.3f, 3f), CoverTint));
+            Surface(LastRoomAt with { Y = 1.3f }, new Vector3(3f, 1.3f, 3f));
 
             // Somewhere ordinary worth walking to, as well as somewhere expensive.
             //
@@ -3517,6 +3534,8 @@ public sealed class Arena
                  doors: new[] { true, true, true, true }, roofed: false, tint: AccentTint))
         {
             var at = LastRoomAt;
+
+            crucibleAt = at;
 
             const float Reach = 8f;    // outer half-extent of the burning ground
             const float Isle = 4f;     // half-extent of the standing island at its centre
@@ -3698,6 +3717,12 @@ public sealed class Arena
     /// not have to change when Fairview arrived.
     /// </summary>
     public const int StoryLayouts = 2;
+
+    /// <summary>The Reliquary, of the Vessels. Named because its dressing pass asks for it.</summary>
+    public const int ReliquaryLayout = 0;
+
+    /// <summary>The Furnace, of the Custodians. Likewise.</summary>
+    public const int FurnaceLayout = 1;
 
     /// <summary>
     /// The Vessels' laboratory: the one arena that is a building rather than a floor.
@@ -3991,7 +4016,28 @@ public sealed class Arena
     float Vary(float a, float b) => a + (float)dressRng.NextDouble() * (b - a);
     float Spin() => (float)dressRng.NextDouble() * 360f;
 
+    /// <summary>Flat tops the dressing pass may stand something on.</summary>
+    ///
+    /// A prop against a wall is easy to find: the wall is a block, and the pass walks the blocks.
+    /// A prop ON something is not. The cradles in the Reliquary's cells and the machine beds in
+    /// the Furnace's halls are both surfaces that things get left on - that is most of what they
+    /// are for - but there is nothing about either block that tells them apart from cover, and
+    /// guessing from extents is how a sarcophagus ends up lying on a staircase. The pass that
+    /// builds them says so here instead.
+    readonly List<(Vector3 Top, Vector3 Half)> dressSurfaces = new();
+
+    void Surface(Vector3 centre, Vector3 half) =>
+        dressSurfaces.Add((centre with { Y = centre.Y + half.Y }, half));
+
     bool DecorRoom => Decorations.Count < DecorBudget;
+
+    /// <summary>Whether anything grows here.</summary>
+    ///
+    /// Two of the seven generic props are plants, which is right for five arenas and absurd on the
+    /// sixth: with the budget actually being spent, Coldstore came out with thirty tufts of scrub
+    /// and thirty stone planters full of shrubs, standing in the snow outside an ice station. The
+    /// maps that want greenery keep it and Hoth gets crates instead.
+    bool Greenery => Layout != ColdstoreLayout;
 
     void Prop(Vector3 at, Vector3 half, Color tint, SurfaceKind surface, Vector3 turn = default)
     {
@@ -4011,12 +4057,41 @@ public sealed class Arena
     }
 
     /// <summary>
+    /// One decoration wearing a mesh, or false when that mesh has not been generated yet.
+    ///
+    /// Every helper below starts with a call to this and falls through to its boxes when it comes
+    /// back false, which is the same bargain the weapon models, the character models and the
+    /// surface textures all run on: the built shape is the floor, not a placeholder to be torn
+    /// out, and a new mesh starts working the moment the file lands.
+    ///
+    /// It also costs less budget than what it replaces. A barrel is four boxes, a crate three, a
+    /// heap of rubble five - as one mesh each they are one Decor apiece, so the dressing pass gets
+    /// through considerably more of the map before DecorBudget stops it.
+    /// </summary>
+    bool MeshProp(string key, Vector3 at, float longest, float yaw = 0f, bool standing = true)
+    {
+        if (!DecorRoom || !PropShapes.Known(key)) return false;
+
+        var half = PropShapes.HalfExtents(key, longest);
+
+        at.X = Mathf.Clamp(at.X, -HalfWidth + 1f, HalfWidth - 1f);
+        at.Z = Mathf.Clamp(at.Z, -HalfDepth + 1f, HalfDepth - 1f);
+
+        Decorations.Add(new Decor(standing ? at + Vector3.Up * half.Y : at,
+                                  half, Colors.White, SurfaceKind.Panel,
+                                  new Vector3(0f, yaw, 0f), key));
+        return true;
+    }
+
+    /// <summary>
     /// A drum: two boxes crossed at 45 degrees, which is an octagon from every angle that matters,
     /// plus a rim band so it reads as a container rather than a post.
     /// </summary>
     void Barrel(Vector3 foot, Color tint, float scale = 1f)
     {
         float r = 0.42f * scale, h = 0.58f * scale;
+        if (MeshProp("fuel_drum", foot, h * 2f, Spin())) return;
+
         var mid = foot + Vector3.Up * h;
         float yaw = Spin();
 
@@ -4034,6 +4109,8 @@ public sealed class Arena
     void Crate(Vector3 foot, Color tint, float scale = 1f)
     {
         float s = 0.55f * scale;
+        if (MeshProp("supply_crate", foot, s * 2f, Spin())) return;
+
         var mid = foot + Vector3.Up * s;
         var turn = new Vector3(0f, Spin(), 0f);
 
@@ -4049,6 +4126,8 @@ public sealed class Arena
     /// <summary>Broken masonry: a few slabs at unrelated angles, lying where they fell.</summary>
     void Rubble(Vector3 at, Color tint, int pieces = 4, float spread = 2.2f)
     {
+        if (MeshProp("masonry_rubble", at, spread * 0.85f, Spin())) return;
+
         for (int i = 0; i < pieces; i++)
         {
             var to = at + new Vector3(Vary(-spread, spread), 0f, Vary(-spread, spread));
@@ -4069,6 +4148,10 @@ public sealed class Arena
         if (len < 0.5f) return;
 
         bool alongX = MathF.Abs(span.X) > MathF.Abs(span.Z);
+
+        // The mesh runs along its own X, so a run laid down Z is the same prop turned.
+        if (MeshProp("pipe_run", mid, len, alongX ? 0f : 90f, standing: false)) return;
+
         var half = alongX ? new Vector3(len * 0.5f, radius, radius)
                           : new Vector3(radius, radius, len * 0.5f);
 
@@ -4091,6 +4174,8 @@ public sealed class Arena
     void Planter(Vector3 foot, Color box, Color green)
     {
         float w = Vary(0.8f, 1.15f);
+        if (MeshProp("stone_planter", foot, w * 1.8f, Vary(-8f, 8f))) return;
+
         Prop(foot + Vector3.Up * 0.34f, new Vector3(w, 0.34f, w * 0.8f), box, SurfaceKind.Concrete,
              new Vector3(0f, Vary(-8f, 8f), 0f));
 
@@ -4106,6 +4191,8 @@ public sealed class Arena
     void StreetLight(Vector3 foot, Color post)
     {
         float h = Vary(3.4f, 4.0f);
+        if (MeshProp("street_light", foot, h, Spin())) return;
+
         float lean = Vary(-1.4f, 1.4f);
 
         Prop(foot + Vector3.Up * h * 0.5f, new Vector3(0.09f, h * 0.5f, 0.09f), post,
@@ -4118,11 +4205,100 @@ public sealed class Arena
     /// <summary>Tufts of growth, for the seams where a floor meets a wall.</summary>
     void Weeds(Vector3 at, Color green, int tufts, float spread)
     {
+        if (MeshProp("scrub_tuft", at, spread * 0.7f, Spin())) return;
+
         for (int i = 0; i < tufts; i++)
             Prop(at + new Vector3(Vary(-spread, spread), Vary(0.10f, 0.26f), Vary(-spread, spread)),
                  new Vector3(Vary(0.12f, 0.34f), Vary(0.10f, 0.26f), Vary(0.12f, 0.34f)),
                  green.Darkened(Vary(0f, 0.35f)), SurfaceKind.Foliage,
                  new Vector3(Vary(-18f, 18f), Spin(), Vary(-18f, 18f)));
+    }
+
+    /// <summary>Where the Furnace's fire ended up, for the one prop that belongs beside it.</summary>
+    Vector3? crucibleAt;
+
+    /// <summary>
+    /// The props that could only be on this map.
+    ///
+    /// Everything else in the dressing pass is deliberately generic — barrels, crates, rubble,
+    /// weeds — because the same seven helpers have to make six different arenas look used, and a
+    /// vocabulary that only works on one of them is a vocabulary that mostly does nothing. But
+    /// generic is also how all six ended up looking like the same industrial estate: the Vessels
+    /// keep bodies and the Custodians work metal, and neither of those reads as a fuel drum.
+    ///
+    /// Sized by longest dimension, not by height. PropShapes fits a mesh to the box by whichever
+    /// axis runs out of room first, so the number here is the prop's largest measurement and its
+    /// shape comes from the mesh — asking for "two metres" of sarcophagus gets a two-metre
+    /// sarcophagus lying down, not a two-metre one standing on end. Coldstore learned this the
+    /// expensive way, by scattering a map with specks.
+    /// </summary>
+    void Flavour()
+    {
+        switch (Layout)
+        {
+            case ReliquaryLayout:
+                // A body on every cradle. This is the whole conceit of the map — cell after
+                // identical cell of them — and until now a cradle was a waist-high slab you took
+                // cover behind with nothing on it, which is a bench.
+                foreach (var (top, half) in dressSurfaces)
+                {
+                    // Along the slab, since both the slab and the chest are long in X, with a
+                    // couple of degrees of slew so a gallery of ten does not read as a print.
+                    //
+                    // 2.4m, which is a tomb chest and not a coffin: Meshy came back 1.90 long by
+                    // 1.34 tall, so this stands 1.7m high on a waist-high cradle and clears the
+                    // 5.2m ceiling with room over it. The slab is 9m by 2.4m, so it fits across
+                    // the cradle as well as along it.
+                    MeshProp("sarcophagus", top, Vary(2.2f, 2.5f), Vary(-4f, 4f));
+                }
+                break;
+
+            case FurnaceLayout:
+                // Ingots coming off the machine beds, and the crucible they were poured from.
+                foreach (var (top, half) in dressSurfaces)
+                {
+                    if (dressRng.Next(3) == 0)
+                        MeshProp("crucible", top, MathF.Min(half.X, half.Z) * 1.3f, Spin());
+                    else
+                        MeshProp("ingot_stack", top + new Vector3(Vary(-half.X * 0.4f, half.X * 0.4f),
+                                                                  0f, 0f),
+                                 half.Z * 1.2f, Vary(-12f, 12f));
+                }
+
+                // Slag banked up outside the fire. Prometheus chained to what he stole is the one
+                // image this map is built around, and the ring had nothing around it but floor.
+                //
+                // On the diagonals: the four doorways are centred on the axes, so a three-metre
+                // heap on an axis is a heap in a doorway, and the hazard is the reason anyone
+                // crosses this room — blocking the way in with scenery would be a gameplay change
+                // dressed up as decoration.
+                if (crucibleAt is { } fire)
+                    foreach (int sx in new[] { -1, 1 })
+                    foreach (int sz in new[] { -1, 1 })
+                        MeshProp("slag_heap",
+                                 fire + new Vector3(sx * Vary(8.5f, 10.5f), 0f, sz * Vary(8.5f, 10.5f)),
+                                 Vary(2.6f, 3.6f), Spin());
+                break;
+        }
+    }
+
+    /// <summary>One themed prop at the foot of a wall, or nothing on a map that has none yet.</summary>
+    void AgainstWall(Vector3 at)
+    {
+        switch (Layout)
+        {
+            case ReliquaryLayout:
+                // Urns are what a reliquary is full of between the cradles, and a votive rack is
+                // the only thing in here that says somebody still visits.
+                if (dressRng.Next(2) == 0) MeshProp("ossuary_urns", at, Vary(1.2f, 1.7f), Spin());
+                else MeshProp("votive_rack", at, Vary(1.4f, 1.8f), Spin());
+                break;
+
+            case FurnaceLayout:
+                if (dressRng.Next(2) == 0) MeshProp("slag_heap", at, Vary(2.2f, 3.2f), Spin());
+                else MeshProp("ingot_stack", at, Vary(1.8f, 2.4f), Spin());
+                break;
+        }
     }
 
     /// <summary>
@@ -4144,10 +4320,23 @@ public sealed class Arena
         var steel = new Color(0.40f, 0.43f, 0.48f);
 
         // Sizeable standing blocks are walls, and things get left at the foot of walls.
+        //
+        // Not filtered on Fragile, which it was, and which had quietly emptied every map. When
+        // that test was written Fragile meant "a thin walkway on the upper storey" and skipping it
+        // meant "dress walls, not catwalks". MakeStructureBreakable later turned nearly the whole
+        // map destructible - 299 blocks of the Reliquary's 313 - so the same line came to mean
+        // "dress only the dozen pieces nothing can knock down", and the pass went from hundreds of
+        // candidate walls to about five. Measured, not guessed: every arena was spending 33 of its
+        // 260 decorations, and all but a handful of those came from the perimeter loop at the
+        // bottom of this method. See --dress.
+        //
+        // The two tests below were always the ones doing the real work anyway: a walkway is thin
+        // and it is in the air, so a block 2.4m tall standing on the floor is not one. And a prop
+        // at the foot of a wall is on the ground either way - if the wall above it does come down,
+        // a heap of rubble with crates against it is more apt than less.
         var walls = new List<Block>();
         foreach (var b in Blocks)
         {
-            if (b.Fragile) continue;
             if (b.HalfExtents.Y < 1.2f) continue;                 // not a wall, a step
             if (b.Centre.Y - b.HalfExtents.Y > 0.8f) continue;    // not on the ground
             walls.Add(b);
@@ -4159,6 +4348,33 @@ public sealed class Arena
         {
             int j = dressRng.Next(i + 1);
             (walls[i], walls[j]) = (walls[j], walls[i]);
+        }
+
+        // Themed first, then the perimeter, and the walls last with whatever is left.
+        //
+        // Order matters now in a way it did not when the pass was only ever spending an eighth of
+        // its budget. There are more ground-level walls on these maps than there is budget for, so
+        // whatever runs last gets nothing: the perimeter used to be at the bottom of this method
+        // and came out empty on four of the six arenas. The first two are small and fixed - ten
+        // sarcophagi, twenty-eight perimeter pieces - and they are the parts of the dressing that
+        // are about a particular map rather than about arenas in general, so they are the parts
+        // worth guaranteeing. The walls are interchangeable and there are hundreds of them, so
+        // they are the right thing to run out of budget on.
+        Flavour();
+
+        // The perimeter, which is otherwise the emptiest and most visible surface on the map.
+        for (int i = 0; i < 14 && DecorRoom; i++)
+        {
+            float t = (i + 0.5f) / 14f;
+            float x = -HalfWidth + t * HalfWidth * 2f;
+
+            foreach (float z in new[] { -HalfDepth + 2.2f, HalfDepth - 2.2f })
+            {
+                if (!DecorRoom) break;
+                if (Greenery && dressRng.Next(3) == 0) Weeds(new Vector3(x, 0f, z), green, 3, 1.6f);
+                else if (dressRng.Next(2) == 0) Rubble(new Vector3(x, 0f, z), stone, 3, 1.4f);
+                else StreetLight(new Vector3(x, 0f, z), steel);
+            }
         }
 
         foreach (var w in walls)
@@ -4193,29 +4409,25 @@ public sealed class Arena
                             basePos + slide * along * 0.8f + Vector3.Up * Vary(1.4f, 2.6f),
                             Vary(0.10f, 0.17f), steel);
                     break;
-                case 4:
+                case 4 when Greenery:
                     Weeds(basePos + slide * Vary(-along * 0.7f, along * 0.7f), green, 4, 1.3f);
                     break;
-                default:
+                case 5 when Greenery:
                     Planter(basePos + slide * Vary(-along * 0.5f, along * 0.5f), stone, green);
                     break;
+                default:
+                    Crate(basePos + slide * Vary(-along * 0.6f, along * 0.6f), timber, Vary(0.8f, 1.2f));
+                    break;
             }
+
+            // And one in three walls gets something that could only be on this map. The themed
+            // props go beside the generic litter rather than instead of it, because a Reliquary
+            // made entirely of urns is a prop museum - it is the ordinary industrial junk the
+            // votive rack is standing next to that makes the rack read as a votive rack.
+            if (dressRng.Next(3) == 0)
+                AgainstWall(basePos + slide * Vary(-along * 0.7f, along * 0.7f));
         }
 
-        // The perimeter, which is otherwise the emptiest and most visible surface on the map.
-        for (int i = 0; i < 14 && DecorRoom; i++)
-        {
-            float t = (i + 0.5f) / 14f;
-            float x = -HalfWidth + t * HalfWidth * 2f;
-
-            foreach (float z in new[] { -HalfDepth + 2.2f, HalfDepth - 2.2f })
-            {
-                if (!DecorRoom) break;
-                if (dressRng.Next(3) == 0) Weeds(new Vector3(x, 0f, z), green, 3, 1.6f);
-                else if (dressRng.Next(2) == 0) Rubble(new Vector3(x, 0f, z), stone, 3, 1.4f);
-                else StreetLight(new Vector3(x, 0f, z), steel);
-            }
-        }
     }
 
     /// <summary>

@@ -16,6 +16,7 @@ namespace HitboxClone;
 ///   <c>--selftest</c>       drive every screen with scripted devices, then run a headless bot
 ///                           match checking simulation invariants. Exits non-zero on failure.
 ///   <c>--shots &lt;dir&gt;</c>  pose each screen and write a PNG, for eyeballing UI changes
+///   <c>--dress</c>         build every arena and print what it put on it, then quit
 /// </summary>
 public partial class Main : Node
 {
@@ -84,6 +85,7 @@ public partial class Main : Node
                 MatchSelfTest.Begin(this);
                 return;
             }
+            if (args[i] == "--dress") { Dressing(); GetTree().Quit(); return; }
             if (args[i] == "--shots" && i + 1 < args.Length)
             {
                 shotDir = args[i + 1];
@@ -99,6 +101,36 @@ public partial class Main : Node
         Stack.Push(new TitleScreen(Settings, this));
 
         if (shotDir != null) BuildShotQueue();
+    }
+
+    /// <summary>What each arena actually dressed itself in, and how much budget it had left.</summary>
+    ///
+    /// Three seconds, against eleven minutes for the suite. It exists because the dressing passes
+    /// keep failing in a way neither a build nor a green test can see: a scatter sited on the
+    /// wrong coordinates, a wall loop that runs out of budget before it reaches the props worth
+    /// having, a key with a typo in it. All three place nothing and none of them is an error.
+    /// Counting what came out is the cheapest way to tell, and it is the only one fast enough to
+    /// use while actually tuning the numbers.
+    static void Dressing()
+    {
+        for (int layout = 0; layout < Arena.Names.Length; layout++)
+        {
+            var arena = new Arena(layout);
+
+            var worn = new SortedDictionary<string, int>();
+            int boxes = 0;
+
+            foreach (var d in arena.Decorations)
+            {
+                if (d.Model.Length == 0) { boxes++; continue; }
+                worn[d.Model] = worn.TryGetValue(d.Model, out int n) ? n + 1 : 1;
+            }
+
+            GD.Print($"{Arena.Names[layout]}: {arena.Decorations.Count} decorations "
+                     + $"of {Arena.DecorBudget} ({boxes} boxes)");
+
+            foreach (var (key, n) in worn) GD.Print($"    {n,4} x {key}");
+        }
     }
 
     public override void _ExitTree()
@@ -275,6 +307,38 @@ public partial class Main : Node
         // all of the yard dressing in it had never once been looked at.
         shots.Add(("06c-coldstore-yard", new MatchScreen(coldSettings, cdSlots, this), 90));
 
+        // The two maps that have just been given props of their own, each photographed from the
+        // ground at the thing the props were made for. An arena preview looks down on a map from
+        // above, which answers "is it dressed?" and not "does it read?" - a sarcophagus is a
+        // sarcophagus at four metres and a grey lozenge from two hundred.
+        foreach (var (name, layout) in new[] { ("06d-reliquary", Arena.ReliquaryLayout),
+                                               ("06e-furnace", Arena.FurnaceLayout) })
+        {
+            var settings = new MatchSettings
+            {
+                Mode = GameMode.TeamDeathmatch,
+                ArenaIndex = layout,
+                ScoreLimit = 15,
+                BotCount = 3,
+                BotSkill = 2,
+            };
+
+            var slots = new LobbySlot[LobbyScreen.MaxPlayers];
+            for (int i = 0; i < slots.Length; i++) slots[i] = new LobbySlot { FactionIndex = i };
+            slots[0].DeviceId = Devices.Keyboards[0].Id;
+            slots[0].ClassIndex = 1;
+            slots[1].IsBot = true; slots[1].ClassIndex = 0;
+            slots[2].IsBot = true; slots[2].ClassIndex = 3;
+
+            // Four frames, not the usual few hundred. A posed capture keeps simulating while it
+            // settles, which is right for a shot of a fight and wrong for a shot of a prop: the
+            // camera is a player standing where no player would stand, and the first attempt was
+            // a full-screen ELIMINATED card because half a second was long enough for the poor
+            // soul to fall off whatever they had been put on. Long enough to build the scene,
+            // short enough that nothing has happened yet.
+            shots.Add((name, new MatchScreen(settings, slots, this), 4));
+        }
+
         // Team Deathmatch here, so the capture covers team colours as well as the Thousand Rooms
         // layout.
         var gauntlet = new MatchSettings
@@ -412,6 +476,59 @@ public partial class Main : Node
         DirAccess.MakeDirRecursiveAbsolute(shotDir);
     }
 
+    /// <summary>Fixed camera stations for the captures that are about a particular place.</summary>
+    static readonly Dictionary<string, (Vector3 At, Vector3 LookAt)> Poses = new()
+    {
+        // Coldstore, standing on the hangar apron looking into the base.
+        ["06c-coldstore-yard"] = (new Vector3(-22f, 1.6f, 96f), new Vector3(8f, 16f, 290f)),
+
+    };
+
+    /// <summary>Captures that frame a named prop rather than a fixed spot.</summary>
+    ///
+    /// Written out by hand first, and it came back black: a camera station picked off the map's
+    /// authored coordinates was standing inside a wall, because FreeRoomSite nudges a room up to
+    /// eight metres onto clear ground and the Reliquary's cells had moved. Every number in a map
+    /// builder is a request, not a position. Asking the built arena where it actually put the prop
+    /// is the only version of this that keeps working after somebody edits the layout.
+    static readonly Dictionary<string, string> Framed = new()
+    {
+        ["06d-reliquary"] = "sarcophagus",
+        ["06e-furnace"] = "slag_heap",
+    };
+
+    /// <summary>Stand six metres off a prop and look at it, or leave the camera where it was.</summary>
+    static void FrameProp(MatchScreen screen, string key)
+    {
+        foreach (var d in screen.Sim.Arena.Decorations)
+        {
+            if (d.Model != key) continue;
+
+            // Backed off TOWARDS THE MIDDLE OF THE MAP, which is the only direction that is
+            // reliably standing room. Backing off along +X was the first attempt and it put the
+            // camera inside a cell wall - the Reliquary's cradles sit against the far side of
+            // their rooms, so five metres outboard of one is five metres into masonry, and a
+            // CharacterBody3D placed in masonry gets shoved somewhere else entirely. Whatever a
+            // prop is leaning on, the open side of it faces in.
+            var inward = (Vector3.Zero - d.Centre) with { Y = 0f };
+            inward = inward.LengthSquared() > 0.01f ? inward.Normalized() : Vector3.Right;
+
+            // Swung a little off the line so it is a three-quarter view rather than an elevation,
+            // and looking down on it from head height rather than level with it. Four and a half
+            // metres and not seven: these rooms are thirteen metres across with the prop against
+            // one wall, so backing off far enough to "get it all in" puts the camera through the
+            // opposite wall and photographs masonry.
+            var across = new Vector3(-inward.Z, 0f, inward.X);
+            var eye = d.Centre + inward * 4.5f + across * 2.2f + Vector3.Up * 2.7f;
+
+            GD.Print($"  framing {key} at {d.Centre} from {eye}");
+            screen.PoseForShot(eye, d.Centre);
+            return;
+        }
+
+        GD.Print($"  no {key} on this map to frame");
+    }
+
     void ProcessShots()
     {
         if (shotIndex >= shots.Count)
@@ -428,9 +545,17 @@ public partial class Main : Node
             s.Stack = Stack;
             Stack.Reset(s);
 
-            // Stand the posed player on the hangar apron looking into the base.
-            if (shots[shotIndex].name.Contains("yard") && s is MatchScreen yardScreen)
-                yardScreen.PoseForShot(new Vector3(-22f, 1.6f, 96f), new Vector3(8f, 16f, 290f));
+            // Where a capture needs to be taken from somewhere in particular.
+            //
+            // Left to itself a match capture photographs wherever the posed player has walked to
+            // after N frames, which is fine for "does the game draw" and useless for "does that
+            // corner of the map look right" - the whole base half of Coldstore went unlooked-at
+            // for exactly that reason. Keyed by shot name so adding a view is one line here.
+            if (Poses.TryGetValue(shots[shotIndex].name, out var pose) && s is MatchScreen posed)
+                posed.PoseForShot(pose.At, pose.LookAt);
+
+            if (Framed.TryGetValue(shots[shotIndex].name, out string? key) && s is MatchScreen framed)
+                FrameProp(framed, key);
 
             // Put the posed player in a tank when the capture is meant to show driving. Done from
             // the harness through the ordinary public Board call rather than by adding a debug

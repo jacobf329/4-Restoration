@@ -123,6 +123,28 @@ public sealed class MatchScreen : UiScreen
     public Match Sim => match;
 
     /// <summary>
+    /// Stand the posed player somewhere and point them at something, for the screenshot harness.
+    ///
+    /// The camera's yaw is taken from the pawn's facing once, in OnEnter, so moving a pawn after
+    /// the screen is up moves the body and leaves the view pointing wherever the spawn pointed it.
+    /// For the Coldstore base that is due south, directly away from the thing being photographed.
+    /// </summary>
+    public void PoseForShot(Vector3 at, Vector3 lookAt)
+    {
+        if (views.Count == 0) return;
+
+        var pawn = match.Pawns[views[0].PawnIndex];
+        pawn.GlobalPosition = at;
+
+        var to = lookAt - at;
+        float yaw = MathF.Atan2(to.Z, to.X);
+
+        pawn.Facing = yaw;
+        views[0].Yaw = yaw;
+        views[0].Pitch = MathF.Asin(MathU.Clamp(to.Normalized().Y, -1f, 1f));
+    }
+
+    /// <summary>
     /// A scripted scene running in this match, or null for an ordinary fight.
     ///
     /// Set after construction rather than passed in, because it needs the match that construction

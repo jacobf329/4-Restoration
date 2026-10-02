@@ -2640,6 +2640,15 @@ public sealed class Arena
     public int PropsPlaced { get; private set; }
     public int PropsRefused { get; private set; }
 
+    /// <summary>Why props were refused, so density is tuned against data and not against a hunch.</summary>
+    public readonly Dictionary<string, int> PropRefusals = new();
+
+    void Refuse(string why)
+    {
+        PropsRefused++;
+        PropRefusals[why] = PropRefusals.TryGetValue(why, out int n) ? n + 1 : 1;
+    }
+
     void ColdstoreProps()
     {
         var rng = new Random(20260927);
@@ -2744,8 +2753,7 @@ public sealed class Arena
             PropBlock(key, x, z, size, (float)(rng.NextDouble() * 360.0), SurfaceKind.Panel);
 
         // ---- the base: what a place people live in collects ----
-        ColdstoreYard(rng, HangarZ - 52f);
-        ColdstoreYard(rng, GeneratorZ - 64f);
+        ColdstoreYards(rng);
     }
 
     /// <summary>
@@ -2768,38 +2776,92 @@ public sealed class Arena
         return 8;                                               // the generator's own shoulder
     }
 
-    /// <summary>A working yard: stores, power, and the masts that make it a base and not a shed.</summary>
-    void ColdstoreYard(Random rng, float z)
+    /// <summary>
+    /// The base's working ground: the apron, the hangar floor, the service run and the compound.
+    ///
+    /// Sited off the structures rather than at offsets from a landmark, which is what the first
+    /// version did and why it produced almost nothing. "The hangar yard" was placed fifty metres
+    /// north of HangarZ - which is inside the hangar, on top of the mezzanine decks - and "the
+    /// generator yard" at a hundred and four metres out, which is beyond the compound's own walls
+    /// at eighty-six. Both were asking for clear ground in places that were either already built
+    /// on or not the yard at all, and the clearance test dutifully refused them.
+    ///
+    /// Scattered over a rectangle rather than placed at fixed offsets, so the geometry can refuse
+    /// a spot without costing the whole arrangement. A yard is a place things accumulate, not a
+    /// layout somebody drew.
+    /// </summary>
+    void ColdstoreYards(Random rng)
     {
-        foreach (int sx in new[] { -1, 1 })
+        // Measured from EchoBase: the hangar spans 300m across and 152m deep, its mouth at
+        // HangarZ - 76 and its back wall at HangarZ + 76, with mezzanines down both long sides
+        // from x 84 out to 148.
+        const float HangarHalfX = 150f, HangarHalfZ = 76f;
+
+        float mouth = HangarZ - HangarHalfZ, rear = HangarZ + HangarHalfZ;
+
+        // The apron: hard standing in front of the doors, where everything gets put down on its
+        // way in or out. The busiest ground on the map and until now the barest.
+        Yard(rng, -132f, 132f, mouth - 54f, mouth - 8f, 15f, 0.62f, new[]
         {
-            float bay = sx * (104f + (float)rng.NextDouble() * 46f);
+            ("supply_crate", 3.4f), ("supply_crate", 2.8f), ("fuel_drum", 2.0f),
+            ("cargo_sled", 5.5f), ("barricade", 5f), ("floodlight", 6f),
+            ("pipe_run", 5f), ("sandbags", 4.5f),
+        });
 
-            PropBlock("supply_crate", bay, z, 3.2f, 0f, SurfaceKind.Panel);
-            PropBlock("supply_crate", bay + sx * 6f, z + 7f, 3.0f, 0f, SurfaceKind.Panel);
-            PropBlock("fuel_drum", bay - sx * 7f, z + 3f, 2.0f, 0f, SurfaceKind.Panel);
-            PropBlock("cargo_sled", bay + sx * 15f, z - 9f, 5.5f, 0f, SurfaceKind.Panel);
-            PropBlock("pipe_run", bay - sx * 21f, z + 12f, 5f, 0f, SurfaceKind.Panel);
-            PropBlock("floodlight", bay + sx * 31f, z + 18f, 6f, 0f, SurfaceKind.Panel);
-            PropBlock("sensor_mast", bay - sx * 38f, z - 20f, 13f, 0f, SurfaceKind.Panel);
-            PropBlock("comms_dish", bay + sx * 46f, z + 26f, 8f, 0f, SurfaceKind.Panel);
+        // The hangar floor itself, between the two mezzanines. Kept to the middle so the ramps at
+        // x 57.6 and the decks outboard of x 84 are left alone.
+        Yard(rng, -74f, 74f, mouth + 18f, rear - 16f, 17f, 0.45f, new[]
+        {
+            ("supply_crate", 3.4f), ("supply_crate", 2.6f), ("fuel_drum", 2.0f),
+            ("cargo_sled", 5.5f), ("pipe_run", 5f), ("trench_steps", 2.6f),
+        });
 
-            // Steps are the one piece here nobody should be stopped by - they are a floor detail,
-            // and a knee-high obstacle in a doorway is the most annoying thing a map can own.
-            Decorations.Add(new Decor(new Vector3(bay - sx * 12f, 0f, z - 16f),
-                                      PropShapes.HalfExtents("trench_steps", 2.6f),
-                                      SnowTint, SurfaceKind.Panel,
-                                      new Vector3(0f, sx * 90f, 0f), "trench_steps"));
-        }
+        // The service run between the hangar's back wall and the generator compound: pipework
+        // going one way and the things that maintain it going the other.
+        Yard(rng, -120f, 120f, rear + 14f, GeneratorZ - 92f, 16f, 0.5f, new[]
+        {
+            ("pipe_run", 5.5f), ("pipe_run", 4.5f), ("fuel_drum", 2.0f),
+            ("supply_crate", 3.0f), ("cargo_sled", 5f), ("floodlight", 6f),
+        });
+
+        // Inside the compound walls, which stand at x 86 and z GeneratorZ + 84. The drum is 72m
+        // across at the centre of it, and PropBlock's own clearance test keeps everything off it.
+        Yard(rng, -78f, 78f, GeneratorZ - 72f, GeneratorZ + 74f, 15f, 0.55f, new[]
+        {
+            ("pipe_run", 5.5f), ("fuel_drum", 2.0f), ("sensor_mast", 13f),
+            ("comms_dish", 8f), ("floodlight", 6f), ("supply_crate", 3.0f),
+            ("barricade", 5f),
+        });
     }
 
     /// <summary>
-    /// One prop, standing on the floor, in a box the shape of its own mesh.
+    /// Scatter a kit of props over a rectangle on a jittered grid.
     ///
-    /// Refuses anywhere it would matter: on the vehicle lanes, on a spawn, or inside something
-    /// already built. A prop dropped on a driveway is deleted by OpenDriveways anyway; one dropped
-    /// on a spawn point is somebody starting their life inside a rock.
+    /// <paramref name="chance"/> is how often a cell is even tried, which is what stops a yard
+    /// reading as a grid of crates. The jitter does the rest.
     /// </summary>
+    void Yard(Random rng, float x0, float x1, float z0, float z1, float step, float chance,
+              (string Key, float Size)[] kit)
+    {
+        for (float z = z0; z <= z1; z += step)
+        for (float x = x0; x <= x1; x += step)
+        {
+            if (rng.NextDouble() > chance) continue;
+
+            var (key, size) = kit[rng.Next(kit.Length)];
+
+            // Right angles only. Everything in a yard is a made thing with flat sides, and
+            // PropBlock turns the box with the mesh on a quarter turn but cannot on anything else.
+            float yaw = rng.Next(4) * 90f;
+
+            PropBlock(key,
+                      x + (float)(rng.NextDouble() * 2.0 - 1.0) * step * 0.4f,
+                      z + (float)(rng.NextDouble() * 2.0 - 1.0) * step * 0.4f,
+                      size * (0.85f + (float)rng.NextDouble() * 0.3f),
+                      yaw, SurfaceKind.Panel);
+        }
+    }
+
     /// <summary>
     /// Clear air a prop keeps around anything already built, in metres.
     ///
@@ -2814,19 +2876,30 @@ public sealed class Arena
     void PropBlock(string key, float x, float z, float longest, float yaw, SurfaceKind surface)
     {
         var half = PropShapes.HalfExtents(key, longest);
+
+        // A quarter turn swaps the box as well as the mesh.
+        //
+        // Block.Yaw turns the mesh and not the collider, which is a licence taken for boulders and
+        // drifts where the box was an approximation of an irregular shape to begin with. A crate
+        // is not that: turn one ninety degrees and leave its box where it was, and a five-metre
+        // sled is suddenly collided with as though it lay the other way. On a right angle the
+        // honest answer is exact and costs one swap, so take it.
+        if (Mathf.IsEqualApprox(MathF.Abs(yaw % 180f), 90f))
+            half = new Vector3(half.Z, half.Y, half.X);
+
         var at = new Vector3(x, half.Y, z);
 
-        if (MathF.Abs(x) > HalfWidth - 24f || MathF.Abs(z) > HalfDepth - 24f) { PropsRefused++; return; }
+        if (MathF.Abs(x) > HalfWidth - 24f || MathF.Abs(z) > HalfDepth - 24f) { Refuse("off the map"); return; }
 
         // The vehicle lanes, which are carved clear after this runs. Placing here is not dangerous,
         // only wasted - but a prop that vanishes is a prop somebody will go looking for.
-        if (MathF.Abs(z) < 22f) { PropsRefused++; return; }
+        if (MathF.Abs(z) < 22f) { Refuse("the vehicle lane"); return; }
 
         foreach (var spawn in SpawnPoints)
-            if (new Vector2(spawn.X - x, spawn.Z - z).Length() < 16f) { PropsRefused++; return; }
+            if (new Vector2(spawn.X - x, spawn.Z - z).Length() < 16f) { Refuse("a spawn"); return; }
 
         foreach (var w in WeaponSpawns)
-            if (new Vector2(w.X - x, w.Z - z).Length() < 10f) { PropsRefused++; return; }
+            if (new Vector2(w.X - x, w.Z - z).Length() < 10f) { Refuse("a weapon crate"); return; }
 
         // Clear of what is already there, measured against both footprints rather than as a fixed
         // radius: a crag beside a hangar wall needs more room than a fuel drum beside a crate.
@@ -2837,7 +2910,7 @@ public sealed class Arena
             if (MathF.Abs(b.Centre.X - x) < b.HalfExtents.X + half.X + Margin
                 && MathF.Abs(b.Centre.Z - z) < b.HalfExtents.Z + half.Z + Margin)
             {
-                PropsRefused++;
+                Refuse("something already built");
                 return;
             }
         }

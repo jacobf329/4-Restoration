@@ -559,8 +559,13 @@ public static class UiSelfTest
         // budget is a property of the map's size - see Arena.MaxHealthWalk. A flat number here was
         // what forced Coldstore to carry seven hundred and eighty-four med kits.
         if (arena.PropsPlaced + arena.PropsRefused > 0)
+        {
+            var why = new System.Collections.Generic.List<string>();
+            foreach (var pair in arena.PropRefusals) why.Add($"{pair.Value} to {pair.Key}");
+
             TestLog.Line($"    {arena.Name}: {arena.PropsPlaced} props placed, "
-                       + $"{arena.PropsRefused} refused");
+                       + $"{arena.PropsRefused} refused ({string.Join(", ", why)})");
+        }
 
         Check(samples > 0, $"{arena.Name} has standable floor to sample");
         Check(worst < arena.MaxHealthWalk,

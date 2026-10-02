@@ -269,6 +269,12 @@ public partial class Main : Node
         cdSlots[2].IsBot = true; cdSlots[2].ClassIndex = 3;
         shots.Add(("06b-coldstore", new MatchScreen(coldSettings, cdSlots, this), 300));
 
+        // And a second look at the same map from the base end. The first capture photographs
+        // wherever the posed player happens to be after three hundred frames, which on Coldstore
+        // is always the attacker's end - so the half of the map with the hangar, the compound and
+        // all of the yard dressing in it had never once been looked at.
+        shots.Add(("06c-coldstore-yard", new MatchScreen(coldSettings, cdSlots, this), 90));
+
         // Team Deathmatch here, so the capture covers team colours as well as the Thousand Rooms
         // layout.
         var gauntlet = new MatchSettings
@@ -421,6 +427,10 @@ public partial class Main : Node
             var s = shots[shotIndex].screen;
             s.Stack = Stack;
             Stack.Reset(s);
+
+            // Stand the posed player on the hangar apron looking into the base.
+            if (shots[shotIndex].name.Contains("yard") && s is MatchScreen yardScreen)
+                yardScreen.PoseForShot(new Vector3(-22f, 1.6f, 96f), new Vector3(8f, 16f, 290f));
 
             // Put the posed player in a tank when the capture is meant to show driving. Done from
             // the harness through the ordinary public Board call rather than by adding a debug

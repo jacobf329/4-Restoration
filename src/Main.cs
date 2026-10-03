@@ -17,6 +17,7 @@ namespace HitboxClone;
 ///                           match checking simulation invariants. Exits non-zero on failure.
 ///   <c>--shots &lt;dir&gt;</c>  pose each screen and write a PNG, for eyeballing UI changes
 ///   <c>--dress</c>         build every arena and print what it put on it, then quit
+///   <c>--perf</c>          draw every arena and print what it costs the renderer, then quit
 /// </summary>
 public partial class Main : Node
 {
@@ -40,6 +41,13 @@ public partial class Main : Node
 
     // --selftest state
     bool selfTestRunning;
+
+    // --perf state
+    bool perfRunning;
+    int perfArena;
+    int perfTimer;
+    int perfOnly = -1;
+    double perfBaseTexture;
 
     public override void _Ready()
     {
@@ -86,6 +94,28 @@ public partial class Main : Node
                 return;
             }
             if (args[i] == "--dress") { Dressing(); GetTree().Quit(); return; }
+            if (args[i] == "--perf")
+            {
+                perfRunning = true;
+
+                // One arena per process when asked for one, because the figures ACCUMULATE.
+                // Loading six arenas in a row and reading the meter after each gave Glasshouse
+                // more texture memory than Coldstore on fewer objects, which is not a thing that
+                // can be true - it was still holding the five arenas loaded before it. A number
+                // that only means something on a fresh process has to be taken on a fresh process.
+                if (i + 1 < args.Length && int.TryParse(args[i + 1], out int only))
+                    perfArena = perfOnly = only;
+
+                // For bisecting: draw the same map with every prop replaced by its box, so the
+                // meshes' share of the cost is the difference between two runs rather than an
+                // argument about arithmetic.
+                foreach (var a in args)
+                {
+                    if (a == "noprops") PropModels.Enabled = false;
+                    if (a == "low") UserSettings.Quality = GraphicsQuality.Low;
+                    if (a == "high") UserSettings.Quality = GraphicsQuality.High;
+                }
+            }
             if (args[i] == "--shots" && i + 1 < args.Length)
             {
                 shotDir = args[i + 1];
@@ -133,6 +163,81 @@ public partial class Main : Node
         }
     }
 
+    /// <summary>What each arena costs the renderer to draw, per viewport.</summary>
+    ///
+    /// Counted rather than felt. "It lags" is a symptom with half a dozen possible causes - too
+    /// many objects, too many draw calls, too much texture memory, a shadow pass over the lot -
+    /// and the only way to tell which is to ask the renderer, which keeps all four numbers itself.
+    /// This stands one player on each arena in turn, lets the frame settle, and prints them.
+    ///
+    /// Read the counts, not the frame rate: this is meant to be run headless under Xvfb, where
+    /// there is no GPU and the milliseconds mean nothing. Objects and draw calls are exact, and
+    /// they are what a real GPU is spending its time on.
+    void ProcessPerf()
+    {
+        if (perfArena >= (perfOnly >= 0 ? Arena.Names.Length : Arena.CombatLayouts)
+            || (perfOnly >= 0 && perfArena > perfOnly))
+        {
+            GD.Print("--- all figures are ONE viewport. Splitscreen multiplies them by up to four.");
+            GetTree().Quit();
+            return;
+        }
+
+        if (perfTimer == 0)
+        {
+            // What the process is holding before any arena exists: the sky, the fonts, the HUD,
+            // the character and weapon models. Subtracted below, so the figure reported is the
+            // MAP's cost and not the game's.
+            perfBaseTexture = Performance.GetMonitor(Performance.Monitor.RenderTextureMemUsed);
+
+            var settings = new MatchSettings
+            {
+                Mode = GameMode.TeamDeathmatch,
+                ArenaIndex = perfArena,
+                ScoreLimit = 15,
+                BotCount = 3,
+                BotSkill = 2,
+            };
+
+            var slots = new LobbySlot[LobbyScreen.MaxPlayers];
+            for (int i = 0; i < slots.Length; i++) slots[i] = new LobbySlot { FactionIndex = i };
+            slots[0].DeviceId = Devices.Keyboards[0].Id;
+            slots[1].IsBot = true;
+            slots[2].IsBot = true;
+
+            var screen = new MatchScreen(settings, slots, this) { Stack = Stack };
+            Stack.Reset(screen);
+        }
+
+        perfTimer++;
+
+        if (perfTimer < 90) { Ui.QueueRedraw(); return; }
+
+        // Collected before reading, and read late rather than early.
+        //
+        // The meter counts what the renderer is holding RIGHT NOW, and a model loader that
+        // replaces a 2048 texture with a 1024 one leaves the original alive until the C# wrapper
+        // is finalised. Read twenty frames in, that shows both copies and a texture budget looks
+        // like it made things worse - which is exactly what it looked like the first time.
+        System.GC.Collect();
+        System.GC.WaitForPendingFinalizers();
+        System.GC.Collect();
+
+        double Mon(Performance.Monitor m) => Performance.GetMonitor(m);
+
+        GD.Print($"{Arena.Names[perfArena]}:"
+            + $" {Mon(Performance.Monitor.RenderTotalObjectsInFrame),6:0} objects"
+            + $" {Mon(Performance.Monitor.RenderTotalDrawCallsInFrame),6:0} draw calls"
+            + $" {Mon(Performance.Monitor.RenderTotalPrimitivesInFrame) / 1000.0,8:0.0}k tris"
+            + $" {Mon(Performance.Monitor.RenderTextureMemUsed) / 1048576.0,7:0.0} MB texture"
+            + $" (+{(Mon(Performance.Monitor.RenderTextureMemUsed) - perfBaseTexture) / 1048576.0:0.0} MB"
+            + " for the map)");
+
+        perfArena++;
+        perfTimer = 0;
+        Ui.QueueRedraw();
+    }
+
     public override void _ExitTree()
     {
         // Static Godot references have to go before the engine tears down the C# bindings.
@@ -173,6 +278,8 @@ public partial class Main : Node
         float dt = (float)delta;
 
         if (selfTestRunning) return;
+
+        if (perfRunning) { ProcessPerf(); return; }
 
         if (shotDir != null) { ProcessShots(); return; }
 

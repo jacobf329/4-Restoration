@@ -90,7 +90,7 @@ public static class WeaponModels
         if (doc.AppendFromFile(path, state) != Error.Ok) return null;
         if (doc.GenerateScene(state) is not Node3D scene) return null;
 
-        ShrinkTextures(scene);
+        TextureBudget.Fit(scene, MaxTextureSize);
 
         var box = Bounds(scene);
         var size = box.Size;
@@ -209,31 +209,6 @@ public static class WeaponModels
         foreach (var child in node.GetChildren())
             foreach (var found in AllMeshes(child))
                 yield return found;
-    }
-
-    /// <summary>Downscale the base colour maps. Same trick the character loader uses.</summary>
-    static void ShrinkTextures(Node3D scene)
-    {
-        foreach (var mesh in AllMeshes(scene))
-        {
-            for (int i = 0; i < mesh.GetSurfaceOverrideMaterialCount(); i++)
-            {
-                if (mesh.Mesh?.SurfaceGetMaterial(i) is not StandardMaterial3D mat) continue;
-                if (mat.AlbedoTexture is not { } tex) continue;
-
-                var img = tex.GetImage();
-                if (img == null) continue;
-
-                int longest = Mathf.Max(img.GetWidth(), img.GetHeight());
-                if (longest <= MaxTextureSize) continue;
-
-                float k = (float)MaxTextureSize / longest;
-                img.Resize(Mathf.Max(1, (int)(img.GetWidth() * k)),
-                           Mathf.Max(1, (int)(img.GetHeight() * k)));
-
-                mat.AlbedoTexture = ImageTexture.CreateFromImage(img);
-            }
-        }
     }
 
     /// <summary>Drop every cached scene. Called at shutdown, before the engine tears down.</summary>

@@ -90,7 +90,7 @@ public static class CharacterModels
         string run = $"{Folder}/{model}_run.glb";
         if (Godot.FileAccess.FileExists(run)) MergeAnimations(scene, run);
 
-        ShrinkTextures(scene);
+        TextureBudget.Fit(scene, MaxTextureSize);
 
         float height = MeasureHeight(scene);
 
@@ -153,29 +153,6 @@ public static class CharacterModels
             if (FindMesh(child) is { } found) return found;
 
         return null;
-    }
-
-    /// <summary>Halve 2048-square source textures down to the budget.</summary>
-    static void ShrinkTextures(Node3D scene)
-    {
-        if (FindMesh(scene) is not { Mesh: { } mesh }) return;
-
-        for (int s = 0; s < mesh.GetSurfaceCount(); s++)
-        {
-            if (mesh.SurfaceGetMaterial(s) is not StandardMaterial3D mat) continue;
-            if (mat.AlbedoTexture is not { } tex) continue;
-
-            var img = tex.GetImage();
-            if (img == null) continue;
-
-            int w = img.GetWidth(), h = img.GetHeight();
-            if (w <= MaxTextureSize && h <= MaxTextureSize) continue;
-
-            float k = MaxTextureSize / (float)Mathf.Max(w, h);
-            img.Resize(Mathf.RoundToInt(w * k), Mathf.RoundToInt(h * k), Image.Interpolation.Lanczos);
-
-            mat.AlbedoTexture = ImageTexture.CreateFromImage(img);
-        }
     }
 
     /// <summary>

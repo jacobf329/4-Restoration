@@ -4680,6 +4680,7 @@ public sealed class Arena
             // what you shoot at is never larger than what you can see.
             if (PropModels.Instance(b.Model, b.HalfExtents, b.Yaw) is { } prop)
             {
+                FadeOutByDistance(prop, b.HalfExtents);
                 body.AddChild(prop);
             }
             else
@@ -4708,6 +4709,7 @@ public sealed class Arena
             if (PropModels.Instance(d.Model, d.HalfExtents, d.Turn.Y) is { } prop)
             {
                 prop.Position = d.Centre;
+                FadeOutByDistance(prop, d.HalfExtents);
                 root.AddChild(prop);
                 continue;
             }
@@ -4731,6 +4733,42 @@ public sealed class Arena
         root.AddChild(Graphics.BuildFill());
         // Ranged off this arena, not off a constant. See Graphics.BuildEnvironment.
         root.AddChild(Graphics.BuildEnvironment(fog, MathF.Max(HalfWidth, HalfDepth) * 2f));
+    }
+
+    /// <summary>
+    /// Stop drawing a prop once it is too far away to be worth the triangles.
+    ///
+    /// This is the thing every shooter with a big map has and this one did not. Coldstore is 1584
+    /// metres across and the haze only saturates at the far wall, so every drift, crate and wreck
+    /// on the map was inside the frustum and submitted in full from most places you can stand -
+    /// and then once more for each splitscreen viewport. Measured with --perf, the props are
+    /// 350,000 of Coldstore's 553,000 triangles.
+    ///
+    /// Ranged off the prop's own size rather than set to one number, because "far away" means
+    /// something different for a sandbag and for a crashed hull: the test that matters is how many
+    /// pixels it still covers, and that is size over distance. A metre of prop buys 170 metres of
+    /// visibility, so a 2m crate goes at 340m and a 20m wreck is still there at the far wall.
+    ///
+    /// The floor of 140m is what keeps this honest as a rendering trick rather than a gameplay
+    /// change. Nothing within a long rifle shot is ever hidden by it, and the fade margin means a
+    /// prop dissolves over its last 25 metres instead of blinking out - which is what you would
+    /// otherwise notice, and the one thing that would make this worse than drawing everything.
+    ///
+    /// Drawing only. The collider is untouched, so cover you can see from 400m is cover you can
+    /// still hide behind when you get there.
+    /// </summary>
+    static void FadeOutByDistance(Node3D prop, Vector3 halfExtents)
+    {
+        float longest = Mathf.Max(halfExtents.X, Mathf.Max(halfExtents.Y, halfExtents.Z)) * 2f;
+        float reach = MathF.Max(140f, longest * 170f);
+
+        foreach (var child in prop.GetChildren())
+            foreach (var mi in VehicleModels.AllMeshes(child))
+            {
+                mi.VisibilityRangeEnd = reach;
+                mi.VisibilityRangeEndMargin = 25f;
+                mi.VisibilityRangeFadeMode = GeometryInstance3D.VisibilityRangeFadeModeEnum.Self;
+            }
     }
 
     /// <summary>

@@ -119,7 +119,7 @@ public static class VehicleModels
         if (doc.AppendFromFile(path, state) != Error.Ok) return null;
         if (doc.GenerateScene(state) is not Node3D scene) return null;
 
-        ShrinkTextures(scene);
+        TextureBudget.Fit(scene, MaxTextureSize);
 
         var bounds = Measure(scene);
 
@@ -145,31 +145,6 @@ public static class VehicleModels
         }
 
         return any ? total : new Aabb(Vector3.Zero, Vector3.One);
-    }
-
-    static void ShrinkTextures(Node3D scene)
-    {
-        foreach (var mi in AllMeshes(scene))
-        {
-            if (mi.Mesh is not { } mesh) continue;
-
-            for (int s = 0; s < mesh.GetSurfaceCount(); s++)
-            {
-                if (mesh.SurfaceGetMaterial(s) is not StandardMaterial3D mat) continue;
-                if (mat.AlbedoTexture is not { } tex) continue;
-
-                var img = tex.GetImage();
-                if (img == null) continue;
-
-                int w = img.GetWidth(), h = img.GetHeight();
-                if (w <= MaxTextureSize && h <= MaxTextureSize) continue;
-
-                float k = MaxTextureSize / (float)Mathf.Max(w, h);
-                img.Resize(Mathf.RoundToInt(w * k), Mathf.RoundToInt(h * k), Image.Interpolation.Lanczos);
-
-                mat.AlbedoTexture = ImageTexture.CreateFromImage(img);
-            }
-        }
     }
 
     public static IEnumerable<MeshInstance3D> AllMeshes(Node n)

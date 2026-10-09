@@ -146,11 +146,15 @@ public sealed class Station
             Boxes.Add(new Box(at with { Y = -14f }, new Vector3(half.X, 14f, half.Y),
                               Deck.Darkened(0.45f), HitboxClone.SurfaceKind.Panel));
 
-        // Four pylons at the corners of the gantry, which give the hub a silhouette from the
-        // corridors and something to break line of sight behind.
+        // Four pylons, pushed out to the outer lip of the gantry.
+        //
+        // They were at +-24 with a 2.4m half-extent, which put them squarely in the corner of a
+        // walkway that runs from 20 to 27 - the ring was blocked at all four corners by its own
+        // decoration. Out at the lip they still give the hub a silhouette and still break line
+        // of sight, and the way round the shaft is actually walkable.
         foreach (int sx in new[] { -1, 1 })
         foreach (int sz in new[] { -1, 1 })
-            Boxes.Add(new Box(new Vector3(sx * 24f, 5.5f, sz * 24f), new Vector3(2.4f, 5.5f, 2.4f),
+            Boxes.Add(new Box(new Vector3(sx * 25.8f, 5.5f, sz * 25.8f), new Vector3(1.2f, 5.5f, 1.2f),
                               Trim, HitboxClone.SurfaceKind.Panel));
 
         // A roof over the whole hub, shaft included.

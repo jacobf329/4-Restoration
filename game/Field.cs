@@ -16,8 +16,11 @@ namespace Battlefront;
 public partial class Field : Node3D
 {
     public Station Station = null!;
+    public Battle Battle = null!;
+
     Trooper player = null!;
     Camera3D cam = null!;
+    Hud hud = null!;
 
     float camYaw = -Mathf.Pi * 0.5f;
     float camPitch = -0.18f;
@@ -29,6 +32,11 @@ public partial class Field : Node3D
     /// <summary>Screenshot mode: write a PNG after N frames and quit. See --shots.</summary>
     string? shotPath;
     int shotFrames = 30;
+
+    /// <summary>--sim: run the battle with nobody watching and report what happened.</summary>
+    float simSeconds;
+    float simRan;
+    float simReport;
     int frame;
 
     public override void _Ready()
@@ -46,18 +54,25 @@ public partial class Field : Node3D
             if (args[i] == "--at" && i + 3 < args.Length)
                 startAt = new Vector3(args[i + 1].ToFloat(), 1f, args[i + 2].ToFloat());
             if (args[i] == "--yaw" && i + 1 < args.Length) camYaw = Mathf.DegToRad(args[i + 1].ToFloat());
+            if (args[i] == "--after" && i + 1 < args.Length) shotFrames = args[i + 1].ToInt();
+            if (args[i] == "--sim" && i + 1 < args.Length) simSeconds = args[i + 1].ToFloat();
         }
 
         Station = new Station();
         BuildVisuals();
 
-        player = new Trooper { Team = 0 };
-        AddChild(player);
-        player.GlobalPosition = startAt ?? Station.HomeSpawn[0];
+        Battle = new Battle(Station);
+        Fill();
+
+        player = Battle.Troopers[0];
+        if (startAt is { } where) player.GlobalPosition = where;
 
         cam = new Camera3D { Current = true, Fov = 78f, Far = 600f };
         AddChild(cam);
         PlaceCamera(0f, snap: true);
+
+        hud = new Hud { Field = this };
+        AddChild(hud);
 
         AddChild(Graphics.BuildSun());
         AddChild(Graphics.BuildFill());
@@ -67,6 +82,34 @@ public partial class Field : Node3D
     }
 
     Vector3? startAt;
+
+    /// <summary>For the HUD, which should not have to reach into the roster.</summary>
+    public bool PlayerAlive => player is { Alive: true };
+
+    /// <summary>
+    /// Forty soldiers, twenty a side.
+    ///
+    /// The two sides wear different generated characters so you can tell at a glance who is
+    /// shooting at you, which at this range and in this light is most of what team colour has to
+    /// do. Every one of them is the same Trooper the player is, driven by the same movement code
+    /// through the same Order - see Trooper.Order for why that matters.
+    /// </summary>
+    void Fill()
+    {
+        for (int team = 0; team < 2; team++)
+        for (int i = 0; i < Battle.PerSide; i++)
+        {
+            var t = new Trooper
+            {
+                Team = team,
+                Model = team == 0 ? "vessels" : "custodians",
+            };
+
+            AddChild(t);
+            t.GlobalPosition = Battle.SpawnFor(team);
+            Battle.Add(t);
+        }
+    }
 
     /// <summary>Every box in the station, as collision plus something to look at.</summary>
     void BuildVisuals()
@@ -116,19 +159,21 @@ public partial class Field : Node3D
         Devices.PollAll(dt);
         var pad = Devices.All.Count > 0 ? Devices.All[0] : null;
 
-        if (pad != null)
+        if (pad != null && player.Alive)
         {
             // Right stick looks. Inverted Y is the convention the rest of the project uses.
             camYaw += pad.Look.X * 2.6f * dt;
             camPitch = Mathf.Clamp(camPitch - pad.Look.Y * 2.0f * dt, -1.1f, 0.9f);
 
-            player.Step(dt, pad, camYaw);
+            player.AimYaw = camYaw;
+            player.Step(dt, Trooper.FromPad(pad, camYaw));
         }
 
-        PlaceCamera(dt, snap: false);
+        if (simSeconds > 0f) { Simulate(dt); return; }
 
-        if (player.GlobalPosition.Y < Station.KillFloor)
-            player.GlobalPosition = Station.HomeSpawn[player.Team];
+        Battle.Step(dt, player);
+
+        PlaceCamera(dt, snap: false);
 
         frame++;
         if (shotPath != null && frame >= shotFrames) Capture();
@@ -143,6 +188,7 @@ public partial class Field : Node3D
     /// </summary>
     void PlaceCamera(float dt, bool snap)
     {
+        // Keep watching the body while it is down, rather than cutting to nothing.
         var focus = player.GlobalPosition + Vector3.Up * (player.EyeHeight + 0.25f);
 
         var dir = new Vector3(Mathf.Cos(camYaw) * Mathf.Cos(camPitch),
@@ -167,6 +213,80 @@ public partial class Field : Node3D
 
         cam.GlobalPosition = snap ? want : cam.GlobalPosition.Lerp(want, 1f - Mathf.Exp(-18f * dt));
         cam.LookAt(focus, Vector3.Up);
+    }
+
+    /// <summary>
+    /// Run the battle flat out with no player and no camera, and say what it did.
+    ///
+    /// This exists because the first screenshot of forty soldiers answered almost nothing: it
+    /// showed a clump of orange standing still and three hundred reinforcements untouched, and
+    /// none of "are they pathing", "are they shooting" or "is anybody dying" could be read off
+    /// it. A render is also the slowest possible way to ask - 420 physics frames is seven
+    /// seconds of battle and took minutes to draw.
+    ///
+    /// Numbers every ten seconds, so a battle that stalls is visible as a line that stops
+    /// changing rather than as a picture that looks much like the last one.
+    /// </summary>
+    void Simulate(float dt)
+    {
+        Battle.Step(dt, null);
+
+        simRan += dt;
+        simReport -= dt;
+
+        if (simReport <= 0f)
+        {
+            simReport = 10f;
+
+            int blueUp = 0, orangeUp = 0;
+            foreach (var t in Battle.Troopers)
+                if (t.Alive) { if (t.Team == 0) blueUp++; else orangeUp++; }
+
+            var held = "";
+            foreach (var post in Battle.Station.Posts)
+                held += post.Owner switch { 0 => "B", 1 => "O", _ => "." };
+
+            // Who is actually STANDING on each post, which is the only way to tell a post nobody
+            // can take from a post nobody ever walks to.
+            var crowd = "";
+            foreach (var post in Battle.Station.Posts)
+            {
+                int n = 0;
+                foreach (var t in Battle.Troopers)
+                    if (t.Alive && t.GlobalPosition.DistanceTo(post.Centre) < Post.Radius) n++;
+                crowd += n.ToString() + " ";
+            }
+
+            var sent = "";
+            for (int i = 0; i < Battle.Station.Posts.Count; i++)
+                sent += Battle.AssignedTo(i).ToString() + " ";
+
+            GD.Print($"t={simRan,5:0}s  tickets {Battle.Tickets[0],5:0}/{Battle.Tickets[1],-5:0}"
+                   + $"  up {blueUp,2}/{orangeUp,-2}  posts {held}"
+                   + $"  spread {Spread(),4:0}m  on-post {crowd} shot {Battle.Shot} fell {Battle.Fell}"
+                   + $"  reach E{Battle.MaxEast:0} W{Battle.MaxWest:0}");
+        }
+
+        if (simRan >= simSeconds) { GD.Print("sim done"); GetTree().Quit(); }
+    }
+
+    /// <summary>
+    /// How far apart the two sides are, on average. The single most useful number for "are they
+    /// actually advancing on each other" — if it never falls, nobody is going anywhere.
+    /// </summary>
+    float Spread()
+    {
+        Vector3 blue = Vector3.Zero, orange = Vector3.Zero;
+        int nb = 0, no = 0;
+
+        foreach (var t in Battle.Troopers)
+        {
+            if (!t.Alive) continue;
+            if (t.Team == 0) { blue += t.GlobalPosition; nb++; } else { orange += t.GlobalPosition; no++; }
+        }
+
+        if (nb == 0 || no == 0) return 0f;
+        return (blue / nb).DistanceTo(orange / no);
     }
 
     void Capture()

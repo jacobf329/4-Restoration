@@ -41,6 +41,57 @@ public sealed partial class Trooper : CharacterBody3D
     public int Team;
     public bool Crouching;
 
+    public const float MaxHealth = 100f;
+
+    public float Health = MaxHealth;
+    public bool Alive = true;
+
+    /// <summary>Seconds until this body is cleared away and the soldier respawns.</summary>
+    public float DeadFor;
+
+    /// <summary>Where the soldier is pointing their weapon. Not the same as which way they walk.</summary>
+    public float AimYaw;
+
+    /// <summary>Counts down between shots. See Battle.</summary>
+    public float ReloadIn;
+
+    /// <summary>Muzzle, roughly: eye height, a little forward.</summary>
+    public Vector3 Muzzle => GlobalPosition + Vector3.Up * EyeHeight;
+
+    /// <summary>Centre of mass, which is what gets shot at.</summary>
+    public Vector3 Chest => GlobalPosition + Vector3.Up * (Crouching ? 0.75f : 1.25f);
+
+    public void Hurt(float amount)
+    {
+        if (!Alive) return;
+
+        Health -= amount;
+        if (Health > 0f) return;
+
+        Alive = false;
+        Health = 0f;
+        Visible = false;
+
+        // Out of the way of the living. A corpse that still collides is a corpse that blocks a
+        // doorway for the rest of the match, and there is no ragdoll here to make it worth it.
+        ProcessMode = ProcessModeEnum.Disabled;
+        SetCollisionLayerValue(1, false);
+        SetCollisionMaskValue(1, false);
+    }
+
+    public void Revive(Vector3 at)
+    {
+        Alive = true;
+        Health = MaxHealth;
+        DeadFor = 0f;
+        Visible = true;
+        ProcessMode = ProcessModeEnum.Inherit;
+        SetCollisionLayerValue(1, true);
+        SetCollisionMaskValue(1, true);
+        GlobalPosition = at;
+        Velocity = Vector3.Zero;
+    }
+
     CollisionShape3D shape = null!;
     CapsuleShape3D capsule = null!;
     Node3D? body;
@@ -83,30 +134,54 @@ public sealed partial class Trooper : CharacterBody3D
     }
 
     /// <summary>
-    /// One frame of movement, driven by a pad.
+    /// What a soldier is being told to do this frame, by a pad or by a brain.
     ///
-    /// <paramref name="cameraYaw"/> is which way the view is pointing: the stick is read relative
-    /// to the camera, because a soldier walks where you are looking and not where their feet
-    /// happen to be aimed.
+    /// One struct for both so there is exactly one movement implementation. A bot that moves
+    /// through its own code path is a bot that feels different to fight, and every difference
+    /// between the two is a bug waiting to be found by the player rather than by the harness.
     /// </summary>
-    public void Step(float dt, InputDevice pad, float cameraYaw)
+    public struct Order
     {
-        bool grounded = IsOnFloor();
+        /// <summary>Where to go, in world space, flattened. Zero to stand still.</summary>
+        public Vector3 Wish;
 
-        SetCrouch(pad.CrouchHeld);
+        public bool Sprint;
+        public bool Crouch;
+        public bool Jump;
+    }
 
-        // Stick to world direction, flattened onto the floor plane.
+    /// <summary>Turn a pad into an order, read relative to where the camera is looking.</summary>
+    public static Order FromPad(InputDevice pad, float cameraYaw)
+    {
         var stick = pad.Move;
         if (stick.LengthSquared() > 1f) stick = stick.Normalized();
 
         var forward = new Vector3(Mathf.Cos(cameraYaw), 0f, Mathf.Sin(cameraYaw));
         var right = new Vector3(-forward.Z, 0f, forward.X);
 
-        // Godot's stick Y is up-negative, so forward is -Y.
-        var wish = forward * -stick.Y + right * stick.X;
+        return new Order
+        {
+            // Godot's stick Y is up-negative, so forward is -Y.
+            Wish = forward * -stick.Y + right * stick.X,
+            Sprint = pad.SprintHeld && stick.Y < -0.3f,
+            Crouch = pad.CrouchHeld,
+            Jump = pad.JumpPressed,
+        };
+    }
+
+    /// <summary>One frame of movement.</summary>
+    public void Step(float dt, Order order)
+    {
+        bool grounded = IsOnFloor();
+
+        SetCrouch(order.Crouch);
+
+        var wish = order.Wish;
+        if (wish.LengthSquared() > 1f) wish = wish.Normalized();
+        wish.Y = 0f;
 
         float speed = Crouching ? CrouchSpeed
-                    : pad.SprintHeld && stick.Y < -0.3f ? SprintSpeed
+                    : order.Sprint ? SprintSpeed
                     : WalkSpeed;
 
         var want = wish * speed;
@@ -122,7 +197,7 @@ public sealed partial class Trooper : CharacterBody3D
         {
             // Pinned down rather than zeroed, so the body stays glued going down a step.
             if (vy < 0f) vy = -2f;
-            if (pad.JumpPressed && !Crouching) vy = JumpSpeed;
+            if (order.Jump && !Crouching) vy = JumpSpeed;
         }
         else
         {

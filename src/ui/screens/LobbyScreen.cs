@@ -57,7 +57,7 @@ public sealed class LobbyScreen : UiScreen
     /// Twelve puts this arena at about forty-eight hundred each, which is Big Team territory —
     /// the game these maps look like they were always for.
     /// </summary>
-    public const int MaxFighters = 12;
+    public const int MaxFighters = 40;
 
     public override string Title => "LOBBY";
 

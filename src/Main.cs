@@ -47,6 +47,7 @@ public partial class Main : Node
     int perfArena;
     int perfTimer;
     int perfOnly = -1;
+    int perfBots = -1;
     double perfBaseTexture;
 
     public override void _Ready()
@@ -112,6 +113,7 @@ public partial class Main : Node
                 foreach (var a in args)
                 {
                     if (a == "noprops") PropModels.Enabled = false;
+                    if (a.StartsWith("bots=") && int.TryParse(a[5..], out int n)) perfBots = n;
                     if (a == "low") UserSettings.Quality = GraphicsQuality.Low;
                     if (a == "high") UserSettings.Quality = GraphicsQuality.High;
                 }
@@ -157,7 +159,8 @@ public partial class Main : Node
             }
 
             GD.Print($"{Arena.Names[layout]}: {arena.Decorations.Count} decorations "
-                     + $"of {Arena.DecorBudget} ({boxes} boxes)");
+                     + $"of {Arena.DecorBudget} ({boxes} boxes), "
+                     + $"{arena.SpawnPoints.Count} spawn points for {LobbyScreen.MaxFighters} fighters");
 
             foreach (var (key, n) in worn) GD.Print($"    {n,4} x {key}");
         }
@@ -195,7 +198,10 @@ public partial class Main : Node
                 Mode = GameMode.TeamDeathmatch,
                 ArenaIndex = perfArena,
                 ScoreLimit = 15,
-                BotCount = 3,
+
+                // A FULL field, because an empty one answers the wrong question. The whole point
+                // of this tool now is whether forty bodies draw, and three never did.
+                BotCount = perfBots >= 0 ? perfBots : LobbyScreen.MaxFighters - 1,
                 BotSkill = 2,
             };
 
@@ -225,10 +231,11 @@ public partial class Main : Node
 
         double Mon(Performance.Monitor m) => Performance.GetMonitor(m);
 
-        GD.Print($"{Arena.Names[perfArena]}:"
+        GD.Print($"{Arena.Names[perfArena]} x{(perfBots >= 0 ? perfBots : LobbyScreen.MaxFighters - 1) + 1}:"
             + $" {Mon(Performance.Monitor.RenderTotalObjectsInFrame),6:0} objects"
             + $" {Mon(Performance.Monitor.RenderTotalDrawCallsInFrame),6:0} draw calls"
             + $" {Mon(Performance.Monitor.RenderTotalPrimitivesInFrame) / 1000.0,8:0.0}k tris"
+            + $" {Mon(Performance.Monitor.TimeProcess) * 1000.0,6:0.0}ms cpu"
             + $" {Mon(Performance.Monitor.RenderTextureMemUsed) / 1048576.0,7:0.0} MB texture"
             + $" (+{(Mon(Performance.Monitor.RenderTextureMemUsed) - perfBaseTexture) / 1048576.0:0.0} MB"
             + " for the map)");

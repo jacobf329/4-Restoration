@@ -100,7 +100,12 @@ public static class Modes
         new() { Mode = GameMode.Dominion, Name = "Dominion",
                 Blurb = "Take the command posts. Whoever holds more bleeds the other side dry.",
                 Teams = true, LimitNoun = "reinforcements",
-                DefaultLimit = 100, LimitStep = 25, MinLimit = 50, MaxLimit = 300 },
+
+                // Scaled with the roster. A hundred was right for eight to twelve fighters; with
+                // forty on the map the same hundred is a handful of minutes and a match that ends
+                // before anybody has taken a post off anybody. Two hundred and fifty is about
+                // twenty minutes of a full field, which is a Battlefront match.
+                DefaultLimit = 250, LimitStep = 50, MinLimit = 100, MaxLimit = 600 },
     };
 
     public static ModeDef Get(GameMode m)
@@ -113,7 +118,15 @@ public static class Modes
 /// <summary>Everything the lobby configures and the match then reads.</summary>
 public sealed class MatchSettings
 {
-    public GameMode Mode = GameMode.Deathmatch;
+    /// <summary>
+    /// Conquest, and conquest is the game.
+    ///
+    /// Deathmatch was the default for the same reason it is the default everywhere - it is the
+    /// mode that needs the least from a map. But this is a Battlefront clone, and Battlefront is
+    /// one mode: command posts, reinforcements, and a front that moves. Everything else here is
+    /// on its way out; this is the first thing that stops pointing at it.
+    /// </summary>
+    public GameMode Mode = GameMode.Dominion;
 
     /// <summary>Arena to play, or -1 for a random pick each match.</summary>
     public int ArenaIndex = -1;
@@ -153,15 +166,20 @@ public sealed class MatchSettings
     /// use a limit short enough to actually reach.</summary>
     public int TimeLimitSeconds;
     /// <summary>
-    /// Bots to field alongside the humans.
+    /// Bots to field alongside the humans. A full field by default.
     ///
-    /// Seven by default rather than three. Three was the number that filled the remaining lobby
-    /// seats, back when seats and roster were the same thing; it has nothing to do with how many
-    /// fighters this arena wants. Eight in the match is roughly seven thousand square metres each
-    /// — still airier than Halo's Big Team Battle, and a long way from the fourteen thousand a
-    /// four-hander was getting.
+    /// Thirty-nine, which with one human is forty on the map. The number went 3, then 7, then
+    /// here, and the jumps were not refinements of the same idea - they were three different
+    /// ideas about what this game is. Three filled the remaining lobby seats. Seven gave each
+    /// fighter a sensible share of the floor. Forty is what makes the thing a BATTLE: the
+    /// constant distant gunfire, a front that exists whether or not you are standing on it, a
+    /// command post that is genuinely contested rather than empty until somebody walks over.
+    ///
+    /// Measured before it was chosen. Bot cost is flat in the roster - four fighters and forty
+    /// cost the same per frame to think - and forty adds about 170k triangles and 110 draw calls
+    /// over four, which is a frame a modern card does not notice. See --perf.
     /// </summary>
-    public int BotCount = 7;
+    public int BotCount = 39;
 
     /// <summary>Index into <see cref="BotBrain.Skills"/>. Defaults to Easy.</summary>
     public int BotSkill = 1;

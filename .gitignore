@@ -30,6 +30,17 @@ obj/
 *_normal.jpg
 *_texture_[0-9].png
 
+# The same artefacts under the other name Godot gives them. Which one you get depends on what the
+# exporter called the image inside the .glb: the patterns above match a Meshy export that named
+# its maps, these match one that did not and got "Image_0" or a bare index instead. Sixty-five of
+# them appeared the first time a session ran the importer over the newer props. Also derived, also
+# never tracked - no .jpg has ever been in this repository.
+*_Image_[0-9].jpg
+assets/props/*_[0-9].jpg
+assets/characters/*_[0-9].jpg
+assets/vehicles/*_[0-9].jpg
+assets/weapons/*_[0-9].jpg
+
 # Python bytecode from the tools/ scripts.
 __pycache__/
 *.pyc

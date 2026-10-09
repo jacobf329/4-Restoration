@@ -629,7 +629,7 @@ public sealed class Arena
     }
 
     /// <summary>How many spawn points an arena aims to carry, corner decks included.</summary>
-    public const int SpawnPointTarget = 16;
+    public const int SpawnPointTarget = 48;
 
     /// <summary>
     /// Fill out the spawn points beyond the four corner decks.
@@ -644,12 +644,22 @@ public sealed class Arena
     /// </summary>
     void AddGroundSpawns()
     {
-        const float StepX = 19f, StepZ = 17f, Margin = 12f;
+        const float Margin = 12f;
+
+        // Grid pitch scaled so the candidate count stays bounded whatever the map's size.
+        //
+        // Fixed at 19x17 this offered about sixty candidates on a standard arena and the spacing
+        // rule threw away all but nineteen - a third of what a roster of forty needs. Fixed at
+        // 6x6 instead, Coldstore is a thousand metres by thirteen hundred and the grid comes to
+        // thirty-six THOUSAND candidates, each one running a connectivity flood: the build simply
+        // stops. Pitched off the area, every arena gets a few thousand candidates to choose from
+        // and none of them gets so many that generating the map takes longer than playing it.
+        float step = Mathf.Clamp(MathF.Sqrt(HalfWidth * 2f * HalfDepth * 2f / 3000f), 6f, 40f);
 
         var candidates = new List<Vector3>();
 
-        for (float z = -HalfDepth + Margin; z <= HalfDepth - Margin; z += StepZ)
-        for (float x = -HalfWidth + Margin; x <= HalfWidth - Margin; x += StepX)
+        for (float z = -HalfDepth + Margin; z <= HalfDepth - Margin; z += step)
+        for (float x = -HalfWidth + Margin; x <= HalfWidth - Margin; x += step)
         {
             var at = new Vector3(x, 1f, z);
 
@@ -684,9 +694,15 @@ public sealed class Arena
                 if (nearest > bestGap) { bestGap = nearest; best = c; }
             }
 
-            // Everything left is on top of something already placed. More spawns than the floor has
-            // distinct places to put them is not an improvement.
-            if (bestGap < 22f) break;
+            // Everything left is on top of something already placed. More spawns than the floor
+            // has distinct places to put them is not an improvement.
+            //
+            // Scaled to the map and the roster rather than fixed at 22m. Twenty-two was right
+            // when twelve fighters shared a 278x206 arena; for forty it is a rule that says most
+            // of the floor is too close to the rest of the floor, and every arena but Coldstore
+            // came up short - which the harness only caught because a spawn list shorter than the
+            // roster puts two fighters on one point via the modulo in Match.
+            if (bestGap < 18.5f) break;
 
             SpawnPoints.Add(best);
         }

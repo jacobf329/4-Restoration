@@ -42,6 +42,11 @@ public partial class Main : Node
     // --selftest state
     bool selfTestRunning;
 
+    // --dominion state: reproduce what the lobby actually launches.
+    bool probeDominion;
+    Match? probeMatch;
+    int probeFrames;
+
     // --perf state
     bool perfRunning;
     int perfArena;
@@ -95,6 +100,8 @@ public partial class Main : Node
                 return;
             }
             if (args[i] == "--dress") { Dressing(); GetTree().Quit(); return; }
+            if (args[i] == "--dominion") probeDominion = true;
+
             if (args[i] == "--settings")
             {
                 foreach (var def in Modes.All)
@@ -145,6 +152,8 @@ public partial class Main : Node
                 if (i + 2 < args.Length && !args[i + 2].StartsWith("--")) shotFilter = args[i + 2];
             }
         }
+
+        if (probeDominion) { StartDominionProbe(); return; }
 
         Stack.Push(new TitleScreen(Settings, this));
 
@@ -261,6 +270,56 @@ public partial class Main : Node
         Ui.QueueRedraw();
     }
 
+    /// <summary>
+    /// Build exactly what a fresh launch into Dominion builds, and watch it.
+    ///
+    /// Written after two fixes guessed from reading the code failed to fix the reported
+    /// symptom. Reading produced two confident wrong answers; this runs the thing and reports
+    /// whether the match is over before anybody has pressed anything.
+    /// </summary>
+    void StartDominionProbe()
+    {
+        var settings = new MatchSettings();
+
+        GD.Print($"PROBE mode={settings.Def.Name} limit={settings.ScoreLimit} "
+               + $"time={settings.TimeLimitSeconds} bots={settings.BotCount} "
+               + $"arena={settings.ArenaIndex} teams={settings.Def.Teams}");
+
+        var roster = new List<LobbySlot>();
+        for (int n = 0; n < settings.BotCount + 1; n++)
+            roster.Add(new LobbySlot { IsBot = n > 0, ClassIndex = n % 4, FactionIndex = n % 4 });
+
+        probeMatch = new Match();
+        probeMatch.Build(this, settings, roster, visuals: false);
+
+        GD.Print($"PROBE built pawns={probeMatch.Pawns.Count} finished={probeMatch.Finished} "
+               + $"tickets={probeMatch.Tickets[0]:0}/{probeMatch.Tickets[1]:0} "
+               + $"posts={probeMatch.PostsHeld(0)}/{probeMatch.PostsHeld(1)}");
+    }
+
+    void TickDominionProbe()
+    {
+        if (probeMatch is not { } m) { GetTree().Quit(); return; }
+
+        probeFrames++;
+
+        if (m.Finished)
+        {
+            GD.Print($"PROBE FINISHED after {probeFrames} frames ({probeFrames / 60f:0.0}s) "
+                   + $"winner={(m.Winner == null ? "NONE - DRAW" : "slot " + m.Winner.Slot)} "
+                   + $"tickets={m.Tickets[0]:0}/{m.Tickets[1]:0}");
+            GetTree().Quit();
+            return;
+        }
+
+        if (probeFrames % 120 == 0)
+            GD.Print($"PROBE {probeFrames / 60f,4:0}s running "
+                   + $"tickets={m.Tickets[0]:0}/{m.Tickets[1]:0} "
+                   + $"posts={m.PostsHeld(0)}/{m.PostsHeld(1)}");
+
+        if (probeFrames >= 1800) { GD.Print("PROBE 30s and still running - healthy"); GetTree().Quit(); }
+    }
+
     public override void _ExitTree()
     {
         // Static Godot references have to go before the engine tears down the C# bindings.
@@ -301,6 +360,8 @@ public partial class Main : Node
         float dt = (float)delta;
 
         if (selfTestRunning) return;
+
+        if (probeDominion) { TickDominionProbe(); return; }
 
         if (perfRunning) { ProcessPerf(); return; }
 

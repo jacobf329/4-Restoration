@@ -107,7 +107,12 @@ public static class Modes
                 // forty on the map the same hundred is a handful of minutes and a match that ends
                 // before anybody has taken a post off anybody. Two hundred and fifty is about
                 // twenty minutes of a full field, which is a Battlefront match.
-                DefaultLimit = 250, LimitStep = 50, MinLimit = 100, MaxLimit = 600 },
+                // The floor stays at 50, where it has always been. Raising it to 100 alongside
+                // the default was an unconsidered change to a number nothing asked me to touch,
+                // and it quietly made a legal setting illegal: the harness builds a four-fighter
+                // Dominion match at 60 reinforcements, which the new clamp then rewrote to 100
+                // behind its back. A short match is a perfectly reasonable thing to want.
+                DefaultLimit = 250, LimitStep = 50, MinLimit = 50, MaxLimit = 600 },
     };
 
     public static ModeDef Get(GameMode m)

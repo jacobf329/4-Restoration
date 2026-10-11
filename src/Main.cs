@@ -115,6 +115,11 @@ public partial class Main : Node
                 var carried = new MatchSettings { Mode = GameMode.Deathmatch, ScoreLimit = 15 };
                 carried.Mode = GameMode.Dominion;
                 GD.Print($"  carried 15 from Deathmatch into Dominion -> {carried.ScoreLimit}");
+
+                // And an explicit, legal choice must survive untouched - the clamp exists to
+                // catch a limit that wandered in from another mode, not to overrule the caller.
+                var picked = new MatchSettings { Mode = GameMode.Dominion, ScoreLimit = 60 };
+                GD.Print($"  explicit 60 on Dominion -> {picked.ScoreLimit}");
                 GetTree().Quit();
                 return;
             }

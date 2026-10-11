@@ -47,6 +47,18 @@ public sealed class Battle
     /// <summary>Deaths by cause. "It is draining" is not the same fact as "they are fighting".</summary>
     public int Shot, Fell;
 
+    /// <summary>0 or 1 once a side has run the other out of reinforcements, -1 while it is on.</summary>
+    public int Winner = -1;
+
+    /// <summary>
+    /// Every shot fired this frame, for something to draw.
+    ///
+    /// Recorded by the rules and drawn by the view, rather than the rules reaching for a mesh.
+    /// Forty soldiers firing is the single loudest signal that this is a battle and not a
+    /// diorama - without tracers a firefight at thirty metres is two crowds standing still.
+    /// </summary>
+    public readonly List<(Vector3 From, Vector3 To, int Team)> Tracers = new();
+
     /// <summary>Furthest anyone has got down each spoke. The wings are at +-86.</summary>
     public float MaxEast, MaxWest;
 
@@ -134,6 +146,10 @@ public sealed class Battle
     /// </summary>
     public void Step(float dt, Trooper? player)
     {
+        Tracers.Clear();
+
+        if (Winner >= 0) return;
+
         for (int i = 0; i < Troopers.Count; i++)
         {
             var t = Troopers[i];
@@ -160,6 +176,45 @@ public sealed class Battle
 
         Capturing(dt);
         Bleed(dt);
+
+        // Somebody has to win. Without this the bars simply sat at zero and the battle carried
+        // on, which is the sort of thing you only notice by playing it for four minutes.
+        if (Tickets[0] <= 0f) Winner = 1;
+        else if (Tickets[1] <= 0f) Winner = 0;
+    }
+
+    /// <summary>
+    /// The player pulling the trigger: a ray straight out of the camera.
+    ///
+    /// Aimed down the view rather than from the soldier's muzzle, because the crosshair is what
+    /// the player is aiming with and a shot that leaves from somewhere else misses what they are
+    /// pointing at. The bots use a probability instead - see Shoot - and that asymmetry is on
+    /// purpose: a bot rolling dice at forty metres and a player landing a shot they aimed are
+    /// both right, and giving the player dice would feel broken.
+    /// </summary>
+    public void PlayerFire(Trooper t, Vector3 from, Vector3 dir)
+    {
+        if (Winner >= 0 || !t.Alive || t.ReloadIn > 0f) return;
+
+        t.ReloadIn = RateOfFire;
+
+        var to = from + dir.Normalized() * 220f;
+
+        var hit = t.GetWorld3D().DirectSpaceState.IntersectRay(
+            new PhysicsRayQueryParameters3D
+            {
+                From = from,
+                To = to,
+                Exclude = new Godot.Collections.Array<Rid> { t.GetRid() },
+            });
+
+        if (hit.Count > 0 && hit.ContainsKey("position")) to = (Vector3)hit["position"];
+
+        Tracers.Add((from, to, t.Team));
+
+        if (hit.Count > 0 && hit.TryGetValue("collider", out var what)
+            && what.As<Node>() is Trooper foe && foe.Team != t.Team)
+            Wound(foe, Damage * 1.6f, t.Team);
     }
 
     void Kill(Trooper t)
@@ -393,6 +448,8 @@ public sealed class Battle
         // probability read identically at forty metres, and this is a blockout.
         float gap = t.GlobalPosition.DistanceTo(foe.GlobalPosition);
         float chance = Mathf.Clamp(1.15f - gap / 55f, 0.18f, 0.8f);
+
+        Tracers.Add((t.Muzzle, foe.Chest, t.Team));
 
         if (rng.Randf() < chance) Wound(foe, Damage, t.Team);
     }

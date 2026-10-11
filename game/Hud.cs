@@ -59,9 +59,39 @@ public partial class Hud : Control
             x += 60f;
         }
 
-        if (!Field.PlayerAlive)
-            DrawString(font, new Vector2(w * 0.5f - 120f, screen.Y * 0.5f), "DOWN",
+        var mid = screen * 0.5f;
+
+        // The crosshair. Four ticks round a gap rather than a dot, so it stays readable against
+        // both the near-black deck and the near-white hull.
+        if (Field.PlayerAlive && battle.Winner < 0)
+        {
+            var ink = new Color(1f, 1f, 1f, 0.85f);
+
+            foreach (var step in new[] { Vector2.Right, Vector2.Left, Vector2.Up, Vector2.Down })
+                DrawLine(mid + step * 7f, mid + step * 15f, ink, 2f);
+        }
+
+        // Health, bottom left, where it is out of the way and still in peripheral vision.
+        if (Field.PlayerHealth is { } health)
+        {
+            DrawRect(new Rect2(40f, screen.Y - 64f, 240f, 16f), new Color(0f, 0f, 0f, 0.45f));
+            DrawRect(new Rect2(40f, screen.Y - 64f, 240f * health, 16f),
+                     health > 0.35f ? new Color(0.55f, 0.85f, 0.55f) : new Color(1f, 0.42f, 0.38f));
+        }
+
+        if (battle.Winner >= 0)
+        {
+            var tint = battle.Winner == 0 ? Blue : Orange;
+            string who = battle.Winner == 0 ? "BLUE" : "ORANGE";
+
+            DrawString(font, new Vector2(mid.X - 300f, mid.Y - 10f), $"{who} HOLDS THE STATION",
+                       HorizontalAlignment.Center, 600f, 40, tint);
+        }
+        else if (!Field.PlayerAlive)
+        {
+            DrawString(font, new Vector2(mid.X - 120f, mid.Y), "DOWN",
                        HorizontalAlignment.Center, 240f, 34, new Color(1f, 0.4f, 0.4f));
+        }
     }
 
     void Side(Battle battle, int team, Vector2 at, Color tint, float dir)

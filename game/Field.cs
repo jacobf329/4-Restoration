@@ -74,6 +74,8 @@ public partial class Field : Node3D
         hud = new Hud { Field = this };
         AddChild(hud);
 
+        BuildTracers();
+
         AddChild(Graphics.BuildSun());
         AddChild(Graphics.BuildFill());
         AddChild(Graphics.BuildEnvironment(fog: true, reach: Station.HalfSpan * 2f));
@@ -85,6 +87,9 @@ public partial class Field : Node3D
 
     /// <summary>For the HUD, which should not have to reach into the roster.</summary>
     public bool PlayerAlive => player is { Alive: true };
+
+    /// <summary>The player's health as a fraction, or null before there is a player.</summary>
+    public float? PlayerHealth => player == null ? null : player.Health / Trooper.MaxHealth;
 
     /// <summary>
     /// Forty soldiers, twenty a side.
@@ -167,6 +172,14 @@ public partial class Field : Node3D
 
             player.AimYaw = camYaw;
             player.Step(dt, Trooper.FromPad(pad, camYaw));
+
+            // Down the camera, from just in front of it so the muzzle is never inside a wall
+            // the camera has been pulled against.
+            if (pad.AttackHeld)
+            {
+                var dir = -cam.GlobalBasis.Z;
+                Battle.PlayerFire(player, cam.GlobalPosition + dir * 0.6f, dir);
+            }
         }
 
         if (simSeconds > 0f) { Simulate(dt); return; }
@@ -174,6 +187,7 @@ public partial class Field : Node3D
         Battle.Step(dt, player);
 
         PlaceCamera(dt, snap: false);
+        DrawTracers();
 
         frame++;
         if (shotPath != null && frame >= shotFrames) Capture();
@@ -287,6 +301,65 @@ public partial class Field : Node3D
 
         if (nb == 0 || no == 0) return 0f;
         return (blue / nb).DistanceTo(orange / no);
+    }
+
+    /// <summary>
+    /// A fixed pool of tracer segments, reused every frame.
+    ///
+    /// Pooled rather than spawned: forty soldiers firing twice a second is eighty nodes a second
+    /// created and freed, and the allocation would cost more than the drawing. Any shot beyond
+    /// the pool simply is not drawn, which nobody can tell in a firefight.
+    /// </summary>
+    const int MaxTracers = 72;
+    readonly MeshInstance3D[] tracers = new MeshInstance3D[MaxTracers];
+
+    void BuildTracers()
+    {
+        var blue = Graphics.Hot(new Color(0.55f, 0.8f, 1f), 6f);
+        var orange = Graphics.Hot(new Color(1f, 0.62f, 0.25f), 6f);
+
+        for (int i = 0; i < MaxTracers; i++)
+        {
+            var bolt = new MeshInstance3D
+            {
+                Mesh = new BoxMesh { Size = new Vector3(0.09f, 0.09f, 1f) },
+                MaterialOverride = i % 2 == 0 ? blue : orange,
+                Visible = false,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            };
+
+            tracers[i] = bolt;
+            AddChild(bolt);
+        }
+    }
+
+    /// <summary>Stretch one pooled segment along each shot fired this frame.</summary>
+    void DrawTracers()
+    {
+        int n = 0;
+
+        foreach (var (from, to, team) in Battle.Tracers)
+        {
+            // Pairs are kept blue-then-orange so a side always has segments of its own colour
+            // available, however lopsided the shooting is.
+            int slot = n * 2 + team;
+            if (slot >= MaxTracers) break;
+
+            var bolt = tracers[slot];
+            var span = to - from;
+            float len = span.Length();
+
+            if (len < 0.2f) continue;
+
+            bolt.Visible = true;
+            bolt.GlobalPosition = from + span * 0.5f;
+            bolt.LookAt(to, Vector3.Up);
+            bolt.Scale = new Vector3(1f, 1f, len);
+
+            n++;
+        }
+
+        for (int i = n * 2; i < MaxTracers; i++) tracers[i].Visible = false;
     }
 
     void Capture()

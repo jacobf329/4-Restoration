@@ -95,6 +95,22 @@ public partial class Main : Node
                 return;
             }
             if (args[i] == "--dress") { Dressing(); GetTree().Quit(); return; }
+            if (args[i] == "--settings")
+            {
+                foreach (var def in Modes.All)
+                {
+                    var fresh = new MatchSettings { Mode = def.Mode };
+                    GD.Print($"  {def.Name,-18} limit {fresh.ScoreLimit,4} {def.LimitNoun,-15}"
+                           + $" (default {def.DefaultLimit}, range {def.MinLimit}-{def.MaxLimit})");
+                }
+
+                // And the one that actually bit: a limit set for one mode, carried into another.
+                var carried = new MatchSettings { Mode = GameMode.Deathmatch, ScoreLimit = 15 };
+                carried.Mode = GameMode.Dominion;
+                GD.Print($"  carried 15 from Deathmatch into Dominion -> {carried.ScoreLimit}");
+                GetTree().Quit();
+                return;
+            }
             if (args[i] == "--perf")
             {
                 perfRunning = true;

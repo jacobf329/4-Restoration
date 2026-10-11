@@ -1,3 +1,5 @@
+using Godot;
+
 namespace HitboxClone;
 
 public enum GameMode
@@ -160,7 +162,29 @@ public sealed class MatchSettings
     public int MinimumFighters => IsPuzzle ? 2 : 1;
 
     public string ArenaName => ArenaIndex < 0 ? "Random" : Arena.Names[ArenaIndex];
-    public int ScoreLimit = 15;
+    int scoreLimit = -1;
+
+    /// <summary>
+    /// What this match plays to, in whatever the mode counts.
+    ///
+    /// Derived from the mode rather than stored as a bare number, because a bare number is wrong
+    /// the moment the mode is not the one it was written for. It was 15 - Deathmatch's frag
+    /// count - and when Dominion became the default mode nothing reset it, because the mode
+    /// select only reassigns the limit when the mode CHANGES and the default is not a change.
+    /// So conquest shipped running on fifteen reinforcements instead of two hundred and fifty:
+    /// forty soldiers sharing fifteen lives, a match over in seconds, and a map that looked like
+    /// it loaded straight into the result screen.
+    ///
+    /// Unset, it answers with the mode's own default. Set, it is held inside the mode's legal
+    /// range, so a limit carried over from another mode cannot be out of bounds for this one -
+    /// which is the part that makes this particular bug unrepeatable rather than just fixed.
+    /// </summary>
+    public int ScoreLimit
+    {
+        get => Mathf.Clamp(scoreLimit < 0 ? Def.DefaultLimit : scoreLimit,
+                           Def.MinLimit, Def.MaxLimit);
+        set => scoreLimit = value;
+    }
 
     /// <summary>Match length in seconds, or 0 for no limit. Stored in seconds so the harness can
     /// use a limit short enough to actually reach.</summary>

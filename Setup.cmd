@@ -9,6 +9,52 @@ title HitboxClone setup
 
 set "PROJ=%~dp0"
 set "PROJ=%PROJ:~0,-1%"
+
+REM ---------------------------------------------------------------------------
+REM Refuse to run from anywhere that is not the game folder.
+REM
+REM Everything below assumes this file is sitting in a clone, because %~dp0 is the
+REM only thing it has to go on. Downloaded on its own into Downloads and run there,
+REM it installed the tools quite happily, reported success, and wrote Desktop
+REM shortcuts pointing at a Play.cmd and a Battlefront.cmd that do not exist - so the
+REM first thing the person saw was Windows asking them to go and find the game
+REM themselves. Setup that cannot work should say so before it does anything, not
+REM leave broken icons behind and call it done.
+REM
+REM project.godot is the check because it is the one file that is unambiguously this
+REM game and is never anywhere else.
+REM ---------------------------------------------------------------------------
+
+if exist "%PROJ%\project.godot" goto :inproject
+
+echo.
+echo ============================================
+echo   This is not the game folder.
+echo.
+echo   Setup.cmd is running from:
+echo     %PROJ%
+echo.
+echo   but there is no project.godot here, so this
+echo   is not a clone of the game - probably this
+echo   file was downloaded on its own.
+echo.
+echo   Get the whole thing instead. Open a Command
+echo   Prompt and run:
+echo.
+echo     cd %%USERPROFILE%%
+echo     git clone https://github.com/jacobf329/4-Restoration.git
+echo.
+echo   Then open that new 4-Restoration folder and
+echo   run the Setup.cmd that is inside it.
+echo.
+echo   No git? Install it from
+echo     https://git-scm.com/download/win
+echo ============================================
+echo.
+pause
+exit /b 1
+
+:inproject
 set "DOTNET_URL=https://dotnet.microsoft.com/download/dotnet/8.0"
 set "GODOT_URL=https://godotengine.org/download/windows/"
 set "GIT_URL=https://git-scm.com/download/win"

@@ -187,13 +187,6 @@ if defined GODOT_EXE (
 )
 
 REM ---------------------------------------------------------------------------
-REM The Desktop shortcut.
-REM
-REM It targets Play.cmd rather than Godot, so launching from the Desktop still builds
-REM first - a shortcut straight to the engine would quietly run whatever assembly was
-REM left over from last time, which is the trap Play.cmd exists to close. cmd.exe cannot
-REM write a .lnk, so this is the one thing handed to PowerShell.
-REM ---------------------------------------------------------------------------
 :update
 
 REM ---------------------------------------------------------------------------
@@ -216,6 +209,15 @@ echo.
 :noupdater
 
 :shortcut
+
+REM ---------------------------------------------------------------------------
+REM The Desktop shortcuts.
+REM
+REM They target the .cmd launchers rather than Godot, so launching from the Desktop
+REM still builds first - a shortcut straight to the engine would quietly run whatever
+REM assembly was left over from last time, which is the trap Play.cmd exists to close.
+REM cmd.exe cannot write a .lnk, so this is the one thing handed to PowerShell.
+REM ---------------------------------------------------------------------------
 
 set "ICON="
 if defined GODOT_EXE if /i "!GODOT_EXE:~-4!"==".exe" set "ICON=!GODOT_EXE!"

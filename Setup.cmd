@@ -109,7 +109,7 @@ REM Nothing missing still falls through to the shortcut below, rather than exiti
 REM rebuilding the shortcut after moving the folder is a reason to re-run this on a
 REM machine that is already fully set up.
 set "FAILED="
-if defined DOTNET_OK if defined GODOT_EXE if defined GIT_OK goto :shortcut
+if defined DOTNET_OK if defined GODOT_EXE if defined GIT_OK goto :update
 
 REM ---------------------------------------------------------------------------
 REM winget does the installing. It ships with Windows 11 and current Windows 10.
@@ -194,6 +194,27 @@ REM first - a shortcut straight to the engine would quietly run whatever assembl
 REM left over from last time, which is the trap Play.cmd exists to close. cmd.exe cannot
 REM write a .lnk, so this is the one thing handed to PowerShell.
 REM ---------------------------------------------------------------------------
+:update
+
+REM ---------------------------------------------------------------------------
+REM Pull BEFORE writing the shortcuts, not after.
+REM
+REM The order used to be the other way round, and it meant setup made shortcuts for
+REM whatever launchers the clone happened to have before the update. A machine that
+REM was behind therefore finished setup with no Battlefront icon - the launcher it was
+REM being set up to run arrived thirty seconds later, by which point the shortcuts had
+REM already been written - and the only way to get one was to run setup a second time
+REM for reasons nothing on screen explained.
+REM ---------------------------------------------------------------------------
+
+if not exist "%PROJ%\Update.cmd" goto :noupdater
+echo Getting the latest version...
+echo   ^(a clone that is well behind has a few hundred MB to fetch - give it a minute^)
+echo.
+call "%PROJ%\Update.cmd" /auto "%PROJ%"
+echo.
+:noupdater
+
 :shortcut
 
 set "ICON="
@@ -250,13 +271,6 @@ REM launch a version of the game from before any of it existed. That is not a
 REM hypothetical: it is what both machines were doing. Update.cmd knows which branch is
 REM wanted, so setup finishes by asking it rather than by repeating the answer here.
 REM ---------------------------------------------------------------------------
-
-if not exist "%PROJ%\Update.cmd" goto :noupdater
-echo Getting the latest version...
-echo.
-call "%PROJ%\Update.cmd" /auto "%PROJ%"
-echo.
-:noupdater
 
 if defined FAILED (
   echo ============================================

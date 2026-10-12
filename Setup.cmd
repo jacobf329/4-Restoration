@@ -173,8 +173,19 @@ REM happily and says nothing about it.
 set "ULNK=%USERPROFILE%\Desktop\Update HitboxClone.lnk"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $lnk = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\Update HitboxClone.lnk'); $lnk.TargetPath = $env:PROJ + '\Update.cmd'; $lnk.WorkingDirectory = $env:PROJ; $lnk.Description = 'HitboxClone - fetch the latest version'; if ($env:ICON) { $lnk.IconLocation = $env:ICON + ',0' }; $lnk.Save()"
 
+REM A third shortcut, for the Battlefront clone.
+REM
+REM The two games share one launcher and differ only by which scene it opens, so the
+REM only thing standing between somebody and the new one was knowing to type a Godot
+REM command line. A machine set up to playtest it should have it on the Desktop next
+REM to the other one, for the same reason the updater is there: a thing nobody can
+REM see is a thing nobody runs.
+set "BLNK=%USERPROFILE%\Desktop\Battlefront.lnk"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $lnk = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\Battlefront.lnk'); $lnk.TargetPath = $env:PROJ + '\Battlefront.cmd'; $lnk.WorkingDirectory = $env:PROJ; $lnk.Description = 'Battlefront - the battle station'; if ($env:ICON) { $lnk.IconLocation = $env:ICON + ',0' }; $lnk.Save()"
+
 if exist "!LNK!" (
   echo   Desktop shortcut created: HitboxClone
+  echo   Desktop shortcut created: Battlefront
   echo   Desktop shortcut created: Update HitboxClone
   echo.
 ) else (

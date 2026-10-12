@@ -148,6 +148,15 @@ if errorlevel 1 (
 )
 
 echo.
+REM ---------------------------------------------------------------------------
 REM Step 3: launch.
+REM
+REM HITBOX_SCENE picks which game starts. Unset - which is the normal case and what
+REM double-clicking this file does - Godot opens the project's own main scene and you
+REM get 4 Restoration. Battlefront.cmd sets it to the station and calls this, so the
+REM two games share one launcher rather than one of them needing a command line typed
+REM at it. Everything above here - the update, finding the tools, the build - is the
+REM part that must not be duplicated, and this is how it is not.
+REM ---------------------------------------------------------------------------
 echo Launching...
-"%GODOT_EXE%" --path "%PROJ%"
+"%GODOT_EXE%" --path "%PROJ%" %HITBOX_SCENE%

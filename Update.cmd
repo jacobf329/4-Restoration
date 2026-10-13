@@ -108,8 +108,15 @@ echo   [update skipped] this folder has local changes:
 echo.
 %GIT% status --short
 echo.
-echo   Nothing was touched. Commit them, or undo them with
-echo     git -C "%PROJ%" checkout .
+REM Two commands, because there are two kinds of change and the advice used to cover
+REM only one. "checkout ." restores files that git is tracking and does nothing at all
+REM to a file git has never seen - so a machine blocked by a stray UNTRACKED file was
+REM told to run something that could not possibly unblock it, and following the
+REM instructions on screen left it exactly as stuck. Lines beginning ?? above are the
+REM untracked ones.
+echo   Nothing was touched. To undo them:
+echo     git -C "%PROJ%" checkout .            ^(edits to game files^)
+echo     git -C "%PROJ%" clean -fd             ^(the ?? lines: files that are not ours^)
 echo   and updating will start working again.
 echo.
 if defined AUTO exit /b 0

@@ -198,7 +198,16 @@ goto :done
 
 :changed
 echo.
-echo   Updated !WAS! -^> !NEW!. What changed:
+REM No redirection character in this line, escaped or otherwise.
+REM
+REM It used to read "Updated !WAS! -^> !NEW!." and the caret did not survive delayed
+REM expansion: the ^> became a real redirect, so instead of printing an arrow the line
+REM WROTE A FILE named after the commit it was reporting. That file then sat in the
+REM folder as an untracked change, and this script refuses to update a dirty tree - so
+REM one mis-escaped character in a progress message stopped the machine updating ever
+REM again, and the message explaining why named a file nobody had created on purpose.
+REM The word "to" cannot do any of that.
+echo   Updated !WAS! to !NEW!. What changed:
 echo.
 %GIT% --no-pager log --oneline --no-decorate !WAS!..!NEW!
 echo.

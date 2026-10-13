@@ -85,6 +85,23 @@ public partial class Field : Node3D
 
     Vector3? startAt;
 
+    /// <summary>
+    /// Whichever device is actually driving: a connected pad if there is one, else the keyboard.
+    ///
+    /// Not Devices.All[0], which is what this used to read and is the reason the controller did
+    /// nothing at all. Devices builds its list keyboards-first and appends the eight gamepads
+    /// after them, so All[0] is ALWAYS KeyboardDevice 0 however many pads are plugged in - the
+    /// pad was being polled every frame and then never looked at. This is a controller-first
+    /// game and its entry point was reading the keyboard.
+    /// </summary>
+    static InputDevice? Driver()
+    {
+        foreach (var d in Devices.All)
+            if (d.IsGamepad && d.Connected) return d;
+
+        return Devices.Keyboards[0];
+    }
+
     /// <summary>For the HUD, which should not have to reach into the roster.</summary>
     public bool PlayerAlive => player is { Alive: true };
 
@@ -141,18 +158,34 @@ public partial class Field : Node3D
             AddChild(body);
         }
 
-        // A marker on each command post. Placeholder geometry: the real thing is a console you
-        // stand next to, and it arrives with the capture rules.
+        // A marker on each command post.
+        //
+        // Thin, tall and see-through, because you SPAWN on these. The first version was a
+        // solid 4.4m cylinder a metre thick sitting exactly where players arrive, so the
+        // first thing anybody saw on respawning was a wall of flat colour filling the screen
+        // - the post you had just spawned at was the one thing you could not see past.
+        //
+        // A marker is for finding a post from across the station, which wants height and
+        // nothing else. Width only gets in the way, and at arm's length so does opacity.
         foreach (var post in Station.Posts)
         {
+            var tint = post.Owner switch
+            {
+                0 => new Color(0.35f, 0.62f, 1f),
+                1 => new Color(1f, 0.55f, 0.2f),
+                _ => new Color(0.8f, 0.8f, 0.8f),
+            };
+
+            var glow = Graphics.Hot(tint, 1.4f);
+            glow.Transparency = BaseMaterial3D.TransparencyEnum.Alpha;
+            glow.AlbedoColor = tint with { A = 0.35f };
+
             AddChild(new MeshInstance3D
             {
-                Position = post.Centre + Vector3.Up * 2.2f,
-                Mesh = new CylinderMesh { TopRadius = 0.5f, BottomRadius = 0.9f, Height = 4.4f },
-                MaterialOverride = Graphics.Hot(
-                    post.Owner switch { 0 => new Color(0.35f, 0.62f, 1f),
-                                        1 => new Color(1f, 0.55f, 0.2f),
-                                        _ => new Color(0.8f, 0.8f, 0.8f) }, 1.4f),
+                Position = post.Centre + Vector3.Up * 4f,
+                Mesh = new CylinderMesh { TopRadius = 0.18f, BottomRadius = 0.3f, Height = 8f },
+                MaterialOverride = glow,
+                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
             });
         }
     }
@@ -162,7 +195,7 @@ public partial class Field : Node3D
         float dt = (float)delta;
 
         Devices.PollAll(dt);
-        var pad = Devices.All.Count > 0 ? Devices.All[0] : null;
+        var pad = Driver();
 
         if (pad != null && player.Alive)
         {
@@ -210,23 +243,58 @@ public partial class Field : Node3D
                               Mathf.Sin(camYaw) * Mathf.Cos(camPitch));
 
         var right = new Vector3(-Mathf.Sin(camYaw), 0f, Mathf.Cos(camYaw));
-        var from = focus + right * Shoulder;
-        var want = from - dir * Boom;
+        var want = focus + right * Shoulder - dir * Boom;
+
+        // Resolved every frame, and the SMOOTHED position is resolved too.
+        //
+        // This went wrong in three ways at once and the result was a black screen indoors.
+        // The cast used to start at the shoulder rather than at the head: a shoulder offset
+        // that is already inside a wall gives a ray that begins inside a body, which Godot
+        // does not report a hit for, so the camera took the whole 4.6m boom and ended up
+        // buried in the station. From inside a box you see through its back faces, so the
+        // near walls and the floor vanish and only distant unoccluded geometry draws - which
+        // is exactly what a player saw and I had never once hit, because every capture I took
+        // posed the camera somewhere open.
+        //
+        // The head is the right origin because it is the one point guaranteed to be in clear
+        // air: the player is standing there. And the lerp needs resolving as well, or the
+        // camera slides through a wall on its way to a position that was itself fine.
+        var safe = Unblocked(focus, want);
+
+        cam.GlobalPosition = snap
+            ? safe
+            : Unblocked(focus, cam.GlobalPosition.Lerp(safe, 1f - Mathf.Exp(-18f * dt)));
+
+        cam.LookAt(focus, Vector3.Up);
+    }
+
+    /// <summary>
+    /// The furthest point along <paramref name="from"/> → <paramref name="to"/> that is not
+    /// through something solid, kept a little clear of whatever it hit.
+    /// </summary>
+    Vector3 Unblocked(Vector3 from, Vector3 to)
+    {
+        var span = to - from;
+        float reach = span.Length();
+
+        if (reach < 0.01f) return to;
 
         var hit = GetWorld3D().DirectSpaceState.IntersectRay(
             new PhysicsRayQueryParameters3D
             {
                 From = from,
-                To = want,
+                To = to,
                 Exclude = new Godot.Collections.Array<Rid> { player.GetRid() },
             });
 
-        if (hit.Count > 0 && hit.ContainsKey("position"))
-            want = from + (want - from).Normalized()
-                 * (from.DistanceTo((Vector3)hit["position"]) - 0.3f);
+        if (hit.Count == 0 || !hit.ContainsKey("position")) return to;
 
-        cam.GlobalPosition = snap ? want : cam.GlobalPosition.Lerp(want, 1f - Mathf.Exp(-18f * dt));
-        cam.LookAt(focus, Vector3.Up);
+        // Pulled in off the surface by more than the near plane, so the wall it stopped at
+        // does not clip through the front of the view. Never closer than a metre, because a
+        // camera inside the soldier's own head is its own kind of broken.
+        float gap = Mathf.Clamp(from.DistanceTo((Vector3)hit["position"]) - 0.4f, 1f, reach);
+
+        return from + span / reach * gap;
     }
 
     /// <summary>

@@ -41,12 +41,20 @@ set "PROJ=%~dp0"
 set "PROJ=%PROJ:~0,-1%"
 :haveproj
 
-REM The branch development happens on.
+REM The branch the game is played from.
 REM
-REM Falls back to whatever the remote's default branch is if this one is gone, so
-REM merging the work into main later does not strand a machine on a branch that no
-REM longer exists - which is the same class of failure this whole file exists to fix.
-set "BRANCH=claude/game-install-repo-2toaht"
+REM main, now that the work has been merged into it. It used to name the development
+REM branch, and the fallback written here for "if this one is gone" turned out to
+REM cover the wrong half of the problem: the branch did not go away, it stopped being
+REM the newest thing. So a clean clone landed on main, correct and current, and this
+REM file then switched it BACKWARDS onto a branch six commits older - which on the
+REM machine it happened to is why there was no Battlefront.cmd to make a shortcut to.
+REM An updater that can move a clone backwards is worse than no updater, because it
+REM is trusted.
+REM
+REM If development moves to another branch later, change this - and move it forwards
+REM only, or merge first.
+set "BRANCH=main"
 
 if defined AUTO goto :nobanner
 title HitboxClone update

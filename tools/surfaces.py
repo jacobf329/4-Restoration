@@ -271,6 +271,161 @@ def timber():
     return col, h, 0.66 + (1 - h) * 0.18
 
 
+
+def _plates(cols, rows, groove, seed):
+    """
+    A grid of rectangular plates with recessed seams, and a value per plate.
+
+    The per-plate value is the whole reason this exists. A seam grid alone is graph paper:
+    every cell is identical, so a fifty-metre wall is a hundred copies of one square and the
+    eye reads the repeat rather than the surface. Giving each plate its own brightness breaks
+    the lattice without adding a single feature, which is how real plating reads - you see
+    panels of slightly different metal, not a drawn grid.
+
+    Returns (face, ident) where face is 1 on a plate and 0 in a seam, and ident is a stable
+    0..1 number per plate.
+    """
+    x = np.arange(SIZE) / SIZE * cols
+    y = np.arange(SIZE) / SIZE * rows
+
+    cx = np.floor(x).astype(int)[None, :]
+    cy = np.floor(y).astype(int)[:, None]
+
+    fx = (x % 1.0)[None, :]
+    fy = (y % 1.0)[:, None]
+
+    edge = np.minimum(np.minimum(fx, 1 - fx), np.minimum(fy, 1 - fy))
+    face = np.clip((edge - groove) / 0.012, 0.0, 1.0)
+
+    r = np.random.default_rng(seed)
+    table = r.random((rows, cols))
+    ident = table[np.clip(cy, 0, rows - 1), np.clip(cx, 0, cols - 1)]
+
+    return face, ident
+
+
+def hull():
+    """
+    Station hull plating: the walls, the ceilings, the bulkheads.
+
+    This replaces a procedural grid that was the single worst thing in the game to look at. The
+    old one drew one 1.3-metre square repeated across every surface at the same brightness, and
+    on a fifty-metre bulkhead that is several hundred identical cells - which does not read as
+    metal, it reads as graph paper, and that is exactly the word the complaint used.
+
+    Three things fix it and all three are about breaking the lattice rather than about detail:
+
+      - Two scales of plate, a large one and a smaller one inside it, so there is no single
+        period for the eye to lock onto.
+      - A brightness per plate, which is what real plating has and a drawn grid never does.
+      - Panel channels: short recessed runs that cross plates and ignore the grid entirely.
+        This is the thing the films are actually made of - the surface is covered in greebling
+        that has no relationship to any underlying tiling - and it is what stops a wall reading
+        as a texture at all.
+    """
+    big, bident = _plates(2, 2, 0.016, 2051)
+    small, sident = _plates(6, 6, 0.013, 2052)
+
+    # Height: the large seams cut deepest, the small ones are a scribe line.
+    h = 0.80 - (1 - big) * 0.34 - (1 - small) * 0.11
+
+    # Per-plate value. Small and deliberately so - this is a few percent of albedo, far below
+    # the level anybody notices as a colour, and entirely enough to stop the grid.
+    plate = (bident - 0.5) * 0.13 + (sident - 0.5) * 0.075
+
+    # Greebling: recessed rectangular inlays and straight scribe lines, laid over the plating
+    # without regard for it.
+    #
+    # Axis-aligned and rectangular, which took two goes to get right. The first version drew
+    # these from ridged noise, and ridged noise makes WANDERING lines - the result was a wall
+    # covered in meandering worms that read as cracked paint or as camouflage, not as a
+    # machine. Everything on a hull was cut by a machine from a drawing, so everything on it
+    # is straight and meets at right angles, and that is the entire difference between this
+    # looking like a spacecraft and looking like a rock.
+    cells = 14
+    gx = np.arange(SIZE) / SIZE * cells
+    gy = np.arange(SIZE) / SIZE * cells
+
+    r = np.random.default_rng(2061)
+    pick = (r.random((cells, cells)) < 0.17).astype(float)
+    inset = 0.06 + r.random((cells, cells)) * 0.13
+
+    ix = np.floor(gx).astype(int)[None, :]
+    iy = np.floor(gy).astype(int)[:, None]
+
+    fx = (gx % 1.0)[None, :]
+    fy = (gy % 1.0)[:, None]
+
+    margin = inset[iy, ix]
+    inner = np.minimum(np.minimum(fx, 1 - fx), np.minimum(fy, 1 - fy))
+    inlay = np.clip((inner - margin) / 0.03, 0.0, 1.0) * pick[iy, ix]
+
+    # Scribe lines: a handful of full-length cuts, at cell boundaries so they line up with the
+    # inlays rather than crossing them at random.
+    lines = np.zeros(SIZE)
+    for c in r.choice(cells, 4, replace=False):
+        d = np.abs(((np.arange(SIZE) / SIZE * cells) - c + cells / 2) % cells - cells / 2)
+        lines = np.maximum(lines, np.clip(1.0 - d / 0.10, 0.0, 1.0))
+
+    scribe = np.maximum(lines[None, :] * np.ones((SIZE, 1)), lines[:, None] * np.ones((1, SIZE)))
+
+    chan = np.maximum(inlay, scribe)
+    h = h - inlay * 0.22 - scribe * 0.26
+
+    # Vents: a band of close parallel slots, only where a low-frequency mask allows it, so they
+    # appear in patches rather than striping the entire station.
+    slots = (np.sin(np.arange(SIZE) / SIZE * np.pi * 2 * 48) ** 12)[:, None] * np.ones((1, SIZE))
+    where = np.clip((fbm(2, 4, 2071) - 0.70) / 0.08, 0.0, 1.0)
+    h = h - slots * where * 0.30
+
+    grain = fbm(5, 18, 2081)
+    h = h + (grain - 0.5) * 0.06
+
+    col = tint(norm(h), [0.60, 0.61, 0.64], [0.10, 0.10, 0.11], fbm(3, 3, 2091))
+    col = col * (1.0 + plate)[..., None]
+    col = col * (1.0 - chan * 0.22)[..., None]
+    col = col * (1.0 - slots * where * 0.30)[..., None]
+
+    # Seams are dirtier than the faces they divide, which is where grime collects on anything
+    # built out of bolted panels.
+    rough = 0.52 + (1 - small) * 0.20 + (1 - big) * 0.14 + chan * 0.12 + grain * 0.10
+    return col, norm(h), np.clip(rough, 0.0, 1.0)
+
+
+def deck():
+    """
+    Station decking: everything you stand on.
+
+    Darker and busier than the walls, because a floor in this game is seen at a glancing angle
+    from one metre up and at close to normal from five - it has to hold up at both. The tread
+    is the detail that does that: too fine and it dissolves to speckle at range, too coarse and
+    it reads as tiling, so it sits on a plate grid that is coarser than the tread by about four
+    times and the two periods cover for each other.
+    """
+    face, ident = _plates(4, 4, 0.014, 3051)
+
+    # Raised tread: a diagonal crosshatch, which is what plate floors are and reads as grip
+    # rather than as pattern.
+    u = np.arange(SIZE) / SIZE
+    a = np.sin((u[None, :] + u[:, None]) * np.pi * 2 * 22)
+    b = np.sin((u[None, :] - u[:, None]) * np.pi * 2 * 22)
+    tread = np.clip(np.maximum(a, b), 0.0, 1.0) ** 3
+
+    # Worn through where traffic goes, which is also where the tread stops being tread.
+    wear = np.clip((fbm(4, 6, 3061) - 0.42) / 0.30, 0.0, 1.0)
+
+    h = 0.46 + tread * 0.26 * (1 - wear * 0.7) - (1 - face) * 0.36
+    grain = fbm(5, 22, 3071)
+    h = h + (grain - 0.5) * 0.05
+
+    col = tint(norm(h), [0.30, 0.31, 0.34], [0.09, 0.09, 0.10], fbm(3, 3, 3081))
+    col = col * (1.0 + (ident - 0.5) * 0.11)[..., None]
+    col = col * (1.0 - wear * 0.10)[..., None]
+
+    rough = 0.60 + (1 - face) * 0.18 - tread * 0.10 + wear * 0.14 + grain * 0.08
+    return col, norm(h), np.clip(rough, 0.0, 1.0)
+
+
 # ---------------------------------------------------------------- the world grade
 #
 # Every material passes through this on the way out, and it is the whole reason they look like
@@ -445,6 +600,27 @@ GRADE = {
     "snow": dict(ceiling=0.985, grime_scale=0.30, contrast=0.95, warm=0.25, level=0.85),
     "glass": dict(ceiling=0.93, grime_scale=0.60, contrast=0.85, warm=0.55),
     "ice":  dict(ceiling=0.94,  grime_scale=0.55, contrast=0.80, warm=0.35, level=0.94),
+
+    # The station is not the village, and the shared grade is the village's. Left on the
+    # defaults the hull came out beige - WORLD_TINT is a warm sun on a world lit by one - and a
+    # beige Death Star is a corridor in a hotel. So both station materials take almost none of
+    # the warmth, and they relax the compression toward WORLD_MID so the deck is allowed to
+    # stay darker than the wall above it. That contrast between floor and bulkhead is most of
+    # what makes an interior readable; flattened to one value, a corner stops being a corner.
+    "hull": dict(ceiling=0.82, grime_scale=0.75, contrast=0.80, warm=0.30),
+    "deck": dict(ceiling=0.74, grime_scale=0.70, contrast=0.80, warm=0.30),
+}
+
+
+# How metallic a material is. Everything in the village set is zero and should be: brick, render
+# and tarmac are dielectrics, and a metallic brick is a black brick.
+#
+# The station is the exception and it is a small number on purpose. Metal without an environment
+# to reflect goes BLACK, not shiny - there is no reflection probe in here - so this is enough to
+# tip the specular response toward metal and not enough to lose the surface if the ambient drops.
+METALLIC = {
+    "hull": 0.28,
+    "deck": 0.14,
 }
 
 
@@ -470,6 +646,8 @@ MATERIALS = {
     "snow": snow,
     "ice": ice,
     "glass": glass,
+    "hull": hull,
+    "deck": deck,
 }
 
 # How pronounced each material's relief is. Brick and tile are real geometry being faked and
@@ -488,6 +666,11 @@ STRENGTH = {
     # Glass is flat and its frame is not, so the relief is entirely in the lattice. High enough
     # that the bars read as standing proud of the panes at arena distance.
     "glass": 4.2,
+
+    # Plating is shallow in reality - a seam is a few millimetres - but it is the ONLY thing
+    # giving a flat bulkhead any shape at all, so it is pushed well past life size. Without
+    # this the walls go back to being one flat value with a pattern drawn on them.
+    "hull": 4.6, "deck": 3.4,
 }
 
 
@@ -510,7 +693,7 @@ def main():
 
         write_png(f"{OUT}/{name}_base_color.png", col)
         write_png(f"{OUT}/{name}_normal.png", normal_map(norm(height), STRENGTH[name]))
-        write_png(f"{OUT}/{name}_metallic_roughness.png", mr_map(rough))
+        write_png(f"{OUT}/{name}_metallic_roughness.png", mr_map(rough, METALLIC.get(name, 0.0)))
 
         kb = sum(os.path.getsize(f"{OUT}/{name}_{s}.png")
                  for s in ("base_color", "normal", "metallic_roughness")) // 1024

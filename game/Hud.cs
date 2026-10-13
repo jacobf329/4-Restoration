@@ -69,6 +69,26 @@ public partial class Hud : Control
 
             foreach (var step in new[] { Vector2.Right, Vector2.Left, Vector2.Up, Vector2.Down })
                 DrawLine(mid + step * 7f, mid + step * 15f, ink, 2f);
+
+            // The hit marker: four diagonals that flare out of the crosshair when a shot lands.
+            //
+            // The one piece of feedback a third-person shooter cannot do without. A soldier
+            // thirty metres away is a hundred pixels tall and their health is not drawn, so
+            // without this there is no difference on screen between a shot that hit and a shot
+            // that missed - and a gun you cannot tell is working is a gun that is not working,
+            // as far as the person holding it is concerned.
+            if (battle.HitMark > 0f)
+            {
+                float t = battle.HitMark / Battle.HitMarkTime;
+                var hot = new Color(1f, 0.92f, 0.55f, 0.35f + t * 0.65f);
+
+                foreach (var step in new[] { new Vector2(1f, 1f), new Vector2(-1f, 1f),
+                                             new Vector2(1f, -1f), new Vector2(-1f, -1f) })
+                {
+                    var d = step.Normalized();
+                    DrawLine(mid + d * (6f + (1f - t) * 5f), mid + d * (14f + (1f - t) * 5f), hot, 2.5f);
+                }
+            }
         }
 
         // Health, bottom left, where it is out of the way and still in peripheral vision.

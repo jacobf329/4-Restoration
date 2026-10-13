@@ -58,10 +58,66 @@ public static class UiSelfTest
         TestEverySoundIsReachable();
         TestTheMix();
         TestTheMixerIsReachableWithAPad();
+        TestTheStationIsMadeOfSomething();
 
         TestLog.Line($"=== {checks - failures}/{checks} checks passed ===");
         if (failures > 0) TestLog.Fail($"{failures} check(s) FAILED");
         return failures;
+    }
+
+    /// <summary>
+    /// Every surface the battle station asks for has a real material behind it.
+    ///
+    /// This is here because of the one bug a screenshot took three sessions to surface. The
+    /// station was built asking for SurfaceKind.Panel on all three hundred of its boxes, and
+    /// Panel is the one kind with no files on disk: it falls back to a procedural grid, by
+    /// design, so that an arena can be built against materials that do not exist yet. Nothing
+    /// errored, nothing was slow, every test passed, and the game looked like graph paper.
+    ///
+    /// The fallback is worth keeping and so is this check. A kind that resolves to nothing is
+    /// fine while a material is being made and is a bug the moment it ships, and the difference
+    /// between those two is a thing a person has to assert rather than a thing code can infer.
+    /// So: name the kinds the station is actually built from, and insist their files exist.
+    /// </summary>
+    static void TestTheStationIsMadeOfSomething()
+    {
+        var station = new Battlefront.Station();
+
+        Check(station.Boxes.Count > 100, $"the station is built ({station.Boxes.Count} boxes)");
+
+        int fellBack = 0;
+
+        foreach (var box in station.Boxes)
+        {
+            string name = Surfaces.SpecFor(box.Surface).Name;
+
+            if (name.Length == 0
+                || !Godot.FileAccess.FileExists($"{Surfaces.Folder}/{name}_base_color.png"))
+                fellBack++;
+        }
+
+        Check(fellBack == 0,
+              $"every station surface has a material on disk ({fellBack} fell back to the grid)");
+
+        // And the two the station is actually made of, by name, so a rename that silently
+        // reverts the whole map to the fallback is a failing test rather than a screenshot.
+        foreach (var kind in new[] { SurfaceKind.Hull, SurfaceKind.Deck })
+        foreach (string map in new[] { "base_color", "normal", "metallic_roughness" })
+        {
+            string stem = $"{Surfaces.Folder}/{Surfaces.SpecFor(kind).Name}_{map}.png";
+            Check(Godot.FileAccess.FileExists(stem), $"{kind} has its {map}");
+        }
+
+        // The posts have to be reachable from each other or the battle happens in one room,
+        // which is a thing that has already happened once. See Nav.
+        var nav = new Battlefront.Nav(station);
+
+        for (int a = 0; a < station.Posts.Count; a++)
+        for (int b = 0; b < station.Posts.Count; b++)
+        {
+            if (a == b) continue;
+            Check(nav.Next(a, b) >= 0, $"post {a} can reach post {b}");
+        }
     }
 
     // ---- harness ----

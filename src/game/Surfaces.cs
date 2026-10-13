@@ -41,6 +41,21 @@ public enum SurfaceKind
 
     /// <summary>Glazing in a painted lattice. The Glasshouse is named for it.</summary>
     Glass,
+
+    /// <summary>
+    /// Station hull plating: bulkheads, ceilings, the outside of everything.
+    ///
+    /// The battle station asked for <see cref="Panel"/> on every one of its three hundred boxes,
+    /// and Panel is the kind with no files behind it - so every surface in the game fell through
+    /// to the procedural grid, which at corridor scale is a few hundred identical squares and
+    /// reads as graph paper rather than as metal. Naming the material the station is actually
+    /// made of is the fix; the fallback was only ever meant to be what you see before the real
+    /// one arrives.
+    /// </summary>
+    Hull,
+
+    /// <summary>Station decking: tread plate, and everything you stand on.</summary>
+    Deck,
 }
 
 /// <summary>
@@ -90,7 +105,7 @@ public static class Surfaces
     /// </summary>
     public static string FootstepName(SurfaceKind kind) => kind switch
     {
-        SurfaceKind.Panel => "metal",
+        SurfaceKind.Panel or SurfaceKind.Hull or SurfaceKind.Deck => "metal",
         SurfaceKind.Timber => "timber",
         SurfaceKind.Foliage => "foliage",
         SurfaceKind.Snow => "snow",
@@ -113,7 +128,7 @@ public static class Surfaces
     /// </summary>
     public static string ImpactName(SurfaceKind kind) => kind switch
     {
-        SurfaceKind.Panel => "metal",
+        SurfaceKind.Panel or SurfaceKind.Hull or SurfaceKind.Deck => "metal",
         SurfaceKind.Timber => "timber",
         SurfaceKind.Foliage => "foliage",
         SurfaceKind.Snow => "snow",
@@ -137,6 +152,13 @@ public static class Surfaces
         SurfaceKind.Snow => new Spec("snow", 4.0f),
         SurfaceKind.Ice => new Spec("ice", 2.6f),
         SurfaceKind.Glass => new Spec("glass", 2.8f),
+
+        // Both tile large, and that is the point rather than an economy. A bulkhead in here is
+        // fifty metres across: at the old 2.6m panel that is nineteen repeats of one square per
+        // wall, which the eye reads as a pattern instead of as a surface. Eight metres puts six
+        // plates on that wall, which is how many a wall of that size really has.
+        SurfaceKind.Hull => new Spec("hull", 8.0f),
+        SurfaceKind.Deck => new Spec("deck", 6.0f),
         _ => new Spec("", Graphics.PanelMetres),
     };
 

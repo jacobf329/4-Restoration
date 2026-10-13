@@ -147,6 +147,7 @@ public sealed class Battle
     public void Step(float dt, Trooper? player)
     {
         Tracers.Clear();
+        Muzzle = null;
 
         if (Winner >= 0) return;
 
@@ -174,6 +175,8 @@ public sealed class Battle
             if (t.GlobalPosition.Y < Station.KillFloor) Kill(t);
         }
 
+        if (HitMark > 0f) HitMark -= dt;
+
         Capturing(dt);
         Bleed(dt);
 
@@ -184,19 +187,31 @@ public sealed class Battle
     }
 
     /// <summary>
-    /// The player pulling the trigger: a ray straight out of the camera.
+    /// The player pulling the trigger.
     ///
-    /// Aimed down the view rather than from the soldier's muzzle, because the crosshair is what
-    /// the player is aiming with and a shot that leaves from somewhere else misses what they are
-    /// pointing at. The bots use a probability instead - see Shoot - and that asymmetry is on
-    /// purpose: a bot rolling dice at forty metres and a player landing a shot they aimed are
-    /// both right, and giving the player dice would feel broken.
+    /// Two different lines, and the difference between them is the whole thing. WHAT IS HIT is
+    /// decided by a ray down the camera, because the crosshair is what the player is aiming
+    /// with and a shot that resolves from somewhere else misses what they are pointing at. What
+    /// is DRAWN leaves the soldier's muzzle and goes to wherever that ray landed.
+    ///
+    /// Both were the camera ray to begin with, and it is why firing felt like nothing was
+    /// happening. A bolt drawn from just in front of the lens, straight down the view axis,
+    /// points directly away from you: it covers a handful of pixels in the middle of the screen
+    /// for one frame and is gone. The gun made no sound, the crosshair did not move, nothing
+    /// flashed, and the one visual confirmation the shot had was geometrically invisible. The
+    /// code was firing the whole time.
+    ///
+    /// The bots use a probability instead - see Shoot - and that asymmetry is on purpose: a bot
+    /// rolling dice at forty metres and a player landing a shot they aimed are both right, and
+    /// giving the player dice would feel broken.
     /// </summary>
     public void PlayerFire(Trooper t, Vector3 from, Vector3 dir)
     {
         if (Winner >= 0 || !t.Alive || t.ReloadIn > 0f) return;
 
-        t.ReloadIn = RateOfFire;
+        // The player's own cadence, far quicker than a bot's. See PlayerRateOfFire.
+        t.ReloadIn = PlayerRateOfFire;
+        PlayerShots++;
 
         var to = from + dir.Normalized() * 220f;
 
@@ -209,13 +224,80 @@ public sealed class Battle
             });
 
         if (hit.Count > 0 && hit.ContainsKey("position")) to = (Vector3)hit["position"];
+        LastShot = (from, to);
 
-        Tracers.Add((from, to, t.Team));
+        // Drawn from the gun, not from the eye: out at the soldier's right hand, which is
+        // where they are holding it.
+        var gun = GunHand(t);
+
+        Tracers.Add((gun, to, t.Team));
+        Muzzle = (gun, t.Team);
+
+        // Your own gun, at full volume and flat in the mix. Everybody else's shot is placed in
+        // the world; yours is the one sound that is not happening somewhere, it is happening to
+        // you, and the pitch wanders a little so a held trigger does not turn into one tone.
+        HitboxClone.Sfx.Play(HitboxClone.Sound.ShotTrooper, 0f, rng.RandfRange(0.96f, 1.05f));
+
+        // What the shot found, broken out by kind. See --fire: "hits 0" on its own cannot tell
+        // a gun that is not firing from a gun firing into a wall, and those are opposite bugs.
+        if (hit.Count == 0) PlayerIntoAir++;
+        else if (!hit.TryGetValue("collider", out var any) || any.As<Node>() is not Trooper) PlayerIntoWall++;
+        else if (((Trooper)any.As<Node>()).Team == t.Team) PlayerIntoFriend++;
 
         if (hit.Count > 0 && hit.TryGetValue("collider", out var what)
             && what.As<Node>() is Trooper foe && foe.Team != t.Team)
+        {
             Wound(foe, Damage * 1.6f, t.Team);
+            PlayerHits++;
+
+            // Confirmation that the shot landed, which a third-person shooter has to give
+            // explicitly: the target is thirty metres away and a hundred pixels tall, and at
+            // that size a health bar you cannot see changing is no feedback at all.
+            HitMark = HitMarkTime;
+            Impact(to);
+        }
     }
+
+    /// <summary>
+    /// Where a soldier's weapon is: right hand, a little below the eye.
+    ///
+    /// The right vector has to be built from the yaw rather than rotated out of Vector3.Right,
+    /// which is what this did first and got wrong by ninety degrees - the bolt left from a foot
+    /// in front of the soldier's chest instead of from beside it, and read as being fired by
+    /// nobody. Same formula the camera uses for its shoulder offset, for the same reason.
+    /// </summary>
+    static Vector3 GunHand(Trooper t)
+    {
+        var right = new Vector3(-Mathf.Sin(t.AimYaw), 0f, Mathf.Cos(t.AimYaw));
+        return t.GlobalPosition + Vector3.Up * (t.EyeHeight - 0.25f) + right * 0.32f;
+    }
+
+    /// <summary>
+    /// How fast the player's weapon cycles, as against <see cref="RateOfFire"/> for a bot.
+    ///
+    /// Nearly three times quicker, and that is not the player being favoured. A bot fires on a
+    /// timer whether or not anything is in front of it, so its rate is a budget for how much
+    /// damage twenty of them put out; the player fires when they decide to, and a trigger that
+    /// answers twice a second reads as a jammed gun rather than as a measured one.
+    /// </summary>
+    public const float PlayerRateOfFire = 0.16f;
+
+    /// <summary>Shots the player has taken, and how many of them landed. For --fire.</summary>
+    public int PlayerShots, PlayerHits;
+
+    /// <summary>Where the rest of them went. For --fire.</summary>
+    public int PlayerIntoWall, PlayerIntoFriend, PlayerIntoAir;
+
+    /// <summary>The last shot's resolved line. For --fire.</summary>
+    public (Vector3 From, Vector3 To) LastShot;
+
+    /// <summary>Counts down after the player wounds somebody. Drives the hit marker.</summary>
+    public float HitMark;
+
+    public const float HitMarkTime = 0.22f;
+
+    /// <summary>Where the player's gun went off this frame, for something to draw.</summary>
+    public (Vector3 At, int Team)? Muzzle;
 
     void Kill(Trooper t)
     {
@@ -451,8 +533,18 @@ public sealed class Battle
 
         Tracers.Add((t.Muzzle, foe.Chest, t.Team));
 
-        if (rng.Randf() < chance) Wound(foe, Damage, t.Team);
+        // Positional, and attenuated against the player by Sfx. Twenty bots firing all over a
+        // 230-metre station at full volume is noise; the same twenty heard by distance is the
+        // sound of a battle happening somewhere, which is the thing conquest is supposed to
+        // feel like.
+        HitboxClone.Sfx.PlayAt(HitboxClone.Sound.ShotTrooper, t.Muzzle, -4f,
+                               rng.RandfRange(0.92f, 1.08f));
+
+        if (rng.Randf() < chance) { Wound(foe, Damage, t.Team); Impact(foe.Chest); }
     }
+
+    /// <summary>A round going into a body. Separate from the shot, and a beat behind it.</summary>
+    void Impact(Vector3 at) => HitboxClone.Sfx.PlayAt(HitboxClone.Sound.Hit, at, -2f);
 
     void Wound(Trooper foe, float damage, int by)
     {
@@ -463,6 +555,7 @@ public sealed class Battle
         {
             Shot++;
             Tickets[foe.Team] = Mathf.Max(0f, Tickets[foe.Team] - 1f);
+            HitboxClone.Sfx.PlayAt(HitboxClone.Sound.Death, foe.Chest, -3f);
         }
     }
 

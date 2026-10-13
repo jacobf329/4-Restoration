@@ -33,6 +33,24 @@ public partial class Field : Node3D
     string? shotPath;
     int shotFrames = 30;
 
+    /// <summary>
+    /// --fire: hold the trigger down for N seconds through the real input path and report.
+    ///
+    /// This exists because "can the player shoot" was answered wrong twice from reading the
+    /// code, and both times the code read correctly. Once the pad was being polled and then
+    /// never looked at, because Devices.All[0] is the keyboard; once the shot was fired and its
+    /// tracer deleted before anything drew it. Neither is visible in PlayerFire, which is the
+    /// function anybody checking would open.
+    ///
+    /// So this drives a scripted pad through Driver, _PhysicsProcess and PlayerFire - the whole
+    /// chain, in the real scene, with the real station loaded - and prints what came out the
+    /// far end. A number that is zero is the bug; there is nothing to interpret.
+    /// </summary>
+    float fireSeconds;
+    float fireRan;
+    ScriptedDevice? trigger;
+    Trooper? mark;
+
     /// <summary>--sim: run the battle with nobody watching and report what happened.</summary>
     float simSeconds;
     float simRan;
@@ -56,6 +74,7 @@ public partial class Field : Node3D
             if (args[i] == "--yaw" && i + 1 < args.Length) camYaw = Mathf.DegToRad(args[i + 1].ToFloat());
             if (args[i] == "--after" && i + 1 < args.Length) shotFrames = args[i + 1].ToInt();
             if (args[i] == "--sim" && i + 1 < args.Length) simSeconds = args[i + 1].ToFloat();
+            if (args[i] == "--fire" && i + 1 < args.Length) fireSeconds = args[i + 1].ToFloat();
         }
 
         Station = new Station();
@@ -75,10 +94,75 @@ public partial class Field : Node3D
         AddChild(hud);
 
         BuildTracers();
+        BuildMuzzle();
 
-        AddChild(Graphics.BuildSun());
-        AddChild(Graphics.BuildFill());
-        AddChild(Graphics.BuildEnvironment(fog: true, reach: Station.HalfSpan * 2f));
+        // The interior rig, not the arena's. See Graphics.BuildInterior for why a daylight sun
+        // and a sky-blue ambient inside a sealed battle station was half of what looked like a
+        // texture problem.
+        AddChild(Graphics.BuildCeilingLight());
+        AddChild(Graphics.BuildInteriorFill());
+        AddChild(Graphics.BuildInterior(Station.HalfSpan * 2f));
+
+        // Sound, which the station had none of at all.
+        //
+        // Half of "allow me to shoot" is hearing the gun go off. A trigger that produces no
+        // noise reads as a trigger that is not connected to anything, whatever the screen says
+        // - which is most of what was wrong here even once the bolt was being drawn. The banks
+        // and the buses already exist and are already mixed; the new game simply never started
+        // them.
+        Audio.Init();
+        Sfx.Init(this);
+
+        if (fireSeconds > 0f)
+        {
+            trigger = new ScriptedDevice("trigger") { HoldAttack = true };
+
+            // A shade below level, and the camera re-placed to match before anything is
+            // measured off its axis.
+            //
+            // Not zero, and the reason is a fact about this camera worth knowing. The view sits
+            // at the player's eyes, 1.8m up, and a standing soldier's capsule stops at 1.8m -
+            // so a perfectly level shot grazes the top of an enemy's head and mostly misses.
+            // The game's own resting pitch is -0.18 for exactly this reason. Aiming slightly
+            // down is what pointing at a chest IS, and a probe firing level was measuring a
+            // player who never looks where they are shooting.
+            camPitch = -0.055f;
+            PlaceCamera(0f, snap: true);
+
+            // An empty range: one enemy fifteen metres in front and everybody else moved well
+            // out of the way.
+            //
+            // Clearing the range is the part that makes this evidence. The first version left
+            // the match as it was, which meant the player stood in a crowd of nineteen friendly
+            // soldiers with the target behind them - so the shots that mattered hit a teammate,
+            // the target was killed by somebody else's bot within a second, and the probe
+            // reported "hits 0" for a gun that was working perfectly. A test whose answer
+            // depends on where forty soldiers happen to be standing is not a test.
+            foreach (var t in Battle.Troopers)
+            {
+                if (t == player) continue;
+                t.GlobalPosition = new Vector3(0f, 2f, -Station.HalfSpan + 6f);
+            }
+
+            foreach (var t in Battle.Troopers)
+            {
+                if (t.Team == player.Team) continue;
+
+                // On the CAMERA's line, not on camYaw's. Over the shoulder, the two are about
+                // eleven degrees apart: the camera sits 0.9m to the right of the head and looks
+                // back in at it, so its forward axis converges on the player rather than
+                // running parallel to where they are facing. The crosshair is on the camera's
+                // axis and so is the shot, which is correct and is also why the first version
+                // of this probe reported no hits - it had stood the target where the SOLDIER
+                // was pointing, three metres off where the gun actually shoots.
+                var axis = -cam.GlobalBasis.Z with { Y = 0f };
+                t.GlobalPosition = (cam.GlobalPosition + axis.Normalized() * 15f) with { Y = 0.1f };
+                mark = t;
+                GD.Print($"fire: target {t.Name} placed at {t.GlobalPosition}, "
+                       + $"player at {player.GlobalPosition}, cam at {cam.GlobalPosition}");
+                break;
+            }
+        }
 
         SetPhysicsProcess(true);
     }
@@ -94,8 +178,10 @@ public partial class Field : Node3D
     /// pad was being polled every frame and then never looked at. This is a controller-first
     /// game and its entry point was reading the keyboard.
     /// </summary>
-    static InputDevice? Driver()
+    InputDevice? Driver()
     {
+        if (trigger != null) return trigger;
+
         foreach (var d in Devices.All)
             if (d.IsGamepad && d.Connected) return d;
 
@@ -151,7 +237,15 @@ public partial class Field : Node3D
                 body.AddChild(new MeshInstance3D
                 {
                     Mesh = new BoxMesh { Size = b.Half * 2f },
-                    MaterialOverride = Graphics.SurfaceAt(b.Tint, b.Centre, b.Top, false, b.Surface),
+                    MaterialOverride = b.Glow
+                        ? Graphics.Hot(b.Tint, 1.9f)
+                        : Graphics.SurfaceAt(b.Tint, b.Centre, b.Top, false, b.Surface),
+
+                    // A light fitting that casts a shadow is a light fitting that puts a dark
+                    // bar underneath itself, which is the opposite of what it is there for.
+                    CastShadow = b.Glow
+                        ? GeometryInstance3D.ShadowCastingSetting.Off
+                        : GeometryInstance3D.ShadowCastingSetting.On,
                 });
             }
 
@@ -195,6 +289,10 @@ public partial class Field : Node3D
         float dt = (float)delta;
 
         Devices.PollAll(dt);
+
+        // The scripted trigger is not in Devices.All, so it polls itself.
+        trigger?.Poll(dt);
+
         var pad = Driver();
 
         if (pad != null && player.Alive)
@@ -205,22 +303,60 @@ public partial class Field : Node3D
 
             player.AimYaw = camYaw;
             player.Step(dt, Trooper.FromPad(pad, camYaw));
-
-            // Down the camera, from just in front of it so the muzzle is never inside a wall
-            // the camera has been pulled against.
-            if (pad.AttackHeld)
-            {
-                var dir = -cam.GlobalBasis.Z;
-                Battle.PlayerFire(player, cam.GlobalPosition + dir * 0.6f, dir);
-            }
         }
 
         if (simSeconds > 0f) { Simulate(dt); return; }
 
+        // Where the ear is, so world sounds attenuate against the player rather than the origin.
+        Sfx.Listeners = new[] { player.GlobalPosition };
+
         Battle.Step(dt, player);
+
+        // The trigger, and it has to be read AFTER the battle steps.
+        //
+        // This was the bug behind "allow me to shoot", and it was never in the firing code.
+        // Battle.Step opens by clearing the tracer list, because that list is one frame's worth
+        // of shots and the view redraws it every frame. Firing before the step meant the
+        // player's bolt was added and then deleted, every single time, before anything had a
+        // chance to draw it - so the one piece of evidence that the trigger worked at all was
+        // destroyed a few microseconds after it was created. The raycast ran, the damage landed,
+        // and the screen showed nothing. Twenty bots firing looked fine throughout, because
+        // THEIR shots are added by the step, after the clear.
+        //
+        // Found by reading the order of operations rather than the firing code, which had been
+        // read three times and was correct every time.
+        if (pad is { AttackHeld: true } && player.Alive)
+        {
+            var dir = -cam.GlobalBasis.Z;
+            Battle.PlayerFire(player, cam.GlobalPosition + dir * 0.6f, dir);
+        }
 
         PlaceCamera(dt, snap: false);
         DrawTracers();
+        DrawMuzzle();
+
+        if (fireSeconds > 0f)
+        {
+            fireRan += dt;
+
+            if (fireRan >= fireSeconds)
+            {
+                GD.Print($"fire: trigger held {fireRan:0.0}s as {pad?.Label ?? "nothing"}"
+                       + $"  shots {Battle.PlayerShots}  hits {Battle.PlayerHits}"
+                       + $"  (wall {Battle.PlayerIntoWall} friend {Battle.PlayerIntoFriend}"
+                       + $" air {Battle.PlayerIntoAir})"
+                       + $"  tracers-this-frame {Battle.Tracers.Count}"
+                       + $"  muzzle {(Battle.Muzzle == null ? "none" : "drawn")}"
+                       + $"  enemy tickets {Battle.Tickets[1]:0}"
+                       + $"\n      target now {(mark == null ? "none" : mark.GlobalPosition.ToString())}"
+                       + $" alive {mark?.Alive} hp {mark?.Health:0}"
+                       + $"\n      last shot {Battle.LastShot.From} -> {Battle.LastShot.To}"
+                       + $"  ({Battle.LastShot.From.DistanceTo(Battle.LastShot.To):0.0}m)");
+
+                GetTree().Quit();
+                return;
+            }
+        }
 
         frame++;
         if (shotPath != null && frame >= shotFrames) Capture();
@@ -390,7 +526,7 @@ public partial class Field : Node3D
         {
             var bolt = new MeshInstance3D
             {
-                Mesh = new BoxMesh { Size = new Vector3(0.09f, 0.09f, 1f) },
+                Mesh = new BoxMesh { Size = new Vector3(0.13f, 0.13f, 1f) },
                 MaterialOverride = i % 2 == 0 ? blue : orange,
                 Visible = false,
                 CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
@@ -419,15 +555,58 @@ public partial class Field : Node3D
 
             if (len < 0.2f) continue;
 
+            // A shot fired straight up or straight down has no yaw for LookAt to resolve
+            // against Vector3.Up, and Godot warns about it once per bolt per frame. Leaning the
+            // reference a hair off vertical costs nothing visible on a 9cm bolt.
+            var up = Mathf.Abs(span.Normalized().Y) > 0.999f ? Vector3.Forward : Vector3.Up;
+
             bolt.Visible = true;
             bolt.GlobalPosition = from + span * 0.5f;
-            bolt.LookAt(to, Vector3.Up);
+            bolt.LookAt(to, up);
             bolt.Scale = new Vector3(1f, 1f, len);
 
             n++;
         }
 
         for (int i = n * 2; i < MaxTracers; i++) tracers[i].Visible = false;
+    }
+
+    /// <summary>
+    /// A flash at the gun for the frame it goes off.
+    ///
+    /// Small and very bright rather than large: it is a confirmation, not an effect, and the
+    /// thing it is confirming is in the player's peripheral vision while they watch the
+    /// crosshair. One pooled node, hidden on every frame the trigger is not down.
+    /// </summary>
+    MeshInstance3D flash = null!;
+
+    void BuildMuzzle()
+    {
+        flash = new MeshInstance3D
+        {
+            Mesh = new SphereMesh { Radius = 0.14f, Height = 0.28f, RadialSegments = 8, Rings = 4 },
+            MaterialOverride = Graphics.Hot(new Color(1f, 0.86f, 0.55f), 9f),
+            Visible = false,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        };
+
+        AddChild(flash);
+    }
+
+    void DrawMuzzle()
+    {
+        if (Battle.Muzzle is { } shot)
+        {
+            flash.Visible = true;
+
+            // Battle already resolved the gun hand; the flash goes exactly where the bolt
+            // leaves from, or the two read as two different weapons.
+            flash.GlobalPosition = shot.At;
+        }
+        else
+        {
+            flash.Visible = false;
+        }
     }
 
     void Capture()

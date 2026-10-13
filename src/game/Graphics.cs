@@ -98,6 +98,146 @@ public static class Graphics
     }
 
     /// <summary>
+    /// The lighting rig for a sealed interior, and the reason it is a separate rig.
+    ///
+    /// The battle station was being lit by <see cref="BuildSun"/>, <see cref="BuildFill"/> and
+    /// <see cref="BuildEnvironment"/> — a daylight sun, a sky-blue bounce and a procedural sky
+    /// used as the ambient source. Inside a windowless station that is simply the wrong world:
+    /// every bulkhead came out washed to near-white, every deck to navy, and the whole thing
+    /// read as a bright blue afternoon happening indoors. Half of what looked like a texture
+    /// problem was this.
+    ///
+    /// An interior has no sun. What it has is a ceiling: light arriving from almost straight
+    /// down, from fittings rather than from a star, with the room's own surfaces doing the
+    /// bouncing. So the key light is steep and near-white, the fill is a fraction of it from
+    /// the opposite side purely to keep the shaded faces of a box from going to one value, and
+    /// the ambient is a flat neutral rather than a sky.
+    /// </summary>
+    public static DirectionalLight3D BuildCeilingLight()
+    {
+        var key = new DirectionalLight3D
+        {
+            Name = "Ceiling",
+            LightEnergy = 1.05f,
+
+            // Fluorescent-white with the faintest cool cast. Warm light in here reads as
+            // firelight, which is a different film entirely.
+            LightColor = new Color(0.94f, 0.95f, 1.0f),
+            ShadowEnabled = Shadows,
+            DirectionalShadowMode = DirectionalLight3D.ShadowMode.Orthogonal,
+            DirectionalShadowMaxDistance = 180f,
+            ShadowBlur = 1.2f,
+        };
+
+        // Steep, but not vertical. Straight down leaves every vertical surface in the station
+        // lit by ambient alone, which is how a corridor becomes a flat grey tube.
+        key.RotationDegrees = new Vector3(-72f, 24f, 0f);
+        return key;
+    }
+
+    /// <summary>The bounce off the far wall. Weak, and cool, because the walls are grey metal.</summary>
+    public static DirectionalLight3D BuildInteriorFill()
+    {
+        var fill = new DirectionalLight3D
+        {
+            Name = "Bounce",
+            LightEnergy = 0.30f,
+            LightColor = new Color(0.78f, 0.83f, 0.92f),
+            ShadowEnabled = false,
+        };
+
+        fill.RotationDegrees = new Vector3(-16f, -150f, 0f);
+        return fill;
+    }
+
+    /// <summary>
+    /// The environment for an interior: no sky, flat ambient, and haze that is dark rather than
+    /// pale.
+    ///
+    /// The fog colour is the detail that matters most and the easiest to get backwards. Outdoor
+    /// haze is BRIGHTER than the scene — it is scattered sunlight — so distance washes toward
+    /// white. Indoors there is nothing to scatter and the far end of a corridor is the darkest
+    /// thing you can see, so distance has to fall away toward black. Lit with the outdoor fog,
+    /// the far wall of every room in the station glowed, which is what made it look like the
+    /// roof was off.
+    /// </summary>
+    public static WorldEnvironment BuildInterior(float reach)
+    {
+        var env = new Godot.Environment
+        {
+            BackgroundMode = Godot.Environment.BGMode.Color,
+            BackgroundColor = new Color(0.016f, 0.018f, 0.026f),
+
+            // Brighter than it looks like it should be, and this is the number that was wrong
+            // first time. An interior gets nearly all of its light from bounce - the ceiling
+            // over your head is lit by the floor, not by the fitting pointing away from it -
+            // and with the ambient low every roof in the station rendered BLACK and the rooms
+            // looked open to space. Raising the key light would not have fixed that; the key
+            // light is the one thing a ceiling never sees.
+            AmbientLightSource = Godot.Environment.AmbientSource.Color,
+            AmbientLightColor = new Color(0.56f, 0.59f, 0.66f),
+            AmbientLightEnergy = 1.55f,
+
+            // Spelled out rather than left at its default of 1.0. With the source set to Color
+            // the renderer ignores it either way, but the two fields read as contradicting each
+            // other and the next person to touch this should not have to test which one wins.
+            AmbientLightSkyContribution = 0f,
+
+            TonemapMode = Godot.Environment.ToneMapper.Aces,
+            TonemapExposure = 1.0f,
+            TonemapWhite = 6f,
+        };
+
+        if (Glow)
+        {
+            // Turned up from the arena's settings on purpose: in here the light fittings, the
+            // tracers and the post markers are the only things above the threshold, and they
+            // are the only sources of colour in a grey station.
+            env.GlowEnabled = true;
+            env.GlowIntensity = 0.75f;
+            env.GlowStrength = 1.05f;
+            env.GlowBloom = 0.18f;
+            env.GlowHdrThreshold = 1.0f;
+            env.GlowBlendMode = Godot.Environment.GlowBlendModeEnum.Additive;
+        }
+
+        if (AmbientOcclusion)
+        {
+            // Worth more indoors than out. Flat ambient on boxes gives a corner no shading at
+            // all, and the contact shadow where a wall meets a deck is most of what tells you
+            // the room has corners.
+            env.SsaoEnabled = true;
+            env.SsaoRadius = HighQualityAo ? 1.8f : 1.2f;
+            env.SsaoIntensity = HighQualityAo ? 3.2f : 2.4f;
+            env.SsaoPower = 1.5f;
+            env.SsaoDetail = HighQualityAo ? 0.7f : 0.3f;
+        }
+
+        env.AdjustmentEnabled = true;
+        env.AdjustmentContrast = 1.12f;
+        env.AdjustmentSaturation = 1.05f;
+        env.AdjustmentBrightness = 1.0f;
+
+        env.FogEnabled = true;
+        env.FogMode = Godot.Environment.FogModeEnum.Depth;
+        env.FogLightColor = new Color(0.09f, 0.10f, 0.14f);
+        env.FogLightEnergy = 1f;
+
+        // Starting a fifth of the way across rather than a tenth. At the tighter setting the
+        // deck went to black about twenty metres out, which looks atmospheric in a still and is
+        // unplayable: the floor you are about to walk across is the thing you most need to see.
+        env.FogDepthBegin = reach * 0.22f;
+        env.FogDepthEnd = reach * 1.1f;
+
+        // Lighter than the arena's. Depth cueing down a corridor wants to be felt rather than
+        // seen, and a soldier at the far end of a spoke still has to be shootable.
+        env.FogDensity = 0.10f;
+        env.FogDepthCurve = 0.8f;
+
+        return new WorldEnvironment { Environment = env };
+    }
+
+    /// <summary>
     /// The world environment. <paramref name="fog"/> is off for the map preview: that camera sits
     /// two hundred and fifty metres back, where aerial perspective tuned for a player standing in
     /// the arena washes the entire map to one flat haze. Depth cueing is for looking *through* a

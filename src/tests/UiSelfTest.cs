@@ -69,7 +69,7 @@ public static class UiSelfTest
     /// Every surface the battle station asks for has a real material behind it.
     ///
     /// This is here because of the one bug a screenshot took three sessions to surface. The
-    /// station was built asking for SurfaceKind.Panel on all three hundred of its boxes, and
+    /// station was built asking for SurfaceKind.Panel on all two hundred-odd of its boxes, and
     /// Panel is the one kind with no files on disk: it falls back to a procedural grid, by
     /// design, so that an arena can be built against materials that do not exist yet. Nothing
     /// errored, nothing was slow, every test passed, and the game looked like graph paper.

@@ -45,7 +45,7 @@ public enum SurfaceKind
     /// <summary>
     /// Station hull plating: bulkheads, ceilings, the outside of everything.
     ///
-    /// The battle station asked for <see cref="Panel"/> on every one of its three hundred boxes,
+    /// The battle station asked for <see cref="Panel"/> on every one of its two hundred boxes,
     /// and Panel is the kind with no files behind it - so every surface in the game fell through
     /// to the procedural grid, which at corridor scale is a few hundred identical squares and
     /// reads as graph paper rather than as metal. Naming the material the station is actually

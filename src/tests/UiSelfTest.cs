@@ -81,9 +81,12 @@ public static class UiSelfTest
     /// </summary>
     static void TestTheStationIsMadeOfSomething()
     {
+        TestLog.Line("- the battle station is made of real materials");
+
         var station = new Battlefront.Station();
 
         Check(station.Boxes.Count > 100, $"the station is built ({station.Boxes.Count} boxes)");
+        TestLog.Line($"    {station.Boxes.Count} boxes, {station.Posts.Count} posts");
 
         int fellBack = 0;
 
@@ -98,6 +101,8 @@ public static class UiSelfTest
 
         Check(fellBack == 0,
               $"every station surface has a material on disk ({fellBack} fell back to the grid)");
+        TestLog.Line($"    {station.Boxes.Count - fellBack} of {station.Boxes.Count} surfaces "
+                   + "have a material on disk");
 
         // And the two the station is actually made of, by name, so a rename that silently
         // reverts the whole map to the fallback is a failing test rather than a screenshot.

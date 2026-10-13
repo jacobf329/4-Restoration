@@ -35,6 +35,29 @@ if ! dotnet --list-sdks 2>/dev/null | grep -q '^8\.'; then
 fi
 
 # ---------------------------------------------------------------------------
+# A software Vulkan driver, so screenshots show the renderer the project actually ships with.
+#
+# This is not a nicety. project.godot is Forward Plus, which is Vulkan; a container has no GPU,
+# so without an ICD Godot silently falls back to the GLES3 Compatibility renderer. Every
+# screenshot taken here then shows a renderer no player is running, and the two do not agree
+# about the thing hardest to check any other way - light.
+#
+# That gap cost two rounds of shipping a map that looked correct in every capture I took and
+# arrived on the player's machine as black walls. The lighting was genuinely broken; the
+# fallback renderer simply did not show it. lavapipe is slow, and slow is fine: a screenshot
+# that takes thirty seconds and is true beats one that takes two and is not.
+#
+#     godot --rendering-driver vulkan --path . <scene>
+# ---------------------------------------------------------------------------
+if [ ! -f /usr/share/vulkan/icd.d/lvp_icd.x86_64.json ] \
+   && [ ! -f /usr/share/vulkan/icd.d/lvp_icd.json ]; then
+  echo "Installing the software Vulkan driver (Forward+ screenshots)..."
+  apt-get update -qq 2>/dev/null || true
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+    mesa-vulkan-drivers 2>/dev/null || echo "  (unavailable - captures will fall back to GLES3)"
+fi
+
+# ---------------------------------------------------------------------------
 # Godot 4.7.1, the .NET/mono build.
 #
 # It must be the mono build: the plain one cannot run C# at all and fails with a wall of script

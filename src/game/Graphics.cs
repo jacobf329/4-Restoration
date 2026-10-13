@@ -118,15 +118,29 @@ public static class Graphics
         var key = new DirectionalLight3D
         {
             Name = "Ceiling",
-            LightEnergy = 1.05f,
+
+            // A fill that cannot be blocked, not a key, and the shadow is off for exactly that
+            // reason rather than to save time.
+            //
+            // This was the station's only light, with shadows on, and the station has a roof
+            // over it. A directional light is the sun: it comes from outside, and outside a
+            // sealed battle station is where it stayed. Every interior surface was in its
+            // shadow, so the entire map was lit by the ambient term alone - and a scene whose
+            // whole lighting budget is one flat number is a scene that renders black the moment
+            // anything touches that number. Which is what happened: the same build that looked
+            // correct under one renderer came out as black walls with aliased edges under
+            // another, because the two disagree about ambient.
+            //
+            // Shadowless, it does the one thing a directional is good for indoors: it gives
+            // every face a value that depends on which way it points, so a box reads as a box.
+            // The light that reads as light comes from the fittings - see Field, which hangs a
+            // real lamp on every one of them.
+            LightEnergy = 0.55f,
 
             // Fluorescent-white with the faintest cool cast. Warm light in here reads as
             // firelight, which is a different film entirely.
             LightColor = new Color(0.94f, 0.95f, 1.0f),
-            ShadowEnabled = Shadows,
-            DirectionalShadowMode = DirectionalLight3D.ShadowMode.Orthogonal,
-            DirectionalShadowMaxDistance = 180f,
-            ShadowBlur = 1.2f,
+            ShadowEnabled = false,
         };
 
         // Steep, but not vertical. Straight down leaves every vertical surface in the station
@@ -168,15 +182,15 @@ public static class Graphics
             BackgroundMode = Godot.Environment.BGMode.Color,
             BackgroundColor = new Color(0.016f, 0.018f, 0.026f),
 
-            // Brighter than it looks like it should be, and this is the number that was wrong
-            // first time. An interior gets nearly all of its light from bounce - the ceiling
-            // over your head is lit by the floor, not by the fitting pointing away from it -
-            // and with the ambient low every roof in the station rendered BLACK and the rooms
-            // looked open to space. Raising the key light would not have fixed that; the key
-            // light is the one thing a ceiling never sees.
+            // A fill, and only a fill. It used to be the whole of the station's lighting, which
+            // is why it had to be set this high and why the map was one flat value - and why
+            // the map went black wherever a renderer treated ambient differently. With real
+            // lamps in the ceiling doing the work it can come back down to what ambient is
+            // actually for, which is keeping the side of a crate that faces nothing from being
+            // pure black.
             AmbientLightSource = Godot.Environment.AmbientSource.Color,
             AmbientLightColor = new Color(0.56f, 0.59f, 0.66f),
-            AmbientLightEnergy = 1.55f,
+            AmbientLightEnergy = 0.55f,
 
             // Spelled out rather than left at its default of 1.0. With the source set to Color
             // the renderer ignores it either way, but the two fields read as contradicting each
@@ -207,8 +221,13 @@ public static class Graphics
             // all, and the contact shadow where a wall meets a deck is most of what tells you
             // the room has corners.
             env.SsaoEnabled = true;
+            // Turned down from 3.2. Ambient occlusion scales the AMBIENT term and nothing
+            // else, so when ambient was the station's entire lighting budget this was not an
+            // effect, it was a second brightness control with a mind of its own - and at that
+            // strength it crushed whole bulkheads to black. Against a fill it is back to doing
+            // what it is for, which is putting a contact shadow where a wall meets a deck.
             env.SsaoRadius = HighQualityAo ? 1.8f : 1.2f;
-            env.SsaoIntensity = HighQualityAo ? 3.2f : 2.4f;
+            env.SsaoIntensity = HighQualityAo ? 1.6f : 1.2f;
             env.SsaoPower = 1.5f;
             env.SsaoDetail = HighQualityAo ? 0.7f : 0.3f;
         }

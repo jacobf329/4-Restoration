@@ -22,6 +22,30 @@ import os, sys, zlib, struct
 import numpy as np
 
 SIZE = 512
+
+# Where a material wants more than the shared 512.
+#
+# The village set is seen from across an arena and 512 at its tiling density is plenty. The
+# station is not: you walk down a two-metre gap between two bulkheads, so a wall is a hand's
+# width from the camera for much of the match, and these tile at six and eight metres rather
+# than at one or two. 512 over an eight-metre tile is 64 texels to the metre.
+#
+# What that cost was not only softness. The fine-grain octaves in these generators run up to a
+# lattice frequency of 288, which at 512 is under two pixels a cell - so the "grain" was not
+# grain, it was per-pixel noise, and per-pixel noise on a wall seen at a distance is the thing
+# that crawls and reads as pixelation. Measured against the 2048 version, the 512 one carries
+# MORE high-frequency energy, and all of the excess is that noise.
+#
+# The cost is real and worth stating plainly: 2048 x 2048 x 3 bytes is 12.6 MB a map, three
+# maps a material, two materials - about 75 MB of video memory. That is affordable here because
+# the station is one map with two materials on two hundred boxes, which is a different
+# situation from the arena set that once put a gigabyte on the card. 1024 was measured too and
+# lands halfway; it is the setting to drop to if this ever has to fit somewhere smaller.
+RESOLUTION = {
+    "hull": 2048,
+    "deck": 2048,
+}
+
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                    "assets", "surfaces")
 
@@ -683,6 +707,11 @@ def main():
             print(f"  ? no material called {name}")
             continue
 
+        # Every generator reads SIZE as a global, and every frequency in them is expressed in
+        # lattice or cell units rather than in pixels, so the whole set scales by changing it.
+        global SIZE
+        SIZE = RESOLUTION.get(name, 512)
+
         col, height, rough = MATERIALS[name]()
         if np.isscalar(rough):
             rough = np.full((SIZE, SIZE), float(rough))
@@ -697,7 +726,7 @@ def main():
 
         kb = sum(os.path.getsize(f"{OUT}/{name}_{s}.png")
                  for s in ("base_color", "normal", "metallic_roughness")) // 1024
-        print(f"  {name:10s} albedo+normal+mr, {kb} KB total")
+        print(f"  {name:10s} {SIZE}px albedo+normal+mr, {kb} KB total")
 
 
 if __name__ == "__main__":

@@ -155,6 +155,35 @@ public partial class Field : Node3D
             }
         }
 
+        // Anti-aliasing asked for here rather than inherited from project.godot.
+        //
+        // The station is built out of long straight edges meeting at right angles, which is the
+        // worst case there is for aliasing: every bulkhead seam and every corridor line is a
+        // near-horizontal or near-vertical edge, and those are the ones that stair-step. The
+        // project file does set MSAA, but a scene that depends on a setting in another file for
+        // whether it looks broken is a scene that will eventually be launched without it.
+        GetViewport().Msaa3D = Viewport.Msaa.Msaa4X;
+
+        // And FXAA on top, which MSAA cannot do for it: MSAA anti-aliases geometry edges only,
+        // and half the hard edges in here are inside a texture - the panel seams and greebling
+        // on the hull are drawn, not modelled.
+        GetViewport().ScreenSpaceAA = Viewport.ScreenSpaceAAEnum.Fxaa;
+
+        // And the 3D buffer is the size of the WINDOW, which it was not.
+        //
+        // project.godot sets stretch/mode=canvas_items with a 1920x1080 base, for the old
+        // game's menus. That mode derives the viewport from the base ASPECT rather than from
+        // the window, so on a window that is not 16:9 the 3D is rendered smaller and scaled
+        // back up to fit. Measured on a 1746x800 window: the viewport came out 1422x800, and
+        // the capture lost a quarter of its edge detail to the upscale. That is a second,
+        // entirely separate cause of the map looking pixelated, and it only shows up on a
+        // window whose shape does not match the project's - which is most of them.
+        //
+        // Scaling3DScale is pinned for the same reason: it defaults to 1 and is one call away
+        // from being turned down by anything that wants more frames.
+        GetViewport().Scaling3DScale = 1.0f;
+        GetWindow().ContentScaleMode = Window.ContentScaleModeEnum.Disabled;
+
         if (fireSeconds > 0f)
         {
             trigger = new ScriptedDevice("trigger") { HoldAttack = true };
@@ -291,8 +320,12 @@ public partial class Field : Node3D
                 });
             }
 
+            if (b.Glow) Lamp(b);
+
             AddChild(body);
         }
+
+        GD.Print($"station: {Station.Boxes.Count} boxes, {lamps} lamps");
 
         // A marker on each command post.
         //
@@ -324,6 +357,48 @@ public partial class Field : Node3D
                 CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
             });
         }
+    }
+
+    int lamps;
+
+    /// <summary>
+    /// Hang a real light on a fitting that was, until now, only a bright-looking box.
+    ///
+    /// The strips and the ceiling rings were drawn emissive and emitted nothing, which was a
+    /// defensible call when the station had a key light: a glowing box reads as a lamp and
+    /// costs one material. It stopped being defensible when the key light turned out not to
+    /// reach inside the building at all. Something has to actually light this place, and the
+    /// honest something is the fittings that look like they are lighting it.
+    ///
+    /// No shadows on any of them. Sixty-odd shadow-casting omnis is sixty cube maps a frame,
+    /// and what shadows buy here - the contact between a soldier and the deck - is already
+    /// being bought far more cheaply by ambient occlusion.
+    /// </summary>
+    void Lamp(Box b)
+    {
+        // Only the fittings that are actually overhead. The catwalk edge lights are ankle-high
+        // markers showing where the walkway stops, and a lamp at ankle height lights nothing
+        // but the half metre of deck it is sitting on - fourteen of those is fourteen lights
+        // paying for nothing.
+        if (b.Centre.Y < 2f) return;
+
+        lamps++;
+
+        AddChild(new OmniLight3D
+        {
+            Position = b.Centre - Vector3.Up * 0.3f,
+
+            // Reach set by how high it is hung, because that is what it has to cover: a fitting
+            // nine metres up in a corridor has to get light to the floor and some way along it,
+            // and the ring twenty metres over the hub has a far bigger room to fill.
+            OmniRange = b.Centre.Y * 2.6f,
+            OmniAttenuation = 1.1f,
+
+            LightEnergy = 2.4f,
+            LightColor = new Color(0.90f, 0.94f, 1.0f),
+            LightSpecular = 0.35f,
+            ShadowEnabled = false,
+        });
     }
 
     public override void _PhysicsProcess(double delta)
@@ -733,7 +808,31 @@ public partial class Field : Node3D
     {
         var img = GetViewport().GetTexture().GetImage();
         img.SavePng(shotPath);
-        GD.Print($"wrote {shotPath}");
+
+        // What the capture is worth, as a number, next to the file it wrote.
+        //
+        // A render that came out black is a render that LOOKS like a dark room, and the
+        // difference between the two is a thing the eye is bad at and arithmetic is not. This
+        // map shipped twice lit by nothing but an ambient term, and on the renderer the project
+        // actually uses that came out as near-black walls; every capture taken here looked
+        // plausible because the fallback renderer computed ambient differently.
+        //
+        // One line per shot, in the log, so a brightness collapse is greppable rather than
+        // something somebody has to notice.
+        double sum = 0;
+        int w = img.GetWidth(), h = img.GetHeight(), n = 0;
+
+        for (int y = 0; y < h; y += 4)
+        for (int x = 0; x < w; x += 4)
+        {
+            var c = img.GetPixel(x, y);
+            sum += c.R * 0.299f + c.G * 0.587f + c.B * 0.114f;
+            n++;
+        }
+
+        GD.Print($"wrote {shotPath}  {w}x{h}  mean luma {(n > 0 ? sum / n : 0):0.000}"
+               + $"  renderer {RenderingServer.GetVideoAdapterApiVersion()}");
+
         GetTree().Quit();
     }
 }

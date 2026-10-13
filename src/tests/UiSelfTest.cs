@@ -113,6 +113,46 @@ public static class UiSelfTest
             Check(Godot.FileAccess.FileExists(stem), $"{kind} has its {map}");
         }
 
+        // Every room has something in its ceiling that gives off light.
+        //
+        // This is the check that would have caught the worst bug in the map, which shipped
+        // twice and which I could not see: the station is a SEALED building, and its only
+        // light was a DirectionalLight3D. A directional light is the sun. It comes from
+        // outside, and once the station had a roof over it, outside is where it stayed - so
+        // every surface in the map was lit by the flat ambient term and nothing else.
+        //
+        // That renders, which is the trap. It renders as a slightly flat grey station, right up
+        // until it is run on a machine whose renderer computes ambient differently, and then it
+        // renders as black walls with aliased edges and the player cannot see the room they are
+        // standing in. Nothing errors and no screenshot I took showed it, because the renderer
+        // available here is not the one the project ships with.
+        //
+        // So the structural fact is the thing worth asserting, and it is one a headless run can
+        // check: a room you can stand in has a light fitting over it. Field hangs a real lamp
+        // on each of these - see Field.Lamp - and the ambient is a fill again.
+        int fittings = 0;
+        foreach (var box in station.Boxes)
+            if (box.Glow && box.Centre.Y >= 2f) fittings++;
+
+        Check(fittings >= 20, $"the station has ceiling fittings to hang lights on ({fittings})");
+        TestLog.Line($"    {fittings} overhead light fittings");
+
+        foreach (var post in station.Posts)
+        {
+            bool lit = false;
+
+            foreach (var box in station.Boxes)
+            {
+                if (!box.Glow || box.Centre.Y < 2f) continue;
+
+                // Overhead and within the reach Field gives the lamp it hangs there.
+                var gap = box.Centre - post.Centre;
+                if (new Vector2(gap.X, gap.Z).Length() < box.Centre.Y * 2.6f) { lit = true; break; }
+            }
+
+            Check(lit, $"the {post.Name} post is under a light");
+        }
+
         // The posts have to be reachable from each other or the battle happens in one room,
         // which is a thing that has already happened once. See Nav.
         var nav = new Battlefront.Nav(station);

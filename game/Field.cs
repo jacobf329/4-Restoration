@@ -51,6 +51,29 @@ public partial class Field : Node3D
     ScriptedDevice? trigger;
     Trooper? mark;
 
+    /// <summary>
+    /// --gait: walk the player forward at a fixed speed and measure whether the feet skate.
+    ///
+    /// The clips are in-place, so the body's speed and the leg cycle's speed are two unrelated
+    /// numbers that have to be made to agree, and nothing on screen tells you whether they do -
+    /// a still frame of a soldier mid-stride looks identical whether or not his foot is sliding
+    /// along the deck. The measurement is simple and exact: find the foot that is on the floor
+    /// and see how far it moves. It should not move at all.
+    ///
+    /// --rate forces a fixed animation speed instead of the matched one, which is what lets the
+    /// clip's AUTHORED speed be solved for rather than estimated: hold the rate at 1, walk at a
+    /// known speed, and whatever the planted foot drifts at is the difference between the two.
+    /// </summary>
+    float gaitSpeed;
+    float gaitRate;
+    float gaitRan;
+    Vector3? gaitFrom;
+    float gaitWent, gaitFor;
+    float gaitWidest;
+    Vector3? lastFoot;
+    float footDrift;
+    int footSamples;
+
     /// <summary>--sim: run the battle with nobody watching and report what happened.</summary>
     float simSeconds;
     float simRan;
@@ -75,6 +98,12 @@ public partial class Field : Node3D
             if (args[i] == "--after" && i + 1 < args.Length) shotFrames = args[i + 1].ToInt();
             if (args[i] == "--sim" && i + 1 < args.Length) simSeconds = args[i + 1].ToFloat();
             if (args[i] == "--fire" && i + 1 < args.Length) fireSeconds = args[i + 1].ToFloat();
+            if (args[i] == "--gait" && i + 1 < args.Length)
+            {
+                gaitSpeed = args[i + 1].ToFloat();
+                Trooper.Reports = true;
+            }
+            if (args[i] == "--rate" && i + 1 < args.Length) gaitRate = args[i + 1].ToFloat();
         }
 
         Station = new Station();
@@ -112,6 +141,19 @@ public partial class Field : Node3D
         // them.
         Audio.Init();
         Sfx.Init(this);
+
+        if (gaitSpeed > 0f)
+        {
+            // The same empty range --fire needs, and for a sharper reason: the player spawns
+            // inside nineteen friendly capsules, and walking into a crowd means MoveAndSlide
+            // takes most of the velocity away. The first run of this reported a body moving at
+            // 56% of the speed it had been told to move at, which is not a gait problem at all.
+            foreach (var t in Battle.Troopers)
+            {
+                if (t == player) continue;
+                t.GlobalPosition = new Vector3(0f, 2f, -Station.HalfSpan + 6f);
+            }
+        }
 
         if (fireSeconds > 0f)
         {
@@ -294,6 +336,16 @@ public partial class Field : Node3D
         trigger?.Poll(dt);
 
         var pad = Driver();
+
+        // Before the pad is read, not after.
+        //
+        // Below the input block this stepped the player TWICE a frame - once from a pad with
+        // nothing held on it, once from the probe - so the body covered twice the ground per
+        // frame that either step believed it had. The probe's position-over-time reading said
+        // eight metres a second while each step saw four, and those two numbers disagreeing is
+        // the only reason it was caught. A probe has to be the only thing driving the thing it
+        // is measuring.
+        if (gaitSpeed > 0f) { Gait(dt); return; }
 
         if (pad != null && player.Alive)
         {
@@ -486,6 +538,74 @@ public partial class Field : Node3D
         }
 
         if (simRan >= simSeconds) { GD.Print("sim done"); GetTree().Quit(); }
+    }
+
+    /// <summary>
+    /// Walk the player in a straight line and watch the foot that is on the floor.
+    ///
+    /// A planted foot is the only honest witness here. It does not move - that is what planted
+    /// means - so every centimetre it travels between two frames is the leg cycle and the body
+    /// disagreeing about how fast the soldier is going. Averaged over a few seconds that drift
+    /// is the skate, in metres per second, and it is directly comparable to the walking speed
+    /// it is a fraction of.
+    ///
+    /// With --rate it also solves for the clip's own speed. Hold the cycle at rate 1, walk at a
+    /// known V, and the drift is V minus whatever the clip travels at, so the clip's speed is V
+    /// minus the drift. That is where WalkClipSpeed and RunClipSpeed came from.
+    /// </summary>
+    void Gait(float dt)
+    {
+        player.ForceRate = gaitRate;
+        player.SpeedOverride = gaitSpeed;
+
+        // Straight down the corridor at the asked-for speed, with nothing else running: no
+        // battle, no bots, no shooting. One soldier, one direction, one number.
+        var forward = new Vector3(Mathf.Cos(camYaw), 0f, Mathf.Sin(camYaw));
+        player.AimYaw = camYaw;
+        player.Step(dt, new Trooper.Order { Wish = forward });
+
+        gaitRan += dt;
+
+        // Measured from the position, not from the velocity. Velocity is what the body was
+        // asked for after MoveAndSlide had its say; distance over time is what it did.
+        if (gaitRan > 0.5f)
+        {
+            if (gaitFrom == null) gaitFrom = player.GlobalPosition;
+            gaitWent = gaitFrom.Value.DistanceTo(player.GlobalPosition);
+            gaitFor = gaitRan - 0.5f;
+        }
+
+        // The first half second is the body accelerating up to speed.
+        if (gaitRan > 0.5f)
+        {
+            gaitWidest = Mathf.Max(gaitWidest, player.FootSpread);
+            footSamples++;
+        }
+
+        if (gaitRan >= 4f)
+        {
+            float body = gaitFor > 0.1f ? gaitWent / gaitFor : 0f;
+
+            // The widest the feet ever get is the step length, and a body takes two steps per
+            // cycle - so the distance the clip is authored to carry it, per cycle, is twice
+            // that, and its speed is that over the cycle's own length. Measured at rate 1,
+            // where the clip is running exactly as it was authored.
+            double cycle = player.CycleLength;
+            float carried = cycle > 0.01 ? (float)(gaitWidest * 2.0 / cycle) : 0f;
+
+            float rate = player.CycleRate;
+            float covers = carried * rate;
+
+            GD.Print($"gait: asked {gaitSpeed:0.00}m/s  body {body:0.00}m/s"
+                   + $"  anim saw {player.LastAnimSpeed:0.00}m/s"
+                   + $"  clip {player.Cycle} ({cycle:0.000}s, stride {gaitWidest:0.00}m,"
+                   + $" authored for {carried:0.00}m/s)"
+                   + $"  played at {rate:0.00}x = {covers:0.00}m/s"
+                   + $"  -> skate {Mathf.Abs(covers - body):0.00}m/s"
+                   + $"  ({(body > 0.01f ? Mathf.Abs(covers - body) / body * 100f : 0f):0}%)");
+
+            GetTree().Quit();
+        }
     }
 
     /// <summary>

@@ -1787,13 +1787,25 @@ public static class MatchSelfTest
 
         // ---- carrying it home scores ----
         int before = m.Captures;
-        int scoreBefore = attacker.Score;
+
+        // What the MODE scores, not what the frag column says. This check used to read
+        // attacker.Score, and in doing so it was asserting the bug: a capture incremented the
+        // frag counter, the team win condition summed frag counters, and so a three-capture
+        // match ended on the third KILL - about four seconds into a forty-fighter game. The
+        // check passed throughout, because the thing it was testing was the thing that was
+        // wrong. A capture scores a capture.
+        int scoreBefore = m.ScoreOf(attacker);
+        int fragsBefore = attacker.Score;
+        int teamBefore = m.TeamScore(Match.TeamOf(attacker.Slot));
 
         attacker.GlobalPosition = red.Home;
         m.TickFlagsForTest(1f / 60f);
 
         Check(m.Captures == before + 1, "carrying their flag to your base is a capture");
-        Check(attacker.Score == scoreBefore + 1, "and it scores for the team");
+        Check(m.ScoreOf(attacker) == scoreBefore + 1, "and it scores for the team");
+        Check(m.TeamScore(Match.TeamOf(attacker.Slot)) == teamBefore + 1,
+              "and the team's total is what the mode plays to");
+        Check(attacker.Score == fragsBefore, "and a capture is not a frag");
         Check(blue.AtHome, "the captured flag goes back to its own base");
         Check(m.FlagCarriedBy(attacker) == null, "and the carrier is empty-handed again");
 

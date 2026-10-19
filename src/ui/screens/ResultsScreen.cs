@@ -73,7 +73,16 @@ public sealed class ResultsScreen : UiScreen
         float x = cx - w * 0.5f;
         float y = p.Size.Y * 0.36f;
 
-        bool rounds = settings.Mode == GameMode.Elimination;
+        // A column for whatever the mode actually scores, whenever that is not frags.
+        //
+        // This was Elimination only, and the omission was invisible until a Capture the Flag
+        // match ended and the scoreboard showed kills and deaths and no captures anywhere - the
+        // one number the match was played to, and the only one that explains the result, was
+        // the one you could not see. Juggernaut had the same hole. ScoreOf already knows what
+        // each mode counts; this just asks it.
+        bool modeScore = settings.Mode is GameMode.Elimination
+                                       or GameMode.Juggernaut
+                                       or GameMode.CaptureTheFlag;
 
         p.Text("PLAYER", x, y, 16, Pal.TextDim);
 
@@ -82,7 +91,8 @@ public sealed class ResultsScreen : UiScreen
         // not be listed as a Trooper because that is what they started out.
         p.Text("FIGHTING AS", x + 190f, y, 16, Pal.TextDim);
 
-        if (rounds) p.TextRight("ROUNDS", x + w - 270f, y, 16, Pal.TextDim);
+        if (modeScore)
+            p.TextRight(settings.Def.LimitNoun.ToUpperInvariant(), x + w - 270f, y, 16, Pal.TextDim);
 
         // Battle points earned, not the unspent balance. The balance rewards hoarding, and hoarding
         // is the one thing this economy should not be congratulating anyone for.
@@ -101,7 +111,8 @@ public sealed class ResultsScreen : UiScreen
 
             p.Text(wearing, x + 190f, y, 22, pawn.Crown != null ? pawn.Faction.Tint : Pal.Text);
 
-            if (rounds) p.TextRight(pawn.RoundsWon.ToString(), x + w - 270f, y, 24, Pal.Accent);
+            if (modeScore)
+                p.TextRight(match.ScoreOf(pawn).ToString(), x + w - 270f, y, 24, Pal.Accent);
 
             p.TextRight(pawn.PointsEarned.ToString(), x + w - 180f, y, 22, Pal.Ready);
             p.TextRight(pawn.Score.ToString(), x + w - 90f, y, 24, Pal.Text);

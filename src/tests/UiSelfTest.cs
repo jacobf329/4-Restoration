@@ -32,6 +32,11 @@ public static class UiSelfTest
 
         TestLog.Line("=== HitboxClone UI self-test ===");
 
+        // First, because it is the cheapest structural check in the suite and it guards the one
+        // path a player takes that nothing else here touches.
+        TestAMatchIsNotJudgedWhileItIsStillBeingBuilt();
+        TestTheStationIsMadeOfSomething();
+
         TestMenuNavigation();
         TestBackNeverDeadEnds();
         TestLobbyClaimAndReady();
@@ -58,7 +63,6 @@ public static class UiSelfTest
         TestEverySoundIsReachable();
         TestTheMix();
         TestTheMixerIsReachableWithAPad();
-        TestTheStationIsMadeOfSomething();
 
         TestLog.Line($"=== {checks - failures}/{checks} checks passed ===");
         if (failures > 0) TestLog.Fail($"{failures} check(s) FAILED");
@@ -162,6 +166,79 @@ public static class UiSelfTest
         {
             if (a == b) continue;
             Check(nav.Next(a, b) >= 0, $"post {a} can reach post {b}");
+        }
+    }
+
+    /// <summary>
+    /// A match that is still being built must not be scored, in any mode.
+    ///
+    /// This is the check that was missing, and the shape of what it missed is worth keeping.
+    /// Match.BuildStages adds the Match to the scene tree on its first line and then yields a
+    /// dozen times, so the loading screen can draw a frame between stages. Godot therefore
+    /// starts calling _PhysicsProcess on a Match whose arena, posts and pawns do not exist yet.
+    ///
+    /// Only Dominion fell over, and only on the path a player takes. Every other mode starts at
+    /// zero and climbs to a limit, so a half-built match reads as "nobody has scored" and is
+    /// harmless; Dominion starts at the limit and DRAINS, so an uninitialised Tickets array of
+    /// zeroes is indistinguishable from a side that has been wiped out. The match ended on its
+    /// first physics frame with no pawns to award it to, which is a draw - and what the player
+    /// saw was the map flash past and a DRAW scoreboard reading 0:00.
+    ///
+    /// Nothing caught it because Match.Build drains every stage in ONE call, so no frame ever
+    /// lands in the middle of it - and Build is what every test and every probe in this project
+    /// uses. Only LoadingScreen makes the build take more than one frame, and only a player
+    /// goes through LoadingScreen. Two and a half million simulation checks passed over it.
+    ///
+    /// So this drains the stages one at a time and asks the win condition between each, which
+    /// is precisely what a physics frame on the loading screen does.
+    /// </summary>
+    static void TestAMatchIsNotJudgedWhileItIsStillBeingBuilt()
+    {
+        TestLog.Line("- no mode is decided while it is still loading");
+
+        foreach (var def in Modes.All)
+        {
+            var settings = new MatchSettings { Mode = def.Mode, ArenaIndex = 0 };
+
+            var roster = new List<LobbySlot>();
+            for (int n = 0; n < 6; n++)
+                roster.Add(new LobbySlot { IsBot = n > 0, ClassIndex = n % 4, FactionIndex = n % 4 });
+
+            var m = new Match();
+
+            int stage = 0;
+            string decidedAt = "", claimedBuiltAt = "";
+
+            foreach (string what in m.BuildStages(app, settings, roster, visuals: false))
+            {
+                if (m.Built && claimedBuiltAt.Length == 0) claimedBuiltAt = what;
+
+                // A physics frame, which is exactly what lands here on the loading screen. This
+                // is the real path and it is the one that broke; asking CheckWin directly below
+                // only exercises the second guard, which would have passed either way.
+                m._PhysicsProcess(1.0 / 60.0);
+                m.CheckWinForTest();
+
+                if (m.Finished) { decidedAt = $"{what} (stage {stage})"; break; }
+                stage++;
+            }
+
+            Check(decidedAt.Length == 0, $"{def.Name} is not decided mid-build - got it at {decidedAt}");
+            Check(claimedBuiltAt.Length == 0,
+                  $"{def.Name} does not call itself built mid-build - did at {claimedBuiltAt}");
+
+            // The clock must not have run either, or a match arrives having already spent part
+            // of its time limit sitting on the loading screen.
+            Check(m.Elapsed < 0.001f, $"{def.Name} has not aged while loading ({m.Elapsed:0.000}s)");
+            Check(m.Built, $"{def.Name} reports itself built once every stage has run");
+
+            // And the invariant the whole thing turns on: a mode that counts down must never
+            // start a match holding zero of whatever it counts.
+            if (def.Mode == GameMode.Dominion)
+                Check(m.Tickets[0] > 0f && m.Tickets[1] > 0f,
+                      $"Dominion starts with reinforcements ({m.Tickets[0]:0}/{m.Tickets[1]:0})");
+
+            m.QueueFree();
         }
     }
 

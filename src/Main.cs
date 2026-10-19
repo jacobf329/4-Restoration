@@ -102,6 +102,14 @@ public partial class Main : Node
             if (args[i] == "--dress") { Dressing(); GetTree().Quit(); return; }
             if (args[i] == "--dominion") probeDominion = true;
 
+            // --play <mode> <arena> <seconds>: start a match the way a PLAYER does.
+            if (args[i] == "--play" && i + 1 < args.Length)
+            {
+                playMode = args[i + 1];
+                if (i + 2 < args.Length && !args[i + 2].StartsWith("--")) playArena = args[i + 2];
+                if (i + 3 < args.Length && !args[i + 3].StartsWith("--")) playFor = args[i + 3].ToFloat();
+            }
+
             if (args[i] == "--settings")
             {
                 foreach (var def in Modes.All)
@@ -159,6 +167,8 @@ public partial class Main : Node
         }
 
         if (probeDominion) { StartDominionProbe(); return; }
+
+        if (playMode != null) { StartPlay(); return; }
 
         Stack.Push(new TitleScreen(Settings, this));
 
@@ -282,6 +292,110 @@ public partial class Main : Node
     /// symptom. Reading produced two confident wrong answers; this runs the thing and reports
     /// whether the match is over before anybody has pressed anything.
     /// </summary>
+    // ---- --play: the player's path, which nothing else exercises ----
+
+    string? playMode;
+    string? playArena;
+    float playFor = 20f;
+    float playRan;
+    float playReport;
+    MatchScreen? playScreen;
+    bool playSaidDone;
+
+    /// <summary>
+    /// Start a match the way the menus do, and watch it.
+    ///
+    /// Every other harness in this project builds a Match directly - all two and a half million
+    /// simulation checks do - and a Match built directly is not the thing a player gets. The
+    /// player gets LobbyScreen handing four lobby slots to MatchScreen, which turns them into a
+    /// roster, which it hands to Match.BuildStages through LoadingScreen. That hop is the one
+    /// piece of the game with no coverage at all, and it is where "I press play and get an
+    /// instant draw" has been living while the suite reported everything green.
+    ///
+    /// So this goes through MatchScreen, with real lobby slots, and reports what the match does
+    /// frame by frame rather than asserting anything. A probe that prints is more use here than
+    /// a test that passes.
+    /// </summary>
+    void StartPlay()
+    {
+        var settings = new MatchSettings();
+
+        for (int m = 0; m < Modes.All.Length; m++)
+            if (Modes.All[m].Name.Replace(" ", "").ToLowerInvariant()
+                == playMode!.Replace(" ", "").ToLowerInvariant())
+                settings.Mode = Modes.All[m].Mode;
+
+        if (playArena != null)
+            for (int a = 0; a < Arena.Names.Length; a++)
+                if (Arena.Names[a].Replace(" ", "").ToLowerInvariant()
+                    == playArena.Replace(" ", "").ToLowerInvariant())
+                    settings.ArenaIndex = a;
+
+        // One claimed human on the first pad, which is what the lobby produces when somebody
+        // presses A once and then start.
+        var slots = new LobbySlot[LobbyScreen.MaxPlayers];
+        for (int i = 0; i < slots.Length; i++) slots[i] = new LobbySlot();
+
+        slots[0].DeviceId = Devices.Keyboards[0].Id;
+        slots[0].Ready = true;
+
+        GD.Print($"PLAY mode={settings.Def.Name} arena={settings.ArenaIndex}"
+               + $" ({(settings.ArenaIndex >= 0 ? Arena.Names[settings.ArenaIndex] : "random")})"
+               + $" limit={settings.ScoreLimit} time={settings.TimeLimitSeconds}"
+               + $" bots={settings.BotCount} claimed={slots[0].Claimed}");
+
+        playScreen = new MatchScreen(settings, slots, this);
+        Stack.Push(new LoadingScreen(playScreen));
+    }
+
+    void TickPlay(float dt)
+    {
+        Chrome.Tick(dt);
+        Devices.PollAll(dt);
+        Stack.Update(dt, Devices.All);
+        Ui.QueueRedraw();
+
+        playRan += dt;
+        playReport -= dt;
+
+        var m = playScreen?.Sim;
+
+        if (m == null)
+        {
+            if (playRan > 10f) { GD.Print("PLAY the match never finished loading"); GetTree().Quit(1); }
+            return;
+        }
+
+        if (m.Finished && !playSaidDone)
+        {
+            playSaidDone = true;
+
+            GD.Print($"PLAY FINISHED after {playRan:0.00}s of frames, match elapsed "
+                   + $"{m.Elapsed:0.00}s  winner={(m.Winner?.Name2 ?? "NOBODY - a draw")}"
+                   + $"  tickets={m.Tickets[0]:0}/{m.Tickets[1]:0}"
+                   + $"  posts={m.Posts.Count}  pawns={m.Pawns.Count}"
+                   + $"  timeRemaining={(m.TimeRemaining?.ToString("0.0") ?? "untimed")}");
+        }
+
+        if (playReport <= 0f)
+        {
+            playReport = 2f;
+
+            int blue = 0, orange = 0;
+            foreach (var post in m.Posts)
+            {
+                if (post.Owner == 0) blue++;
+                else if (post.Owner == 1) orange++;
+            }
+
+            GD.Print($"PLAY {playRan,5:0}s elapsed={m.Elapsed,6:0.0} finished={m.Finished,-5}"
+                   + $" tickets={m.Tickets[0],4:0}/{m.Tickets[1],-4:0} posts={blue}/{orange}"
+                   + $" of {m.Posts.Count} pawns={m.Pawns.Count} screen={Stack.Top?.Title}");
+        }
+
+        if (playRan >= playFor) { GD.Print("PLAY done"); GetTree().Quit(); }
+    }
+
     void StartDominionProbe()
     {
         var settings = new MatchSettings();
@@ -367,6 +481,8 @@ public partial class Main : Node
         if (selfTestRunning) return;
 
         if (probeDominion) { TickDominionProbe(); return; }
+
+        if (playMode != null) { TickPlay(dt); return; }
 
         if (perfRunning) { ProcessPerf(); return; }
 

@@ -147,6 +147,29 @@ public partial class Match : Node3D
     public MatchSettings Settings = new();
     public bool Visuals = true;
     public bool Finished { get; private set; }
+
+    /// <summary>
+    /// Whether every build stage has run. A match that is still being built is not a match.
+    ///
+    /// This exists because of the one bug that could not be caught by anything in the suite.
+    /// BuildStages adds the Match to the tree on its FIRST line and then yields a dozen times,
+    /// so that the loading screen can draw a frame between stages - which means Godot starts
+    /// calling _PhysicsProcess on a Match whose arena, posts and pawns do not exist yet. It
+    /// stepped, it scored itself, and it decided the match was over before it had begun.
+    ///
+    /// Only Dominion actually fell over, and the reason is worth keeping: it is the one mode
+    /// whose number counts DOWN. Every other mode starts at zero and climbs to a limit, so a
+    /// half-built match reads as "nobody has scored yet" and is harmless. Dominion starts at the
+    /// limit and drains, so a Tickets array that is still full of zeroes - because nothing has
+    /// initialised it - is indistinguishable from a side that has been wiped out. The match
+    /// ended on its first physics frame, with no pawns to award it to, which is a draw.
+    ///
+    /// And Build() - which every test and every probe in this project uses - drains all the
+    /// stages in a single call, so nothing ever ticks in the middle of it. The bug existed only
+    /// on the path a player takes, which is why two and a half million checks went green over
+    /// it. See MatchSelfTest.TestAMatchIsNotJudgedWhileItIsStillBeingBuilt.
+    /// </summary>
+    public bool Built { get; private set; }
     public Pawn? Winner { get; private set; }
     public float Elapsed { get; private set; }
 
@@ -306,10 +329,21 @@ public partial class Match : Node3D
             // brain, is the second-longest part of this.
             yield return $"Fielding {pawn.Name2}";
         }
+
+        // Last line, after everything the simulation needs exists. Nothing above here may be
+        // reordered below it.
+        Built = true;
     }
 
     public override void _PhysicsProcess(double delta)
     {
+        // Nothing runs until the build has finished. See Built.
+        //
+        // First line of the method on purpose: a half-built match must not advance its clock
+        // either, or the match a player finally gets handed has already spent a second of its
+        // time limit on the loading screen.
+        if (!Built) { Devices.ConsumeGameplayEdges(); return; }
+
         // A press made while paused or after the final whistle is dropped, not banked. Without
         // this the latch survives the pause and is spent on the frame play resumes, which is a
         // vehicle boarded by a button pressed a minute ago.
@@ -1841,7 +1875,8 @@ public partial class Match : Node3D
             prize.Carrier = null;
             SendFlagHome(prize);
 
-            pawn.Score++;
+            // The mode's own counter, not the frag column. A capture is not a kill.
+            pawn.FlagCaptures++;
             pawn.AwardPoints(BattlePoints.FlagCapture);
             Captures++;
 
@@ -5665,11 +5700,19 @@ public partial class Match : Node3D
 
     public static bool SameTeam(Pawn a, Pawn b) => TeamOf(a.Slot) == TeamOf(b.Slot);
 
-    /// <summary>Combined score of one team, which is what a team mode actually plays to.</summary>
+    /// <summary>
+    /// Combined score of one team, which is what a team mode actually plays to.
+    ///
+    /// Summed over ScoreOf rather than over Score, because those are not the same number in
+    /// every mode and the difference decides the match. Capture the Flag plays to captures and
+    /// Score counts frags, so summing Score ended a three-capture match on the third KILL -
+    /// roughly four seconds into a forty-fighter game. Asking the mode what it scores is the
+    /// whole point of ScoreOf existing.
+    /// </summary>
     public int TeamScore(int team)
     {
         int total = 0;
-        foreach (var p in Pawns) if (TeamOf(p.Slot) == team) total += p.Score;
+        foreach (var p in Pawns) if (TeamOf(p.Slot) == team) total += ScoreOf(p);
         return total;
     }
 
@@ -5743,6 +5786,12 @@ public partial class Match : Node3D
         // target either of them is chasing.
         if (Settings.Mode == GameMode.Dominion)
         {
+            // No posts means this has been asked before SetupDominion ran, and a mode that
+            // counts down cannot tell "not started yet" from "wiped out" by looking at its own
+            // score. The Built guard in _PhysicsProcess should mean this is never reached; it
+            // is here because the cost of being wrong about that is the whole match.
+            if (Posts.Count == 0) return;
+
             for (int team = 0; team < 2; team++)
             {
                 if (Tickets[team] > 0f) continue;
@@ -5829,6 +5878,9 @@ public partial class Match : Node3D
 
         // Only kills made while wearing the crown. An ordinary frag moves nothing.
         GameMode.Juggernaut => p.CrownKills,
+
+        // Flags brought home. A frag moves nothing here either.
+        GameMode.CaptureTheFlag => p.FlagCaptures,
 
         _ => p.Score,
     };

@@ -581,6 +581,17 @@ public partial class Pawn : CharacterBody3D
     public int CrownKills;
 
     /// <summary>
+    /// Flags carried home. What Capture the Flag actually scores.
+    ///
+    /// Separate from <see cref="Score"/> for exactly the reason <see cref="RoundsWon"/> is, and
+    /// it is the same bug twice: Score counts frags, so a mode that plays to three CAPTURES but
+    /// reads Score ends the moment a team has three KILLS. On a forty-fighter map that is about
+    /// four seconds. Elimination was caught; this was not, because nothing ever played a match
+    /// of it from the menus and watched the clock.
+    /// </summary>
+    public int FlagCaptures;
+
+    /// <summary>
     /// Take the crown, at full strength.
     ///
     /// Health is scaled rather than added to, and set to the new maximum: taking the crown is a

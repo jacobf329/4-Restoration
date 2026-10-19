@@ -5304,10 +5304,13 @@ public static class MatchSelfTest
         // A team mode is won on the combined score, so the individual totals have to add up to it.
         if (settings.Def.Teams)
         {
+            // Summed the way TeamScore sums, which is over whatever the MODE scores. Comparing
+            // a total of frags against a total of captures would fail honestly in CTF and tell
+            // nobody anything.
             int sum = 0;
-            foreach (var pawn in current.Pawns) sum += pawn.Score;
+            foreach (var pawn in current.Pawns) sum += current.ScoreOf(pawn);
             Check(sum == current.TeamScore(0) + current.TeamScore(1),
-                  $"{tag}: team scores account for every frag");
+                  $"{tag}: team scores account for every point scored");
         }
 
         // Deliberately a printed number, not an assertion.

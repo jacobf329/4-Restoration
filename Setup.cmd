@@ -222,15 +222,37 @@ REM ---------------------------------------------------------------------------
 set "ICON="
 if defined GODOT_EXE if /i "!GODOT_EXE:~-4!"==".exe" set "ICON=!GODOT_EXE!"
 
-set "LNK=%USERPROFILE%\Desktop\HitboxClone.lnk"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $lnk = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\HitboxClone.lnk'); $lnk.TargetPath = $env:PROJ + '\Play.cmd'; $lnk.WorkingDirectory = $env:PROJ; $lnk.Description = 'HitboxClone - build and play'; if ($env:ICON) { $lnk.IconLocation = $env:ICON + ',0' }; $lnk.Save()"
+REM ---------------------------------------------------------------------------
+REM Named after the GAMES, not after the repository.
+REM
+REM There are two games in this folder and the three icons used to be called
+REM "HitboxClone", "Battlefront" and "Update HitboxClone" - which named one game after
+REM the project, the other after itself, and the updater after whichever of the two you
+REM assumed HitboxClone meant. Asked to run the update before playing Battlefront, the
+REM obvious reading of that Desktop is that the only update on it belongs to the other
+REM game and the one for this game is missing. That is exactly how it was read.
+REM
+REM One updater serves both, because it updates the FOLDER. So it says so.
+REM
+REM The old names are deleted first. Renaming without deleting leaves the previous
+REM icons sitting beside the new ones, pointing at the same scripts, which is a worse
+REM Desktop than the one being fixed.
+REM ---------------------------------------------------------------------------
+for /f "delims=" %%D in ('powershell -NoProfile -Command "[Environment]::GetFolderPath('Desktop')" 2^>nul') do set "DESK=%%D"
+if not defined DESK set "DESK=%USERPROFILE%\Desktop"
+
+del "!DESK!\HitboxClone.lnk" >nul 2>&1
+del "!DESK!\Update HitboxClone.lnk" >nul 2>&1
+
+set "LNK=%USERPROFILE%\Desktop\4 Restoration.lnk"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $lnk = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\4 Restoration.lnk'); $lnk.TargetPath = $env:PROJ + '\Play.cmd'; $lnk.WorkingDirectory = $env:PROJ; $lnk.Description = '4 Restoration - the arena shooter'; if ($env:ICON) { $lnk.IconLocation = $env:ICON + ',0' }; $lnk.Save()"
 
 REM Checked by looking for the file rather than by errorlevel: the COM Save() reports
 REM success through the object, so a PowerShell that failed to write anything can still
 REM exit 0 and leave you with no shortcut and no complaint. OneDrive also relocates the
 REM Desktop, which is why the path is asked for rather than assumed - and why the
 REM USERPROFILE fallback below is only a fallback.
-if not exist "!LNK!" for /f "delims=" %%D in ('powershell -NoProfile -Command "[Environment]::GetFolderPath('Desktop')" 2^>nul') do set "LNK=%%D\HitboxClone.lnk"
+if not exist "!LNK!" set "LNK=!DESK!\4 Restoration.lnk"
 
 REM A second shortcut for updating.
 REM
@@ -239,8 +261,8 @@ REM played: the folder is opened once, at setup, and never again - everything af
 REM happens from the Desktop icon. An update script nobody can see is an update script
 REM nobody runs, and a clone that never pulls launches a months-old game perfectly
 REM happily and says nothing about it.
-set "ULNK=%USERPROFILE%\Desktop\Update HitboxClone.lnk"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $lnk = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\Update HitboxClone.lnk'); $lnk.TargetPath = $env:PROJ + '\Update.cmd'; $lnk.WorkingDirectory = $env:PROJ; $lnk.Description = 'HitboxClone - fetch the latest version'; if ($env:ICON) { $lnk.IconLocation = $env:ICON + ',0' }; $lnk.Save()"
+set "ULNK=%USERPROFILE%\Desktop\Update both games.lnk"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $lnk = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\Update both games.lnk'); $lnk.TargetPath = $env:PROJ + '\Update.cmd'; $lnk.WorkingDirectory = $env:PROJ; $lnk.Description = 'Fetch the latest version of both games. Both launchers also do this on their own.'; if ($env:ICON) { $lnk.IconLocation = $env:ICON + ',0' }; $lnk.Save()"
 
 REM A third shortcut, for the Battlefront clone.
 REM
@@ -253,9 +275,13 @@ set "BLNK=%USERPROFILE%\Desktop\Battlefront.lnk"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $lnk = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\Battlefront.lnk'); $lnk.TargetPath = $env:PROJ + '\Battlefront.cmd'; $lnk.WorkingDirectory = $env:PROJ; $lnk.Description = 'Battlefront - the battle station'; if ($env:ICON) { $lnk.IconLocation = $env:ICON + ',0' }; $lnk.Save()"
 
 if exist "!LNK!" (
-  echo   Desktop shortcut created: HitboxClone
-  echo   Desktop shortcut created: Battlefront
-  echo   Desktop shortcut created: Update HitboxClone
+  REM No parentheses in these lines, escaped or otherwise. They sit inside a
+  REM parenthesised if/else, batch parses that whole block before running any of it,
+  REM and an escape that survives at the top level is not guaranteed to survive in
+  REM here. This file has already lost a day to one mis-escaped character.
+  echo   Desktop shortcut created: 4 Restoration     - the arena shooter
+  echo   Desktop shortcut created: Battlefront       - the battle station
+  echo   Desktop shortcut created: Update both games - optional, both launchers self-update
   echo.
 ) else (
   echo   Could not create the Desktop shortcut. Right-drag Play.cmd

@@ -126,13 +126,56 @@ exit /b 1
 
 
 
+REM ---------------------------------------------------------------------------
+REM This step must never go silent, and must never wait forever.
+REM
+REM It was reported as "stuck on contacting GitHub", and the honest answer is that
+REM there was no way to tell whether it was stuck. The fetch ran --quiet, which turns
+REM off the progress meter, so the entire operation was one line of text followed by
+REM nothing at all - for however long it took. A fetch that is working and a fetch
+REM that has hung looked exactly alike, and the only move available to somebody
+REM watching it was to give up and close the window.
+REM
+REM So: show the progress, and put a bound on it.
+REM
+REM --progress rather than --quiet. Git writes the meter to stderr and suppresses it
+REM when it is not talking to a terminal, which is why it has to be asked for. An
+REM incremental update here is six or seven megabytes; the repository as a whole is
+REM six hundred, so a fresh one is a different proposition entirely and the difference
+REM should be visible rather than guessed at.
+REM
+REM   GIT_HTTP_LOW_SPEED_*  give up on a transfer sitting under 1 KB/s for a minute.
+REM                         Git's own timeout. Tolerant on purpose: the server pauses
+REM                         while it counts objects on a repository this size, and
+REM                         aborting during that would turn a slow update into a
+REM                         broken one.
+REM   GIT_TERMINAL_PROMPT   no username/password prompt. This repository is public and
+REM   GCM_INTERACTIVE       needs no sign-in, so neither of these should ever fire -
+REM                         they are here because the one failure mode worse than not
+REM                         updating is a credential dialog opening behind the console
+REM                         window and waiting all day for an answer nobody can see.
+REM
+REM A stored credential that works is unaffected: the helper is consulted before any
+REM of this applies. These only bite on the paths that would otherwise wait.
+REM ---------------------------------------------------------------------------
+set "GIT_TERMINAL_PROMPT=0"
+set "GCM_INTERACTIVE=never"
+set "GIT_HTTP_LOW_SPEED_LIMIT=1000"
+set "GIT_HTTP_LOW_SPEED_TIME=60"
+
 echo Contacting GitHub...
-%GIT% fetch origin --prune --quiet
+echo   ^(about 6 MB for an update. It gives up if nothing moves for a minute.^)
+%GIT% fetch origin --prune --progress
 if not errorlevel 1 goto :fetched
 if defined AUTO echo   [update skipped] could not reach GitHub - playing the copy in this folder.
 if defined AUTO exit /b 0
 echo.
-echo   Could not reach GitHub. Check the network and try again.
+echo   Could not reach GitHub, so nothing was updated. The copy in this folder
+echo   still plays - this only means it may not be the newest one.
+echo.
+echo   The usual cause is a GitHub sign-in that has expired. To fix it, run:
+echo     git -C "%PROJ%" fetch origin
+echo   in a terminal, where it is allowed to ask you to sign in.
 echo.
 pause
 exit /b 1
